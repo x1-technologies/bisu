@@ -1,4 +1,6 @@
 ######################## BISU_START: Bash Internal Simple Utils | Version: v1.1.0 ########################
+# Recommended PATH: /usr/local/sbin/bisu.bash
+
 # Set PS4 to include the script name and line number
 trap "wait" SIGCHLD
 trap "cleanup" EXIT INT TERM HUP
@@ -8,6 +10,11 @@ export PS4='+${BASH_SOURCE}:${LINENO}: '
 SUBPROCESSES_PIDS=()
 # Required external commands list
 REQUIRED_EXTERNAL_COMMANDS=()
+
+# Universal function to trim whitespace
+trim() {
+    echo "$1" | xargs
+}
 
 # Check string start with
 string_starts_with() {
@@ -19,6 +26,29 @@ string_starts_with() {
     fi
 
     return 0
+}
+
+# Universal function to validate IP address
+validate_ip() {
+    local ip=$(trim "$1")
+    if [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        local IFS=.
+        read -r i1 i2 i3 i4 <<< "$ip"
+        if [[ $i1 -le 255 && $i2 -le 255 && $i3 -le 255 && $i4 -le 255 ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Universal function to validate port number
+validate_port() {
+    local port=$(trim "$1")
+    if [[ $port =~ ^[0-9]+$ ]] && (( port >= 0 && port <= 65535 )); then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # mkdir_p
