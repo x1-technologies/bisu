@@ -82,32 +82,40 @@ string_end_with() {
 # Returns: None (logs message to file).
 log_message() {
     local msg="$1"
+    local stderr_flag="${2:-false}"  # Default is false if not provided
     local log_file="$LOG_FILE"
     local log_dir=$(dirname "$log_file")
 
     # Ensure the log directory exists
     mkdir -p "$log_dir" || {
-        echo -e "Failed to create log directory: $log_dir"
+        echo -e "Failed to create log directory: $log_dir" >&2
         exit 1
     }
 
     # Create the log file if it doesn't exist
     if [[ ! -f "$log_file" ]]; then
         touch "$log_file" || {
-            echo -e "Failed to create log file $log_file"
+            echo -e "Failed to create log file $log_file" >&2
             exit 1
         }
     fi
 
-    # Log the message with a timestamp
-    echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file"
+    # Log the message with a timestamp to the log file and optionally to stderr
+    if [[ "$stderr_flag" == "true" ]]; then
+        # Log to both log file and stderr
+        echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file" >&2
+    else
+        # Log to the log file only
+        echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file" >/dev/null
+    fi
+
     return 0
 }
 
 # Function to handle errors
 error_exit() {
     local msg=$(trim "$1")
-    log_message "Error: $msg"
+    log_message "Error: $msg" "true"
     exit 1
 }
 
