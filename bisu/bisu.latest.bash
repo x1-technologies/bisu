@@ -1,4 +1,4 @@
-######################## BISU_START: Bash Internal Simple Utils | Version: v2.0.0 ########################
+######################## BISU_START: Bash Internal Simple Utils | Version: v2.0.1 ########################
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 
@@ -8,7 +8,7 @@ trap "cleanup" EXIT INT TERM HUP
 export PS4='+${BASH_SOURCE}:${LINENO}: '
 
 # Define BISU VERSION
-export BISU_VERSION="2.0.0"
+export BISU_VERSION="2.0.1"
 
 # Subprocesses pids to cleanup
 SUBPROCESSES_PIDS=()
@@ -423,7 +423,7 @@ is_valid_version() {
 }
 
 # Universal function to validate IP address
-is_validate_ip() {
+is_valid_ip() {
     local ip=$(trim "$1")
     if [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
         local IFS=.
@@ -436,7 +436,7 @@ is_validate_ip() {
 }
 
 # Universal function to validate port number
-is_validate_port() {
+is_valid_port() {
     local port=$(trim "$1")
     if [[ $port =~ ^[0-9]+$ ]] && ((port >= 0 && port <= 65535)); then
         return 0
@@ -492,7 +492,7 @@ current_lock_file() {
         lock_file_dir=$(substr "$lock_file_dir" -1)
     fi
     LOCK_FILE_DIR="$lock_file_dir"
-    log_message "Current lock file: $lock_file_dir/$(md5_sign "$(current_file)").lock"
+    echo "$lock_file_dir/$(md5_sign "$(current_file)").lock"
 }
 
 # Function to acquire a lock to prevent multiple instances
@@ -502,20 +502,17 @@ acquire_lock() {
     if ! flock -n 200; then
         error_exit "Another instance is running."
     fi
-    log_message "Lock acquired."
 }
 
 # Function to release the lock
 release_lock() {
     local lock_file=$(current_lock_file)
-    [[ -z "$lock_file" || ! -f "$lock_file" ]] && return 1
-    flock -u 200 && rm -f "$lock_file" && log_message "Lock released and removed."
+    ! is_file "$lock_file" && return 1
+    flock -u 200 && rm -f "$lock_file"
 }
 
 # Trap function to handle script termination
 cleanup() {
-    log_message "Script terminated. Cleaning up."
-
     for pid in "${SUBPROCESSES_PIDS[@]}"; do
         kill -SIGTERM "$pid" 2>/dev/null
     done
@@ -524,17 +521,39 @@ cleanup() {
     exit 0
 }
 
+# Function to dynamically call internal functions
+call_func() {
+    local func_name="$1"
+    shift  # Remove the function name from the parameter list
+    if declare -f "$func_name" > /dev/null; then
+        "$func_name" "$@"  # Call the function with the remaining parameters
+    else
+        log_message "Error: Function '$func_name' not found."
+    fi
+}
+
 # Confirm to install BISU
-confirm_to_install_bisu() { 
-    [[ "$(strtolower "$(trim "$1")")" == "bisu_install" ]] && read -p "Are you sure to install BISU? (Y/n): " c && c="${c:-y}" && [[ "$c" =~ ^[Yy]$ ]] && move_bisu || echo "Cancelled"; 
+confirm_to_install_bisu() {
+    local arg
+    # Trim and convert input to lowercase
+    arg=$(strtolower "$(trim "$1")")
+    
+    # Only proceed if the input matches "bisu_install"
+    if [[ "$arg" == "bisu_install" ]]; then
+        read -p "Are you sure to install BISU? (Y/n): " c
+        c="${c:-y}"  # Default to 'y' if input is empty
+        if [[ "$c" =~ ^[Yy]$ ]]; then
+            move_bisu
+        fi
+    fi
 }
 
 # bisu autorun function
 bisu_main() {
     is_root_user || LOG_FILE="$USER_LOG_FILE"
     array_merge BISU_REQUIRED_EXTERNAL_COMMANDS REQUIRED_EXTERNAL_COMMANDS REQUIRED_EXTERNAL_COMMANDS
-    confirm_to_install_bisu
+    confirm_to_install_bisu "$1"
 }
 
-bisu_main
+bisu_main "$@"
 ################################################ BISU_END ################################################
