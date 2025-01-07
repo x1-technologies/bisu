@@ -16,10 +16,12 @@ SUBPROCESSES_PIDS=()
 BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk')
 REQUIRED_EXTERNAL_COMMANDS=()
 # Global Variables
-LOCK_FILE_DIR="/var/run"
-ROOT_LOG_FILE="/var/log/bisu.log"             # Root Log file location
-USER_LOG_FILE="$HOME/.local/var/log/bisu.log" # User Log file location
-LOG_FILE="$ROOT_LOG_FILE"
+ROOT_LOCK_FILE_DIR="/var/run"
+USER_LOCK_FILE_DIR="$HOME/.local/var/run"
+LOCK_FILE_DIR=""
+ROOT_LOG_FILE_DIR="/var/log"             # Root Log file location
+USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file location
+LOG_FILE=""
 BISU_TARGET_PATH="/usr/local/sbin/bisu.bash" # Default target path for moving scripts
 REQUIRED_BASH_VERSION="5.0.0"                # Minimum required Bash version (configurable)
 
@@ -58,11 +60,22 @@ md5_sign() {
     echo -n "$1" | md5sum | awk '{print $1}'
 }
 
+# Function: current_dirname
+# Description: According to its naming
+current_dirname() {
+    local filepath=$(trim "$1")
+    if [[ -z "$filepath" || ! -e "$filepath" || ( ! -d "$filepath" && ! -f "$filepath" ) ]]; then
+        echo ""
+    else
+        echo $(basename "$(dirname $filepath)")
+    fi
+}
+
 # Check string start with
 string_starts_with() {
     local input_string=$1
     local start_string=$2
-
+    
     if [[ -z "$input_string" || -n "$start_string" && "$input_string" != "$start_string"* ]]; then
         return 1
     fi
@@ -72,7 +85,74 @@ string_starts_with() {
 
 # Check string end with
 string_end_with() {
-  [[ "${1: -${#2}}" == "$2" ]]
+    [[ "${1: -${#2}}" == "$2" ]]
+}
+
+# Check if the current user is root (UID 0)
+is_root_user() {
+    if [ "$(id -u)" != 0 ]; then
+        return 1
+    fi
+    return 0
+}
+
+# Function: is_valid_date
+# Description: According to its naming
+is_valid_date() {
+    local date_str=$(trim "$1")
+
+    # Check if the date matches any valid format using regular expressions
+    if [[ "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$ || 
+          "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})$ || 
+          "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ (AM|PM)$ || 
+          "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ [APap][Mm]$ ]]; then
+        return 0  # Valid date
+    else
+        return 1  # Invalid date
+    fi
+}
+
+# The current log file
+current_log_file() {
+    local log_file_dir="$LOG_FILE_DIR"
+    local log_file=""
+    local filename=$(basename "$(current_file)")
+    local current_dirname=""
+    
+    # Check if log file directory is valid, otherwise set based on user privileges
+    if ! [[ -n "$log_file_dir" && -e "$log_file_dir" && -d "$log_file_dir" ]]; then
+        log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
+    fi
+
+    # Default to $HOME if no valid directory found
+    log_file_dir="${log_file_dir:-$HOME/.local/var/run}"
+
+    # Remove trailing slash if exists
+    [[ "$log_file_dir" =~ /$ ]] && log_file_dir="${log_file_dir%/}"
+
+    # Construct log file directory with current date
+    log_file_dir="$log_file_dir/$filename/$(date +'%Y-%m-%d')"
+
+    # Create directory if it doesn't exist
+    if [[ ! -d "$log_file_dir" ]]; then
+        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || { echo "Error: Failed to create or set permissions for $log_file_dir" >&2; exit 1; }
+    fi
+
+    # Ensure correct directory structure, updating if necessary
+    [[ "$(current_dirname "$log_file_dir")" != "$(date +'%Y-%m-%d')" ]] && log_file_dir="$log_file_dir/$filename/$(date +'%Y-%m-%d')"
+
+    # Final checks and log file creation
+    LOG_FILE_DIR="$log_file_dir"
+    log_file="$log_file_dir/$filename.log"
+    
+    touch "$log_file" || { echo "Error: Failed to create log file $log_file" >&2; exit 1; }
+    
+    # Validate log file creation
+    if ! [[ -e "$log_file" && -f "$log_file" ]]; then
+        echo "Error: Log file $log_file creation failed" >&2; exit 1;
+    fi
+
+    echo "$log_file"
 }
 
 # Function: log_message
@@ -83,7 +163,7 @@ string_end_with() {
 log_message() {
     local msg="$1"
     local stderr_flag="${2:-false}"  # Default is false if not provided
-    local log_file="$LOG_FILE"
+    local log_file="$(current_log_file)"
     local log_dir=$(dirname "$log_file")
 
     # Ensure the log directory exists
@@ -117,14 +197,6 @@ error_exit() {
     local msg=$(trim "$1")
     log_message "Error: $msg" "true"
     exit 1
-}
-
-# Check if the current user is root (UID 0)
-is_root_user() {
-    if [ "$(id -u)" != 0 ]; then
-        return 1
-    fi
-    return 0
 }
 
 # Function: add_env_path
@@ -493,14 +565,32 @@ check_commands_existence() {
 # The current file's run lock by signed md5 of full path
 current_lock_file() {
     local lock_file_dir="$LOCK_FILE_DIR"
+    local lock_file=""
     if ! is_dir "$lock_file_dir" ; then
-        lock_file_dir="/var/run"
+        if is_root_user ; then
+            lock_file_dir="$ROOT_LOCK_FILE_DIR"
+        else
+            lock_file_dir="$USER_LOCK_FILE_DIR"
+        fi
     fi
+
+    if ! is_dir "$lock_file_dir" ; then
+        lock_file_dir="$HOME/.local/var/run"
+        touch_dir "$lock_file_dir"
+    fi
+
+    if ! is_dir "$lock_file_dir" ; then
+        error_exit "Lock file creation failed."
+    fi
+
     if string_end_with "$lock_file_dir" "/" ; then
         lock_file_dir=$(substr "$lock_file_dir" -1)
     fi
+
     LOCK_FILE_DIR="$lock_file_dir"
-    echo "$lock_file_dir/$(md5_sign "$(current_file)").lock"
+    lock_file="$lock_file_dir/$(md5_sign "$(current_file)").lock"
+    
+    echo "$lock_file"
 }
 
 # Function to acquire a lock to prevent multiple instances
@@ -508,7 +598,7 @@ acquire_lock() {
     local lock_file=$(current_lock_file)
     [[ -n "$lock_file" ]] && exec 200>"$lock_file"
     if ! flock -n 200; then
-        error_exit "Another instance is running."
+        error_exit "An instance is running: $(current_lock_file)"
     fi
 }
 
@@ -558,7 +648,6 @@ confirm_to_install_bisu() {
 
 # bisu autorun function
 bisu_main() {
-    is_root_user || LOG_FILE="$USER_LOG_FILE"
     array_merge BISU_REQUIRED_EXTERNAL_COMMANDS REQUIRED_EXTERNAL_COMMANDS REQUIRED_EXTERNAL_COMMANDS
     confirm_to_install_bisu "$1"
 }
