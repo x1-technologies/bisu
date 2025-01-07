@@ -1,4 +1,4 @@
-######################## BISU_START: Bash Internal Simple Utils | Version: v2.0.1 ########################
+######################## BISU_START: Bash Internal Simple Utils | Version: v2.1.0 ########################
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 
@@ -8,7 +8,13 @@ trap "cleanup" EXIT INT TERM HUP
 export PS4='+${BASH_SOURCE}:${LINENO}: '
 
 # Define BISU VERSION
-export BISU_VERSION="2.0.1"
+export BISU_VERSION="2.1.0"
+# BISU path
+export BISU_FILE_PATH="${BASH_SOURCE[0]}"
+# The current file path
+export CURRENT_FILE_PATH="${BASH_SOURCE[1]}"
+# Required files
+export REQUIRED_SCRIPT_FILES=()
 
 # Subprocesses pids to cleanup
 SUBPROCESSES_PIDS=()
@@ -30,10 +36,19 @@ trim() {
     echo "$1" | awk '{$1=$1}1'
 }
 
+# BISU file path
+bisu_file() {
+    echo "$BISU_FILE_PATH"
+}
+
 # Function: current_file
 # Description: According to its naming
 current_file() {
-    echo "${BASH_SOURCE[0]}"
+    local current_file_path=$(trim "$1")
+    if [[ -n "$current_file_path" ]]; then
+        CURRENT_FILE_PATH="$current_file_path"
+    fi
+    echo "$CURRENT_FILE_PATH"
 }
 
 # Function: strtolower
@@ -51,7 +66,7 @@ strtoupper() {
 # Function: substr
 # Description: According to its naming
 substr() {
-  echo "${1:$(($2<0?${#1}+$2:$2)):$3}"
+    echo "${1:$(($2<0?${#1}+$2:$2)):$3}"
 }
 
 # Function: md5_sign
@@ -118,7 +133,7 @@ current_log_file() {
     local log_file=""
     local filename=$(basename "$(current_file)")
     local current_dirname=""
-    
+
     # Check if log file directory is valid, otherwise set based on user privileges
     if ! [[ -n "$log_file_dir" && -e "$log_file_dir" && -d "$log_file_dir" ]]; then
         log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
@@ -130,26 +145,24 @@ current_log_file() {
     # Remove trailing slash if exists
     [[ "$log_file_dir" =~ /$ ]] && log_file_dir="${log_file_dir%/}"
 
-    # Construct log file directory with current date
-    log_file_dir="$log_file_dir/$filename/$(date +'%Y-%m-%d')"
+    # Construct log file directory with current date, ensuring it's only appended once
+    log_file_dir="$log_file_dir/$filename"
+    log_file_dir="$log_file_dir/$(date +'%Y-%m')"
 
     # Create directory if it doesn't exist
     if [[ ! -d "$log_file_dir" ]]; then
-        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || { echo "Error: Failed to create or set permissions for $log_file_dir" >&2; exit 1; }
+        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || { echo -e "Error: Failed to create or set permissions for $log_file_dir" >&2; exit 1; }
     fi
-
-    # Ensure correct directory structure, updating if necessary
-    [[ "$(current_dirname "$log_file_dir")" != "$(date +'%Y-%m-%d')" ]] && log_file_dir="$log_file_dir/$filename/$(date +'%Y-%m-%d')"
 
     # Final checks and log file creation
     LOG_FILE_DIR="$log_file_dir"
     log_file="$log_file_dir/$filename.log"
     
-    touch "$log_file" || { echo "Error: Failed to create log file $log_file" >&2; exit 1; }
-    
+    touch "$log_file" || { echo -e "Error: Failed to create log file $log_file" >&2; exit 1; }
+
     # Validate log file creation
     if ! [[ -e "$log_file" && -f "$log_file" ]]; then
-        echo "Error: Log file $log_file creation failed" >&2; exit 1;
+        echo -e "Error: Log file $log_file creation failed" >&2; exit 1;
     fi
 
     echo "$log_file"
@@ -346,7 +359,11 @@ move_current_script() {
 
 # Function: move_bisu
 move_bisu() {
-    move_current_script "$BISU_TARGET_PATH"
+    local current_script=$(bisu_file)
+    local target_path=$(trim "$1")
+    
+    log_message "Moving BISU script to path: $target_path"
+    move_file "$current_script" "$target_path"
 }
 
 # Function: is_valid_version
@@ -450,6 +467,18 @@ array_merge() {
         [[ ! \${result[@]} =~ \"\$item\" ]] && result+=(\"\$item\")
     done"
     done
+}
+
+# Function: array_unique
+# Description: To remove duplicates from a global array
+array_unique() {
+    if [[ $# -ne 1 || -z "$1" ]]; then
+        log_message "Error: Requires exactly one argument (array name)."
+        return 1
+    fi
+
+    local array_name="$1"
+    eval "$array_name=($(echo \${$array_name[@]} | tr ' ' '\n' | sort -u | tr '\n' ' '))"
 }
 
 # Function: check_bash_version
@@ -630,6 +659,25 @@ call_func() {
     fi
 }
 
+# Add new element to pending to load script list, param 1 as the to load script file
+preload_script() {
+    local script=$(trim "$1")
+    if ! is_file "$script" ; then
+        error_exit "Failed to import script: $script"
+    fi
+    array_unique_push "REQUIRED_SCRIPT_FILES" "$script"
+}
+
+# Automatically import required scripts
+import_required_scripts() {
+    array_unique "REQUIRED_SCRIPT_FILES"
+    for script in "${REQUIRED_SCRIPT_FILES[@]}"; do
+        if is_file "$script"; then
+            source "$script" || { error_exit "Failed to import script: $script"; }
+        fi
+    done
+}
+
 # Confirm to install BISU
 confirm_to_install_bisu() {
     local arg
@@ -648,9 +696,16 @@ confirm_to_install_bisu() {
 
 # bisu autorun function
 bisu_main() {
-    array_merge BISU_REQUIRED_EXTERNAL_COMMANDS REQUIRED_EXTERNAL_COMMANDS REQUIRED_EXTERNAL_COMMANDS
-    confirm_to_install_bisu "$1"
-}
+    local action=$(trim "$1")
+    local param=$(trim "$2")
 
-bisu_main "$@"
+    case "$action" in
+        "bisu_install") confirm_to_install_bisu "$action" ;; 
+        "current_file_path") current_file "$param" ;;
+        *) ;; 
+    esac
+    
+    array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS"
+    import_required_scripts
+}
 ################################################ BISU_END ################################################
