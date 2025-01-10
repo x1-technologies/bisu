@@ -1,4 +1,4 @@
-######################## BISU_START: Bash Internal Simple Utils | Version: v2.1.0 ########################
+######################## BISU_START: Bash Internal Simple Utils | Version: v2.3.0 ########################
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 
@@ -8,18 +8,18 @@ trap "cleanup" EXIT INT TERM HUP
 export PS4='+${BASH_SOURCE}:${LINENO}: '
 
 # Define BISU VERSION
-export BISU_VERSION="2.1.0"
+export BISU_VERSION="2.3.0"
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # The current file path
-export CURRENT_FILE_PATH="${BASH_SOURCE[1]}"
+export CURRENT_FILE_PATH=""
 # Required files
 export REQUIRED_SCRIPT_FILES=()
 
 # Subprocesses pids to cleanup
 SUBPROCESSES_PIDS=()
 # Required external commands list
-BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk')
+BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'yq')
 REQUIRED_EXTERNAL_COMMANDS=()
 # Global Variables
 ROOT_LOCK_FILE_DIR="/var/run"
@@ -45,9 +45,19 @@ bisu_file() {
 # Description: According to its naming
 current_file() {
     local current_file_path=$(trim "$1")
+
+    if [[ -z "$CURRENT_FILE_PATH" ]]; then
+        CURRENT_FILE_PATH="${BASH_SOURCE[0]}"
+    fi
+
     if [[ -n "$current_file_path" ]]; then
+        if ! is_file "$current_file_path"; then
+            echo -e "Error: Invalid file path provided: $current_file_path" >&2
+            exit 1
+        fi
         CURRENT_FILE_PATH="$current_file_path"
     fi
+
     echo "$CURRENT_FILE_PATH"
 }
 
@@ -66,7 +76,7 @@ strtoupper() {
 # Function: substr
 # Description: According to its naming
 substr() {
-    echo "${1:$(($2<0?${#1}+$2:$2)):$3}"
+    echo "${1:$(($2 < 0 ? ${#1} + $2 : $2)):$3}"
 }
 
 # Function: md5_sign
@@ -79,7 +89,7 @@ md5_sign() {
 # Description: According to its naming
 current_dirname() {
     local filepath=$(trim "$1")
-    if [[ -z "$filepath" || ! -e "$filepath" || ( ! -d "$filepath" && ! -f "$filepath" ) ]]; then
+    if [[ -z "$filepath" || ! -e "$filepath" || (! -d "$filepath" && ! -f "$filepath") ]]; then
         echo ""
     else
         echo $(basename "$(dirname $filepath)")
@@ -90,7 +100,7 @@ current_dirname() {
 string_starts_with() {
     local input_string=$1
     local start_string=$2
-    
+
     if [[ -z "$input_string" || -n "$start_string" && "$input_string" != "$start_string"* ]]; then
         return 1
     fi
@@ -117,13 +127,13 @@ is_valid_date() {
     local date_str=$(trim "$1")
 
     # Check if the date matches any valid format using regular expressions
-    if [[ "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$ || 
-          "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})$ || 
-          "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ (AM|PM)$ || 
-          "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ [APap][Mm]$ ]]; then
-        return 0  # Valid date
+    if [[ "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$ ||
+        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})$ ||
+        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ (AM|PM)$ ||
+        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ [APap][Mm]$ ]]; then
+        return 0 # Valid date
     else
-        return 1  # Invalid date
+        return 1 # Invalid date
     fi
 }
 
@@ -151,18 +161,25 @@ current_log_file() {
 
     # Create directory if it doesn't exist
     if [[ ! -d "$log_file_dir" ]]; then
-        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || { echo -e "Error: Failed to create or set permissions for $log_file_dir" >&2; exit 1; }
+        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
+            echo -e "Error: Failed to create or set permissions for $log_file_dir" >&2
+            exit 1
+        }
     fi
 
     # Final checks and log file creation
     LOG_FILE_DIR="$log_file_dir"
     log_file="$log_file_dir/$filename.log"
-    
-    touch "$log_file" || { echo -e "Error: Failed to create log file $log_file" >&2; exit 1; }
+
+    touch "$log_file" || {
+        echo -e "Error: Failed to create log file $log_file" >&2
+        exit 1
+    }
 
     # Validate log file creation
     if ! [[ -e "$log_file" && -f "$log_file" ]]; then
-        echo -e "Error: Log file $log_file creation failed" >&2; exit 1;
+        echo -e "Error: Log file $log_file creation failed" >&2
+        exit 1
     fi
 
     echo "$log_file"
@@ -175,7 +192,7 @@ current_log_file() {
 # Returns: None (logs message to file).
 log_message() {
     local msg="$1"
-    local stderr_flag="${2:-false}"  # Default is false if not provided
+    local stderr_flag="${2:-true}"
     local log_file="$(current_log_file)"
     local log_dir=$(dirname "$log_file")
 
@@ -361,27 +378,9 @@ move_current_script() {
 move_bisu() {
     local current_script=$(bisu_file)
     local target_path=$(trim "$1")
-    
+
     log_message "Moving BISU script to path: $target_path"
     move_file "$current_script" "$target_path"
-}
-
-# Function: is_valid_version
-# Description: Validates a version number in formats vX.Y.Z, X.Y.Z, X.Y, or X/Y/Z.
-# Arguments:
-#   $1 - Version number to validate.
-# Returns: 0 if valid, 1 if invalid.
-is_valid_version() {
-    local version="$1"
-
-    # Check for version formats: v1.1.0, 1.1.0, 1.1, 1/2/3
-    if [[ "$version" =~ ^[v]?[0-9]+(\.[0-9]+)*(/[0-9]+)*$ ]]; then
-        log_message "Valid version format: $version"
-        return 0
-    else
-        log_message "Invalid version format detected: $version"
-        return 1
-    fi
 }
 
 # Function to add an element to a specified global array
@@ -481,11 +480,28 @@ array_unique() {
     eval "$array_name=($(echo \${$array_name[@]} | tr ' ' '\n' | sort -u | tr '\n' ' '))"
 }
 
+# Function: is_valid_version
+# Description: Validates a version number in formats vX.Y.Z, X.Y.Z, X.Y, or X/Y/Z.
+# Arguments:
+# $1 - Version number to validate.
+# Returns: 0 if valid, 1 if invalid.
+is_valid_version() {
+    local version="$1"
+
+    # Check for version formats
+    if [[ "$version" =~ ^[v]?[0-9]+(\.[0-9]+)*(/[0-9]+)*$ ]]; then
+        return 0
+    else
+        log_message "Invalid version format: $version"
+        return 1
+    fi
+}
+
 # Function: check_bash_version
 # Description: Verifies that the installed Bash version is greater than or equal to the specified required version.
 # Returns: 0 if Bash version is valid, 1 if not.
 check_bash_version() {
-    if ! is_valid_version "$REQUIRED_BASH_VERSION" ; then
+    if ! is_valid_version "$REQUIRED_BASH_VERSION"; then
         log_message "Illegal version number of required Bash"
         return 1
     fi
@@ -514,23 +530,6 @@ check_bash_version() {
     fi
 }
 
-# Function: is_valid_version
-# Description: Validates a version number in formats vX.Y.Z, X.Y.Z, X.Y, or X/Y/Z.
-# Arguments:
-# $1 - Version number to validate.
-# Returns: 0 if valid, 1 if invalid.
-is_valid_version() {
-    local version="$1"
-
-    # Check for version formats
-    if [[ "$version" =~ ^[v]?[0-9]+(\.[0-9]+)*(/[0-9]+)*$ ]]; then
-        return 0
-    else
-        log_message "Invalid version format: $version"
-        return 1
-    fi
-}
-
 # Universal function to validate IP address
 is_valid_ip() {
     local ip=$(trim "$1")
@@ -551,6 +550,65 @@ is_valid_port() {
         return 0
     fi
     return 1
+}
+
+# Function to convert YAML to JSON
+yaml_to_json() {
+    local yaml="$(trim "$1")"
+    if ! command -v yq &>/dev/null; then
+        echo "{}"
+        return
+    fi
+    yq -o json 2>/dev/null <<<"$yaml" || echo "{}"
+}
+
+# Private global variables to simulate associative array behavior
+declare -a _ASSOC_KEYS=()
+declare -a _ASSOC_VALUES=()
+
+# Convert plaintext YAML-like key:value pairs into global variables simulating an associative array
+yaml_to_array() {
+    local input
+    if [ $# -eq 0 ]; then
+        input=$(cat)
+    else
+        input="$(trim "$1")"
+    fi
+
+    _ASSOC_KEYS=()   # Clear existing keys
+    _ASSOC_VALUES=() # Clear existing values
+
+    while IFS=':' read -r key value; do
+        if [ -z "$key" ]; then
+            continue # Skip empty lines or keys
+        fi
+
+        key=$(echo "$key" | tr -d '"' | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+        value=$(echo "$value" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+
+        # Handle value types
+        case "$value" in
+        "true" | "false") ;;
+        [0-9]* | [0-9]*.[0-9]*) ;;
+        *) value="$(echo "$value" | awk '{gsub(/"/, ""); print}')" ;; # Escape double quotes within strings
+        esac
+
+        _ASSOC_KEYS+=("$key")
+        _ASSOC_VALUES+=("$value")
+    done <<<"$input"
+}
+
+# Function to access elements like an associative array using global variables
+arr_get_val() {
+    local search_key=$(trim "$1")
+    for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
+        if [ "${_ASSOC_KEYS[$i]}" = "$search_key" ]; then
+            echo "${_ASSOC_VALUES[$i]}"
+            return 0
+        fi
+    done
+    echo "" # Return empty string if key not found or array is empty
+    return 0
 }
 
 # Function to check existence of external commands
@@ -595,30 +653,30 @@ check_commands_existence() {
 current_lock_file() {
     local lock_file_dir="$LOCK_FILE_DIR"
     local lock_file=""
-    if ! is_dir "$lock_file_dir" ; then
-        if is_root_user ; then
+    if ! is_dir "$lock_file_dir"; then
+        if is_root_user; then
             lock_file_dir="$ROOT_LOCK_FILE_DIR"
         else
             lock_file_dir="$USER_LOCK_FILE_DIR"
         fi
     fi
 
-    if ! is_dir "$lock_file_dir" ; then
+    if ! is_dir "$lock_file_dir"; then
         lock_file_dir="$HOME/.local/var/run"
         touch_dir "$lock_file_dir"
     fi
 
-    if ! is_dir "$lock_file_dir" ; then
+    if ! is_dir "$lock_file_dir"; then
         error_exit "Lock file creation failed."
     fi
 
-    if string_end_with "$lock_file_dir" "/" ; then
+    if string_end_with "$lock_file_dir" "/"; then
         lock_file_dir=$(substr "$lock_file_dir" -1)
     fi
 
     LOCK_FILE_DIR="$lock_file_dir"
     lock_file="$lock_file_dir/$(md5_sign "$(current_file)").lock"
-    
+
     echo "$lock_file"
 }
 
@@ -643,7 +701,7 @@ cleanup() {
     for pid in "${SUBPROCESSES_PIDS[@]}"; do
         kill -SIGTERM "$pid" 2>/dev/null
     done
-    
+
     release_lock
     exit 0
 }
@@ -651,9 +709,9 @@ cleanup() {
 # Function to dynamically call internal functions
 call_func() {
     local func_name="$1"
-    shift  # Remove the function name from the parameter list
-    if declare -f "$func_name" > /dev/null; then
-        "$func_name" "$@"  # Call the function with the remaining parameters
+    shift # Remove the function name from the parameter list
+    if declare -f "$func_name" >/dev/null; then
+        "$func_name" "$@" # Call the function with the remaining parameters
     else
         log_message "Error: Function '$func_name' not found."
     fi
@@ -662,7 +720,7 @@ call_func() {
 # Add new element to pending to load script list, param 1 as the to load script file
 preload_script() {
     local script=$(trim "$1")
-    if ! is_file "$script" ; then
+    if ! is_file "$script"; then
         error_exit "Failed to import script: $script"
     fi
     array_unique_push "REQUIRED_SCRIPT_FILES" "$script"
@@ -683,11 +741,11 @@ confirm_to_install_bisu() {
     local arg
     # Trim and convert input to lowercase
     arg=$(strtolower "$(trim "$1")")
-    
+
     # Only proceed if the input matches "bisu_install"
     if [[ "$arg" == "bisu_install" ]]; then
         read -p "Are you sure to install BISU? (Y/n): " c
-        c="${c:-y}"  # Default to 'y' if input is empty
+        c="${c:-y}" # Default to 'y' if input is empty
         if [[ "$c" =~ ^[Yy]$ ]]; then
             move_bisu
         fi
@@ -700,11 +758,14 @@ bisu_main() {
     local param=$(trim "$2")
 
     case "$action" in
-        "bisu_install") confirm_to_install_bisu "$action" ;; 
-        "current_file_path") current_file "$param" ;;
-        *) ;; 
+    "bisu_install") confirm_to_install_bisu "$action" ;;
+    "current_file_path")
+        current_file "$param"
+        preload_script "$param"
+        ;;
+    *) ;;
     esac
-    
+
     array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS"
     import_required_scripts
 }
