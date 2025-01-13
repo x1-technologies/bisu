@@ -1,25 +1,27 @@
-######################## BISU_START: Bash Internal Simple Utils | Version: v2.3.0 ########################
+################################# BISU_START: Bash Internal Simple Utils #################################
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
+# Define BISU VERSION
+export BISU_VERSION="3.0.0"
 
 # Set PS4 to include the script name and line number
 trap "wait" SIGCHLD
 trap "cleanup" EXIT INT TERM HUP
 export PS4='+${BASH_SOURCE}:${LINENO}: '
 
-# Define BISU VERSION
-export BISU_VERSION="2.3.0"
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # The current file path
 export CURRENT_FILE_PATH=""
+# Default title
+export DEFAULT_TITLE="-bash"
 # Required files
 export REQUIRED_SCRIPT_FILES=()
 
 # Subprocesses pids to cleanup
 SUBPROCESSES_PIDS=()
 # Required external commands list
-BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'yq')
+BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'yq' 'xxd' 'bc')
 REQUIRED_EXTERNAL_COMMANDS=()
 # Global Variables
 ROOT_LOCK_FILE_DIR="/var/run"
@@ -236,7 +238,7 @@ add_env_path() {
 
     # Check if the argument is provided
     if [ -z "$new_path" ]; then
-        log_message "Error: No path provided to append."
+        log_message "No path provided to append."
         return 1
     fi
 
@@ -256,6 +258,11 @@ add_env_path() {
         fi
         export PATH
     fi
+}
+
+# Check if it's numeric
+is_numeric() {
+    [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] && return 0 || return 1
 }
 
 # Function: is_file
@@ -291,11 +298,11 @@ mkdir_p() {
 
     # Validate input directory name
     [[ -n "$dir" ]] || {
-        log_message "Error: No directory name provided."
+        log_message "No directory name provided."
         return 1
     }
     string_starts_with "$dir" "$start_string" || {
-        log_message "Error: No directory name provided."
+        log_message "No directory name provided."
         return 1
     }
 
@@ -305,11 +312,11 @@ mkdir_p() {
     # Check if the directory exists, if not, create it
     if [[ ! -d "$dir" ]]; then
         mkdir -p "$dir" || {
-            log_message "Error: Failed to create $dir_description"
+            log_message "Failed to create $dir_description"
             return 1
         }
         chmod -R 755 "$dir" || {
-            log_message "Error: Failed to change permissions for $dir_description"
+            log_message "Failed to change permissions for $dir_description"
             return 1
         }
     fi
@@ -393,13 +400,13 @@ array_unique_push() {
     case "$value_type" in
     INT)
         if ! [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
-            log_message "Error: Value must be an integer."
+            log_message "Value must be an integer."
             return 1
         fi
         ;;
     FLOAT)
         if ! [[ "$new_value" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
-            log_message "Error: Value must be a float."
+            log_message "Value must be a float."
             return 1
         fi
         ;;
@@ -407,14 +414,14 @@ array_unique_push() {
         # No specific validation for STRING
         ;;
     *)
-        log_message "Error: Invalid type specified. Use STRING, INT, or FLOAT."
+        log_message "Invalid type specified. Use STRING, INT, or FLOAT."
         return 1
         ;;
     esac
 
     # Ensure the global array exists
     if ! declare -p "$array_name" &>/dev/null; then
-        log_message "Error: Array $array_name does not exist."
+        log_message "Array $array_name does not exist."
         return 1
     fi
 
@@ -436,7 +443,7 @@ array_unique_push() {
 
     # Check if the value is already in the array
     if item_exists "$new_value" "${array[@]}"; then
-        log_message "Error: Item already exists in array."
+        log_message "Item already exists in array."
         return 1
     fi
 
@@ -451,7 +458,7 @@ array_unique_push() {
 # Description: Function to merge 2 global arrays
 array_merge() {
     if [[ $# -ne 3 || -z "$1" || -z "$2" || -z "$3" ]]; then
-        log_message "Error: Requires exactly three arguments (two array names and one result name)."
+        log_message "Requires exactly three arguments (two array names and one result name)."
         return 1
     fi
 
@@ -472,7 +479,7 @@ array_merge() {
 # Description: To remove duplicates from a global array
 array_unique() {
     if [[ $# -ne 1 || -z "$1" ]]; then
-        log_message "Error: Requires exactly one argument (array name)."
+        log_message "Requires exactly one argument (array name)."
         return 1
     fi
 
@@ -611,6 +618,97 @@ arr_get_val() {
     return 0
 }
 
+# To validate if a word is in a string
+word_exists() {
+    local word=$(trim "$1")
+    local string=$(trim "$2")
+    local match_whole_word=${3:-true}
+    [[ "${match_whole_word}" == "true" ]] && [[ " ${string:-} " =~ " $word " ]] || [[ "${string:-}" =~ "$word" ]]
+}
+
+# Generate a secure random UUIDv4 (128 bits)
+uuidv4() {
+    local uuidv4=""
+    # Use /dev/urandom to generate random data and format as hex
+    uuidv4=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | awk '{print tolower($0)}')
+    if [[ -z $(trim "$uuidv4") ]]; then
+        uuidv4=$(uuidgen | tr -d '-' | awk '{print tolower($0)}')
+    fi
+    echo "$uuidv4"
+}
+
+# Function to convert hex to string
+hex2str() {
+    local hex_string=$(trim "$1")
+    echo -n "$hex_string" | tr -d '[:space:]' | xxd -r -p || echo ""
+}
+
+# Function to convert string to hex
+str2hex() {
+    local input_string=$(trim "$1")
+    local having_space=${2:-true} # Having space as separator for standard hex
+    local result=""
+
+    result=$(echo -n "$input_string" | xxd -p | tr -d '[:space:]' || echo "")
+    if $having_space && [[ -n "$result" ]]; then
+        result=$(echo -n "$result" | awk '{ gsub(/(..)/, "& "); print }')
+    fi
+    echo "$result"
+}
+
+# Generate random string based on uuidv4
+random_string() {
+    local length="${1:-32}"
+    local type="${2:-MIXED}"
+    local max_length=1024
+
+    # Validate length
+    if ! [[ "$length" =~ ^[0-9]+$ ]] || ((length < 1)); then
+        echo ""
+        return
+    fi
+
+    # Ensure length does not exceed max_length
+    if ((length > max_length)); then
+        length=$max_length
+    fi
+
+    # Define character sets
+    local charset_letters="abcdefghijklmnopqrstuvwxyz"
+    local charset_numbers="0123456789"
+
+    # Determine the character set based on type
+    local charset
+    case "$type" in
+    LETTERS)
+        charset="$charset_letters"
+        ;;
+    NUMBERS)
+        charset="$charset_numbers"
+        ;;
+    MIXED)
+        charset="$charset_letters$charset_numbers"
+        ;;
+    *)
+        echo ""
+        return
+        ;;
+    esac
+
+    # Ensure the charset is large enough
+    if ((${#charset} < length)); then
+        echo ""
+        return
+    fi
+
+    # Shuffle the charset to randomize character order
+    local shuffled_charset
+    shuffled_charset=$(echo "$charset" | fold -w1 | shuf | tr -d '\n')
+
+    # Generate the random string without repeated characters
+    echo "$shuffled_charset" | head -c "$length" || echo ""
+}
+
 # Function to check existence of external commands
 check_commands_existence() {
     local commands=("${REQUIRED_EXTERNAL_COMMANDS[@]}")
@@ -713,8 +811,21 @@ call_func() {
     if declare -f "$func_name" >/dev/null; then
         "$func_name" "$@" # Call the function with the remaining parameters
     else
-        log_message "Error: Function '$func_name' not found."
+        log_message "Function '$func_name' not found."
     fi
+}
+
+# Function to set the terminal title
+set_title() {
+    local title=$(trim "$1")
+    if [[ -n "$title" ]]; then
+        echo -ne "\033]0;${title}\007"
+    fi
+}
+
+# Function to revert the terminal title
+revert_title() {
+    set_title "$DEFAULT_TITLE"
 }
 
 # Add new element to pending to load script list, param 1 as the to load script file
@@ -759,14 +870,11 @@ bisu_main() {
 
     case "$action" in
     "bisu_install") confirm_to_install_bisu "$action" ;;
-    "current_file_path")
-        current_file "$param"
-        preload_script "$param"
-        ;;
     *) ;;
     esac
 
     array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS"
+    check_commands_existence
     import_required_scripts
 }
 ################################################ BISU_END ################################################
