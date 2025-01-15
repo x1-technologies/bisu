@@ -2,36 +2,46 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="3.0.0"
+export BISU_VERSION="4.0.0"
 
-# Set PS4 to include the script name and line number
-trap "wait" SIGCHLD
-trap "cleanup" EXIT INT TERM HUP
-export PS4='+${BASH_SOURCE}:${LINENO}: '
-
+# Set PS1
+export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+# Set PS4
+export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+export AUTORUN=(
+    'trap "wait" SIGCHLD'
+    'trap "set_title "$DEFAULT_TITLE"" EXIT'
+    'acquire_lock'
+    'trap "cleanup" EXIT INT TERM HUP'
+)
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
-# The current file path
-export CURRENT_FILE_PATH=""
 # Default title
 export DEFAULT_TITLE="-bash"
 # Required files
 export REQUIRED_SCRIPT_FILES=()
-
 # Subprocesses pids to cleanup
-SUBPROCESSES_PIDS=()
+export SUBPROCESSES_PIDS=()
 # Required external commands list
-BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'yq' 'xxd' 'bc')
-REQUIRED_EXTERNAL_COMMANDS=()
+export BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'yq' 'xxd' 'bc')
+# Required external commands list
+export REQUIRED_EXTERNAL_COMMANDS=()
 # Global Variables
-ROOT_LOCK_FILE_DIR="/var/run"
-USER_LOCK_FILE_DIR="$HOME/.local/var/run"
-LOCK_FILE_DIR=""
-ROOT_LOG_FILE_DIR="/var/log"             # Root Log file location
-USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file location
-LOG_FILE=""
-BISU_TARGET_PATH="/usr/local/sbin/bisu.bash" # Default target path for moving scripts
-REQUIRED_BASH_VERSION="5.0.0"                # Minimum required Bash version (configurable)
+export ROOT_LOCK_FILE_DIR="/var/run"
+export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
+export LOCK_FILE_DIR=""/tmp""
+export LOCK_ID=""
+export LOCK_FILE=""
+export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file location
+export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file location
+export LOG_FILE=""
+export BISU_TARGET_PATH="/usr/local/sbin/bisu.bash" # Default target path for moving scripts
+export REQUIRED_BASH_VERSION="5.0.0"                # Minimum required Bash version (configurable)
+export PROMPT_COMMAND="set_title"
+# The current file path
+export CURRENT_FILE_PATH=""
+# The current command by the actual script
+CURRENT_COMMAND=""
 
 # Universal function to trim whitespace
 trim() {
@@ -43,24 +53,42 @@ bisu_file() {
     echo "$BISU_FILE_PATH"
 }
 
+# Function: command_path
+# Description: According to its naming
+command_path() {
+    command_path=$(echo "$1" | awk '{print $1}')
+    command_path=$(trim "$command_path")
+    [[ -n "$command_path" ]] && echo "$command_path" || {
+        echo -e "Error: Failed to get command path" >&2
+        exit 1
+    }
+}
+
+# Function: current_command
+# Description: According to its naming
+current_command() {
+    if [[ -z $CURRENT_COMMAND ]]; then
+        echo -e "Error: Invalid current command" >&2
+        exit 1
+    fi
+
+    echo "$CURRENT_COMMAND"
+}
+
 # Function: current_file
 # Description: According to its naming
 current_file() {
-    local current_file_path=$(trim "$1")
-
-    if [[ -z "$CURRENT_FILE_PATH" ]]; then
-        CURRENT_FILE_PATH="${BASH_SOURCE[0]}"
+    CURRENT_FILE_PATH=$(command_path "$(current_command)")
+    if [[ -z $CURRENT_FILE_PATH ]] || ! is_file "$CURRENT_FILE_PATH"; then
+        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" >&2
+        exit 1
     fi
-
-    if [[ -n "$current_file_path" ]]; then
-        if ! is_file "$current_file_path"; then
-            echo -e "Error: Invalid file path provided: $current_file_path" >&2
-            exit 1
-        fi
-        CURRENT_FILE_PATH="$current_file_path"
-    fi
-
     echo "$CURRENT_FILE_PATH"
+}
+
+# Register the current command
+register_current_command() {
+    current_file &>/dev/null
 }
 
 # Function: strtolower
@@ -87,15 +115,13 @@ md5_sign() {
     echo -n "$1" | md5sum | awk '{print $1}'
 }
 
-# Function: current_dirname
+# Function: current_dir
 # Description: According to its naming
-current_dirname() {
-    local filepath=$(trim "$1")
-    if [[ -z "$filepath" || ! -e "$filepath" || (! -d "$filepath" && ! -f "$filepath") ]]; then
-        echo ""
-    else
-        echo $(basename "$(dirname $filepath)")
-    fi
+current_dir() {
+    echo $(dirname $(current_file)) || {
+        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" >&2
+        exit 1
+    }
 }
 
 # Check string start with
@@ -111,7 +137,7 @@ string_starts_with() {
 }
 
 # Check string end with
-string_end_with() {
+string_ends_with() {
     [[ "${1: -${#2}}" == "$2" ]]
 }
 
@@ -143,8 +169,10 @@ is_valid_date() {
 current_log_file() {
     local log_file_dir="$LOG_FILE_DIR"
     local log_file=""
-    local filename=$(basename "$(current_file)")
-    local current_dirname=""
+    local filename=$(basename "$(current_file)") || {
+        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" >&2
+        exit 1
+    }
 
     # Check if log file directory is valid, otherwise set based on user privileges
     if ! [[ -n "$log_file_dir" && -e "$log_file_dir" && -d "$log_file_dir" ]]; then
@@ -390,6 +418,27 @@ move_bisu() {
     move_file "$current_script" "$target_path"
 }
 
+# Function to check if a variable is an array
+is_array() {
+    local array_name=$(trim "$1")
+    # Negate the test for `declare -a` using ! logic
+    if ! declare -p "$array_name" 2>/dev/null | grep -q 'declare -a'; then
+        return 1 # Not an array
+    fi
+    return 0 # Is an array
+}
+
+# Array values as string
+array_values_string() {
+    local array_name=$(trim "$1")
+    local var_name=$(trim "$2")
+    if ! is_array "$array_name" || ! is_valid_var_name "$var_name"; then
+        echo ""
+        return
+    fi
+    eval "$var_name=(\"\${$array_name[@]}\")" || error_exit "Failed to get array values."
+}
+
 # Function to add an element to a specified global array
 array_unique_push() {
     local array_name=$1
@@ -420,7 +469,7 @@ array_unique_push() {
     esac
 
     # Ensure the global array exists
-    if ! declare -p "$array_name" &>/dev/null; then
+    if ! is_array "$array_name"; then
         log_message "Array $array_name does not exist."
         return 1
     fi
@@ -457,12 +506,11 @@ array_unique_push() {
 # Function: array_merge
 # Description: Function to merge 2 global arrays
 array_merge() {
-    if [[ $# -ne 3 || -z "$1" || -z "$2" || -z "$3" ]]; then
+    local array1="$1" array2="$2" result="$3"
+    if [[ $# -ne 3 ]] || ! is_array "$array1" || ! is_array "$array2" || ! is_array "$array3"; then
         log_message "Requires exactly three arguments (two array names and one result name)."
         return 1
     fi
-
-    local array1="$1" array2="$2" result="$3"
 
     # Initialize result array as empty
     eval "$result=()"
@@ -478,12 +526,11 @@ array_merge() {
 # Function: array_unique
 # Description: To remove duplicates from a global array
 array_unique() {
-    if [[ $# -ne 1 || -z "$1" ]]; then
+    local array_name="$1"
+    if [[ $# -ne 1 ]] || ! is_array "$array_name"; then
         log_message "Requires exactly one argument (array name)."
         return 1
     fi
-
-    local array_name="$1"
     eval "$array_name=($(echo \${$array_name[@]} | tr ' ' '\n' | sort -u | tr '\n' ' '))"
 }
 
@@ -494,7 +541,6 @@ array_unique() {
 # Returns: 0 if valid, 1 if invalid.
 is_valid_version() {
     local version="$1"
-
     # Check for version formats
     if [[ "$version" =~ ^[v]?[0-9]+(\.[0-9]+)*(/[0-9]+)*$ ]]; then
         return 0
@@ -535,6 +581,15 @@ check_bash_version() {
         log_message "Bash version is too old. Requires version $REQUIRED_BASH_VERSION or greater. Detected version: $bash_version"
         return 1
     fi
+}
+
+# Function to validate a variable name
+is_valid_var_name() {
+    local var_name=$(trim "$1")
+    if [[ -z "$var_name" || ! "$var_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+        return 1
+    fi
+    return 0
 }
 
 # Universal function to validate IP address
@@ -607,15 +662,19 @@ yaml_to_array() {
 
 # Function to access elements like an associative array using global variables
 arr_get_val() {
+    if ! is_array "_ASSOC_KEYS" || ! is_array "_ASSOC_VALUES"; then
+        echo ""
+        return
+    fi
+
     local search_key=$(trim "$1")
     for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
         if [ "${_ASSOC_KEYS[$i]}" = "$search_key" ]; then
             echo "${_ASSOC_VALUES[$i]}"
-            return 0
+            return
         fi
     done
-    echo "" # Return empty string if key not found or array is empty
-    return 0
+    echo ""
 }
 
 # To validate if a word is in a string
@@ -709,36 +768,45 @@ random_string() {
     echo "$shuffled_charset" | head -c "$length" || echo ""
 }
 
-# Function to check existence of external commands
-check_commands_existence() {
-    local commands=("${REQUIRED_EXTERNAL_COMMANDS[@]}")
+# Function to check if a command is existent
+command_exists() {
+    local commandString=$(trim "$1")
+    if [[ -z "$commandString" ]]; then
+        return 0
+    fi
+    if ! command -v "$commandString" &>/dev/null; then
+        return 1
+    fi
+    return 0
+}
 
-    # Initialize counters
+# Function to check existence of external commands
+check_commands_list() {
+    local array_name=$(trim "$1")
     local invalid_commands_count=0
     local invalid_commands=""
 
+    if ! is_array "$array_name"; then
+        error_exit "Invalid array name provided when checking commands."
+        return 1
+    fi
+
+    array_values_string "$array_name" "commands"
     # Check if the array is empty
     if [[ ${#commands[@]} == 0 ]]; then
         return 0
     fi
 
-    for command in "${commands[@]}"; do
-        # Skip empty or illegal command paths
-        if [[ -z "$command" || "$command" =~ ^[[:space:]]*$ ]]; then
-            ((invalid_commands_count++))
-            invalid_commands+=", $command"
-            continue
-        fi
-
+    for commandString in "${commands[@]}"; do
         # Check if the command exists
-        if ! command -v "$command" &>/dev/null; then
+        if ! command_exists "$commandString"; then
             ((invalid_commands_count++))
-            invalid_commands+=", '$command'"
+            invalid_commands+=", '$commandString'"
             continue
         fi
     done
 
-    # Report the invalid commands if any
+    # Report the invalid commandString if any
     if [[ $invalid_commands_count -gt 0 ]]; then
         invalid_commands=${invalid_commands:1}
         error_exit "Missing $invalid_commands_count command(s):$invalid_commands"
@@ -749,42 +817,49 @@ check_commands_existence() {
 
 # The current file's run lock by signed md5 of full path
 current_lock_file() {
-    local lock_file_dir="$LOCK_FILE_DIR"
-    local lock_file=""
-    if ! is_dir "$lock_file_dir"; then
-        if is_root_user; then
-            lock_file_dir="$ROOT_LOCK_FILE_DIR"
-        else
-            lock_file_dir="$USER_LOCK_FILE_DIR"
+    if [[ -z "$LOCK_ID" ]]; then
+        local lock_file_dir="$LOCK_FILE_DIR"
+        if ! is_dir "$lock_file_dir"; then
+            if is_root_user; then
+                lock_file_dir="$ROOT_LOCK_FILE_DIR"
+            else
+                lock_file_dir="$USER_LOCK_FILE_DIR"
+            fi
         fi
+
+        if ! is_dir "$lock_file_dir"; then
+            lock_file_dir="$HOME/.local/var/run"
+            touch_dir "$lock_file_dir"
+        fi
+
+        if ! is_dir "$lock_file_dir"; then
+            error_exit "Lock file creation failed."
+        fi
+
+        if string_ends_with "$lock_file_dir" "/"; then
+            lock_file_dir=$(substr "$lock_file_dir" -1)
+        fi
+
+        LOCK_FILE_DIR="$lock_file_dir"
+        LOCK_ID=$(md5_sign "$(current_command)")
+        LOCK_FILE="$LOCK_FILE_DIR/$(basename $(current_file))_$LOCK_ID.lock" || {
+            error_exit "Failed to set LOCK_FILE."
+        }
     fi
 
-    if ! is_dir "$lock_file_dir"; then
-        lock_file_dir="$HOME/.local/var/run"
-        touch_dir "$lock_file_dir"
+    if [[ -z "$LOCK_ID" ]]; then
+        error_exit "Could not set LOCK_ID."
     fi
 
-    if ! is_dir "$lock_file_dir"; then
-        error_exit "Lock file creation failed."
-    fi
-
-    if string_end_with "$lock_file_dir" "/"; then
-        lock_file_dir=$(substr "$lock_file_dir" -1)
-    fi
-
-    LOCK_FILE_DIR="$lock_file_dir"
-    lock_file="$lock_file_dir/$(md5_sign "$(current_file)").lock"
-
-    echo "$lock_file"
+    echo "$LOCK_FILE"
 }
 
 # Function to acquire a lock to prevent multiple instances
 acquire_lock() {
     local lock_file=$(current_lock_file)
-    [[ -n "$lock_file" ]] && exec 200>"$lock_file"
-    if ! flock -n 200; then
-        error_exit "An instance is running: $(current_lock_file)"
-    fi
+    [[ -n "$lock_file" ]] || error_exit "Failed to acquire lock."
+    exec 200>"$lock_file"
+    (flock -n 200 || error_exit "An instance is running: $lock_file") 200>"$lock_file"
 }
 
 # Function to release the lock
@@ -796,6 +871,10 @@ release_lock() {
 
 # Trap function to handle script termination
 cleanup() {
+    if ! is_array "SUBPROCESSES_PIDS"; then
+        error_exit "Invalid SUBPROCESSES_PIDS array."
+    fi
+
     for pid in "${SUBPROCESSES_PIDS[@]}"; do
         kill -SIGTERM "$pid" 2>/dev/null
     done
@@ -829,22 +908,81 @@ revert_title() {
 }
 
 # Add new element to pending to load script list, param 1 as the to load script file
-preload_script() {
+import_script() {
     local script=$(trim "$1")
     if ! is_file "$script"; then
         error_exit "Failed to import script: $script"
     fi
-    array_unique_push "REQUIRED_SCRIPT_FILES" "$script"
+    source "$script" || { error_exit "Failed to import script: $script"; }
 }
 
 # Automatically import required scripts
-import_required_scripts() {
+load_required_scripts() {
     array_unique "REQUIRED_SCRIPT_FILES"
+    if ! is_array "REQUIRED_SCRIPT_FILES"; then
+        error_exit "Invalid REQUIRED_SCRIPT_FILES array."
+    fi
+
     for script in "${REQUIRED_SCRIPT_FILES[@]}"; do
-        if is_file "$script"; then
-            source "$script" || { error_exit "Failed to import script: $script"; }
-        fi
+        import_script "$script"
     done
+
+    return 0
+}
+
+# Function to execute a command robustly
+execute_command() {
+    local commandString=$(trim "$1")
+    eval "$commandString" || error_exit "Failed to execute command: $commandString"
+}
+
+# Push an element in the array
+add_subprocess_pid() {
+    local new_pid=$(trim "$1")
+    array_unique_push $SUBPROCESSES_PIDS "$new_pid" "INT" || return 1
+    return 0
+}
+
+# Count processes number
+check_processes() {
+    local process_name=$(trim "$1")
+    if [[ $(pgrep -f "$process_name" | wc -l) -ge $WORKERS_NUMBER ]]; then
+        log_message "Maximum clamscan processes reached. Waiting for availability."
+        while [[ $(pgrep -f "$process_name" | wc -l) -ge $WORKERS_NUMBER ]]; do
+            sleep 2
+            # Apply CPU throttling after the process starts
+            (
+                "$CPUTHROTTLE" set $process_name $PROCESS_EXPECTED_USAGE
+            ) &
+            local throttle_pid=$!
+            add_subprocess_pid $throttle_pid
+
+            wait $throttle_pid
+            sleep 2
+        done
+    fi
+}
+
+# Start autorun list
+autorun_start() {
+    if ! is_array "AUTORUN"; then
+        error_exit "Invalid AUTORUN array."
+    fi
+
+    for command in "${AUTORUN[@]}"; do
+        execute_command "$command"
+    done
+
+    return 0
+}
+
+# Function to initialise BISU
+initialise() {
+    register_current_command # Required to be the 1st start
+    autorun_start
+    check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
+    check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
+    load_required_scripts
 }
 
 # Confirm to install BISU
@@ -865,6 +1003,8 @@ confirm_to_install_bisu() {
 
 # bisu autorun function
 bisu_main() {
+    initialise
+
     local action=$(trim "$1")
     local param=$(trim "$2")
 
@@ -873,8 +1013,6 @@ bisu_main() {
     *) ;;
     esac
 
-    array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS"
-    check_commands_existence
-    import_required_scripts
+    # initialisation actions
 }
 ################################################ BISU_END ################################################
