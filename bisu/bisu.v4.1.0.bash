@@ -14,6 +14,7 @@ export AUTORUN=(
     'acquire_lock'
     'trap "cleanup" EXIT INT TERM HUP'
 )
+export HOME=$(eval echo ~${SUDO_USER:-$USER})
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # Default title
@@ -670,7 +671,7 @@ arr_get_val() {
     local search_key=$(trim "$1")
     for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
         if [ "${_ASSOC_KEYS[$i]}" = "$search_key" ]; then
-            echo "${_ASSOC_VALUES[$i]}"
+            echo $(trim "${_ASSOC_VALUES[$i]}")
             return
         fi
     done
@@ -859,14 +860,14 @@ acquire_lock() {
     local lock_file=$(current_lock_file)
     [[ -n "$lock_file" ]] || error_exit "Failed to acquire lock."
     exec 200>"$lock_file"
-    (flock -n 200 || error_exit "An instance is running: $lock_file") 200>"$lock_file"
+    flock -n 200 || error_exit "An instance is running: $lock_file"
 }
 
 # Function to release the lock
 release_lock() {
     local lock_file=$(current_lock_file)
     ! is_file "$lock_file" && return 1
-    flock -u 200 && rm -f "$lock_file"
+    flock -u 200 && revert_title && rm -f "$lock_file"
 }
 
 # Trap function to handle script termination
@@ -900,11 +901,13 @@ set_title() {
     if [[ -n "$title" ]]; then
         echo -ne "\033]0;${title}\007"
     fi
+    return 0
 }
 
 # Function to revert the terminal title
 revert_title() {
     set_title "$DEFAULT_TITLE"
+    return 0
 }
 
 # Add new element to pending to load script list, param 1 as the to load script file
@@ -1003,6 +1006,7 @@ confirm_to_install_bisu() {
 
 # bisu autorun function
 bisu_main() {
+    # initialisation actions
     initialise
 
     local action=$(trim "$1")
@@ -1012,7 +1016,5 @@ bisu_main() {
     "bisu_install") confirm_to_install_bisu "$action" ;;
     *) ;;
     esac
-
-    # initialisation actions
 }
 ################################################ BISU_END ################################################
