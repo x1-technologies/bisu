@@ -1,0 +1,364 @@
+#!/bin/bash
+
+######################################################## BISU Importer Start #########################################################
+## Have a fresh installation for BISU with copy and paste the command below
+## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
+## Set the required version of BISU
+export THIS_REQUIRED_BISU_VERSION="~4.0"
+export BISU_WORK_PATH_PRODUCTION="/usr/local/sbin/bisu.bash"
+export BISU_WORK_PATH_DEV="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
+source "$BISU_WORK_PATH_PRODUCTION" || {
+    echo -e "Error: Unable to load BISU" >&2
+    exit 1
+}
+export CURRENT_COMMAND="${BASH_SOURCE[0]} $@"
+bisu_main "$@"
+######################################################## BISU Importer End ###########################################################
+
+# An agile tool to easily manage over 1,000 ECS instances
+# As an extra method for manually operating hosts if needed
+# Or personal hosts easy handling
+
+# Set the expected version of the parent file
+export ECS_MANAGER_VERSION="1.0"
+# Set the ecs hosts configs directory path
+export HOSTS_INFO_DIR="ecs-instances"
+# The below to set the default values for the environment
+export HOST_NAME=""
+export USE_PROXY=false
+export USE_MOSH=false
+export USERNAME="root"
+export HOST_ADDR=""
+export HOST_PORT="22"
+export PROXY_ADDR="127.0.0.1"
+export PROXY_PORT="8080"
+export MOSH_PORTS="60000:61000"
+# If true, the script will prefer the PEM file for SSH connection
+# If you prefer to use a password, you can set it as false
+export PREFER_PEM=true
+# When PREFER_PEM is true, the PEM_FILE variable should be set as required
+export PEM_FILE=""
+# Specify which folders to search for PEM files
+export PEM_FILE_DIRS=("$HOME/.ssh" ".")
+# Cache for hostname modification
+export HOSTNAME_BACKUP_FILE="/etc/hostname.backup.default"
+# For debug
+export DEBUG_MODE=false
+
+# Universal function to generate proxy command
+generate_proxy_param() {
+    local use_proxy=$(trim "$1")
+    local proxy_ip_addr=$(trim "$2")
+    local proxy_port=$(trim "$3")
+
+    if [ "$use_proxy" = "true" ] && is_valid_ip "$proxy_ip_addr" && is_valid_port "$proxy_port"; then
+        echo "-o ProxyCommand='nc -x $proxy_ip_addr:$proxy_port %h %p'"
+    else
+        echo ""
+    fi
+}
+
+# Set extra PEM file directories
+set_pem_file_dir() {
+    local pem_file_dir=$(trim "$1")
+    if ! is_dir "$pem_file_dir"; then
+        error_exit "PEM file directory [$pem_file_dir] does not exist."
+    fi
+    array_unique_push "PEM_FILE_DIRS" "$pem_file_dir"
+}
+
+# Get host configuration from the configuration file
+exact_host_config() {
+    local host_name=$(trim "$1")
+    local host_config_file="$(dirname "$CURRENT_FILE_PATH")/$HOSTS_INFO_DIR/$host_name.yml"
+
+    if ! is_file "$host_config_file"; then
+        error_exit "The host [$host_name] config file was not found."
+    fi
+
+    yaml_to_array "$(cat "$host_config_file")"
+    log_message "Using $host_config_file"
+
+    return 0
+}
+
+# Get host information from the configuration file
+set_host_info() {
+    local host_name=$(trim "$1")
+    if [ -z "$host_name" ]; then
+        error_exit "Host name is required."
+    fi
+
+    exact_host_config "$host_name"
+    HOST_NAME="$host_name"
+
+    local user_proxy=$(arr_get_val "USER_PROXY") && USE_PROXY="$user_proxy"
+    local use_mosh=$(arr_get_val "USE_MOSH") && USE_MOSH="$use_mosh"
+    local username=$(arr_get_val "USERNAME") && USERNAME="$username"
+    local host_addr=$(arr_get_val "HOST_ADDR") && HOST_ADDR="$host_addr"
+    local host_port=$(arr_get_val "HOST_PORT") && HOST_PORT="$host_port"
+    local proxy_addr=$(arr_get_val "PROXY_ADDR") && PROXY_ADDR="$proxy_addr"
+    local proxy_port=$(arr_get_val "PROXY_PORT") && PROXY_PORT="$proxy_port"
+    local mosh_ports=$(arr_get_val "MOSH_PORTS") && MOSH_PORTS="$mosh_ports"
+    local prefer_pem=$(arr_get_val "PREFER_PEM") && PREFER_PEM="$prefer_pem"
+    local pem_file=$(arr_get_val "PEM_FILE") && PEM_FILE=$(eval echo "$pem_file")
+    PEM_FILE=$(get_pem_file "$PEM_FILE")
+
+    # Validate inputs
+    if ! is_valid_ip "$HOST_ADDR"; then
+        error_exit "Invalid IP address for host."
+    fi
+
+    if ! is_valid_port "$HOST_PORT"; then
+        error_exit "Invalid port for host."
+    fi
+
+    if [[ -z "$USERNAME" || -z "$HOST_NAME" ]]; then
+        error_exit "Username and hostname are required."
+    fi
+
+    if [[ "$PREFER_PEM" == "true" ]] && ! is_file "$PEM_FILE"; then
+        error_exit "PEM file is required (currently specified as: \"$PEM_FILE\")."
+    fi
+}
+
+# Prepare ssh command
+prep_ssh_command() {
+    local proxy_cmd=$(trim "$1")
+    local set_account=$(trim "${2:true}")
+
+    # If MOSH is not used, connect via SSH
+    ssh_command="ssh -p$HOST_PORT"
+    if [[ -n "$proxy_cmd" ]]; then
+        ssh_command="$ssh_command $proxy_cmd"
+    fi
+    if [[ "$set_account" == "true" ]]; then
+        ssh_command="$ssh_command $USERNAME@$HOST_ADDR"
+    fi
+
+    # Apply PEM file if preferred
+    if [ "$PREFER_PEM" == "true" ]; then
+        log_message "Connecting via SSH with PEM..."
+        ssh_command="$ssh_command -i '$PEM_FILE'"
+    else
+        log_message "Connecting via SSH..."
+    fi
+
+    echo "$ssh_command"
+}
+
+# Get the PEM file path
+get_pem_file() {
+    local pem_file="$PEM_FILE"
+
+    if [[ -z "$pem_file" ]]; then
+        error_exit "Pem File Not Exists"
+    fi
+
+    if string_starts_with "$pem_file" "/" && is_file "$pem_file"; then
+        echo "$pem_file"
+        return
+    fi
+
+    local pem_file_dirs=("${PEM_FILE_DIRS[@]}")
+    for pem_file_dir in "${pem_file_dirs[@]}"; do
+        pem_file_dir=$(trim "$pem_file_dir")
+        if [ -z "$pem_file_dir" ]; then
+            continue
+        fi
+
+        if string_ends_with "$pem_file_dir" "/"; then
+            pem_file_dir=$(trim_suffix "$pem_file_dir" "/")
+        fi
+
+        if [[ "$pem_file_dir" == "." ]]; then
+            pem_file_dir="$(dirname "$CURRENT_FILE_PATH")/$HOSTS_INFO_DIR"
+        fi
+
+        if is_file "$pem_file_dir/$pem_file"; then
+            echo "$pem_file_dir/$pem_file"
+            return
+        fi
+    done
+    echo "$pem_file_dir/$pem_file"
+}
+
+# Unified function for SSH and MOSH command execution
+ssh_handle() {
+    local operation=$(trim "$1")
+    operation="${operation:-connect}"
+
+    if [[ "$operation" != "connect" && "$operation" != "set-hostname" && "$operation" != "rsync" ]]; then
+        error_exit "Invalid operation."
+    fi
+
+    if [[ "$operation" == "set-hostname" && "$HOST_NAME" == *" "* ]]; then
+        error_exit "Hostname can not have spaces."
+    fi
+
+    # Define necessary variables
+    local ssh_command=""
+    local proxy_cmd=$(generate_proxy_param "$USE_PROXY" "$PROXY_ADDR" "$PROXY_PORT")
+    local conn_str="$USERNAME@$HOST_NAME"
+    set_title "$conn_str"
+    local ssh_set_hostname_append="test -f /etc/hostname.backup.default || cp /etc/hostname /etc/hostname.backup.default; hostnamectl set-hostname $HOST_NAME"
+
+    # Check if MOSH is to be used
+    if [[ "$operation" == "connect" && "$USE_MOSH" = "true" ]]; then
+        local params="mosh-server new -s -p $MOSH_PORTS -l LANG=en_US.UTF-8"
+
+        # Apply PEM file if preferred
+        if [ "$PREFER_PEM" == "true" ]; then
+            log_message "Connecting via MOSH with PEM..."
+            params="-i '$PEM_FILE' $params"
+        else
+            log_message "Connecting via MOSH..."
+        fi
+
+        # Construct SSH command for MOSH connection
+        ssh_command="ssh -p$HOST_PORT $proxy_cmd $USERNAME@$HOST_ADDR $params"
+        # Execute the SSH command
+        response="$(eval "$ssh_command")"
+
+        if [ $? -ne 0 ]; then
+            error_exit "Failed to execute SSH command to retrieve MOSH details."
+        fi
+
+        # Extract MOSH connection details
+        mosh_key=$(echo "$response" | awk '/MOSH CONNECT/{print $4}')
+        mosh_server_port=$(echo "$response" | awk '/MOSH CONNECT/{print $3}')
+
+        if [ -z "$mosh_key" ] || [ -z "$mosh_server_port" ]; then
+            error_exit "Failed to retrieve MOSH connection details."
+        fi
+
+        # Export MOSH key and address
+        export MOSH_KEY="$mosh_key" &&
+            mosh_server_addr="$HOST_ADDR" &&
+
+            # Run MOSH client
+            mosh-client "$mosh_server_addr" "$mosh_server_port"
+    else
+        # Set hostname
+        if [[ "$operation" == "set-hostname" ]]; then
+            ssh_command=$(prep_ssh_command "$proxy_cmd")
+            log_message "Setting the hostname..."
+            ssh_command="$ssh_command '$ssh_set_hostname_append'"
+        elif [[ "$operation" == "rsync" ]]; then
+            log_message "Starting rsync..."
+            local dest1=$(trim "$2")
+            local dest2=$(trim "$3")
+
+            # Validate input parameters
+            if [[ -z "$dest1" || -z "$dest2" ]]; then
+                error_exit "Both destination parameters (dest1 and dest2) are required."
+            fi
+
+            # Validate format: "local:/path" or "remote:/path"
+            local valid_regex="^(.+):/.+$"
+            if [[ ! "$dest1" =~ $valid_regex ]]; then
+                error_exit "Invalid format for dest1."
+            fi
+            if [[ ! "$dest2" =~ $valid_regex ]]; then
+                error_exit "Invalid format for dest2."
+            fi
+
+            # Extract actual paths
+            local dest1_type="${dest1%%:*}"
+            local dest1_path="${dest1#*:}"
+            local dest2_type="${dest2%%:*}"
+            local dest2_path="${dest2#*:}"
+
+            # Build rsync arguments
+            local rsync_source
+            local rsync_dest
+
+            if [[ "$dest1_type" == "local" && "$dest2_type" != "local" ]]; then
+                set_host_info "$dest2_type"
+                rsync_source="$dest1_path"
+                rsync_dest="$USERNAME@$HOST_ADDR:$dest2_path"
+                ssh_command=$(prep_ssh_command "$proxy_cmd" "false")
+                ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_source\" \"$rsync_dest\""
+            elif [[ "$dest2_type" == "local" && "$dest1_type" != "local" ]]; then
+                set_host_info "$dest1_type"
+                rsync_dest="$dest2_path"
+                rsync_source="$USERNAME@$HOST_ADDR:$dest1_path"
+                ssh_command=$(prep_ssh_command "$proxy_cmd" "false")
+                ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_dest\" \"$rsync_source\""
+            else
+                error_exit "Invalid destination(s), please check the correcness of the location tag(s)."
+            fi
+        elif [[ "$operation" == "exec" ]]; then
+            local remote_command=$(trim "$3")
+            if [[ -z "$remote_command" ]]; then
+                usage
+            fi
+            ssh_command="$ssh_command '$remote_command'"
+        else
+            usage
+        fi
+
+        if [[ "$DEBUG_MODE" == "true" ]]; then
+            log_message "Debug Mode is On."
+            log_message "Raw Command: $ssh_command"
+        else
+            # Execute SSH command
+            eval "$ssh_command"
+        fi
+
+        log_message "Done."
+    fi
+}
+
+# Usage information
+usage() {
+    local current_file_path=$(current_file)
+    log_message "Usage: $(basename "$current_file_path") connect <host_name>"
+    log_message "       $(basename "$current_file_path") set-hostname <host_name>"
+    log_message "       $(basename "$current_file_path") rsync <host_name> 'local:/path/to/source' 'remote:/path/to/destination'"
+    log_message "       $(basename "$current_file_path") rsync <host_name> 'remote:/path/to/source' 'local:/path/to/destination'"
+    log_message "       $(basename "$current_file_path") exec <host_name> <remote_command>"
+    exit 1
+}
+
+# Main function to collect parameters and invoke SSH/MOSH handler
+main() {
+    local action=$(trim "$1")
+    local param2=$(trim "$2")
+    local param3=$(trim "$3")
+
+    # Parameters (these can come from the environment or command-line arguments)
+    USE_PROXY="${USE_PROXY:-false}"
+    USE_MOSH="${USE_MOSH:-false}"
+    USERNAME="${USERNAME:-user}"
+    HOST_ADDR="${HOST_ADDR:-}"
+    HOST_PORT="${HOST_PORT:-22}"
+    MOSH_PORTS="${MOSH_PORTS:-60000:61000}"
+    PROXY_ADDR="${PROXY_ADDR:-}"
+    PROXY_PORT="${PROXY_PORT:-8080}"
+    PREFER_PEM="${PREFER_PEM:-true}"
+    PEM_FILE="${PEM_FILE:-}"
+
+    case "$action" in
+    "connect")
+        # Call the SSH/MOSH handler with the parameters
+        set_host_info "$param2"
+        ssh_handle "connect"
+        ;;
+    "set-hostname")
+        # Call the SSH/MOSH handler with the parameters
+        set_host_info "$param2"
+        ssh_handle "set-hostname"
+        ;;
+    "rsync")
+        # Call the SSH/MOSH handler with the parameters
+        ssh_handle "rsync" "$param2" "$param3"
+        ;;
+    *)
+        usage
+        ;;
+    esac
+}
+
+# Execute the main function
+main "$@"
