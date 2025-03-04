@@ -676,10 +676,8 @@ check_bash_version() {
 
     local expr=">=$MINIMAL_BASH_VERSION"
     local bash_version=$(bash --version | head -n 1 | awk '{print $4}')
-    # Log the current Bash version
-    log_message "Detected Bash version: $bash_version"
-    local result=$(compare_versions "$expr" "$bash_version")
 
+    local result=$(compare_versions "$expr" "$bash_version")
     if [[ $result == 0 ]]; then
         error_exit "Bash version is not compatible with the minimal required version."
     fi

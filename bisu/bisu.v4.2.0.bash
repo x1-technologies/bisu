@@ -2,7 +2,10 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.1.1"
+export BISU_VERSION="4.2.0"
+
+# Minimal Bash Version
+export MINIMAL_BASH_VERSION="5.0.0"
 
 # Set PS1
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
@@ -37,7 +40,6 @@ export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file location
 export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file location
 export LOG_FILE=""
 export BISU_TARGET_PATH="/usr/local/sbin/bisu.bash" # Default target path for moving scripts
-export REQUIRED_BASH_VERSION="5.0.0"                # Minimum required Bash version (configurable)
 export PROMPT_COMMAND="set_title"
 # The current file path
 export CURRENT_FILE_PATH=""
@@ -319,19 +321,41 @@ file_exists() {
     return 0
 }
 
+# Ensure invalid characters that will not be applied to folders
+is_sanitised_input() {
+    local input="$1"
+
+    input=$(trim "$input")
+    if [[ -z "$input" ]]; then
+        return 1
+    fi
+
+    # Remove ANSI escape sequences (i.e., control characters used for terminal colours or formatting)
+    input=$(echo "$input" | awk '{gsub(/\x1b\[[0-9;]*[a-zA-Z]/, "")}1')
+    # Remove any characters that are not alphanumeric, underscore, or hyphen
+    input=$(echo "$input" | awk '{gsub(/[^a-zA-Z0-9_-]/, "")}1')
+
+    input=$(trim "$input")
+    if [[ -z "$input" ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
 # mkdir_p
 mkdir_p() {
-    local dir=$1
+    local dir=$(trim "$1")
     local dir_frill=${2:-""}
     local start_string=${3:-""}
 
     # Validate input directory name
-    [[ -n "$dir" ]] || {
-        log_message "No directory name provided."
+    is_sanitised_input "$dir" || {
+        log_message "No legal directory name provided."
         return 1
     }
     string_starts_with "$dir" "$start_string" || {
-        log_message "No directory name provided."
+        log_message "No legal directory name provided."
         return 1
     }
 
@@ -541,7 +565,7 @@ array_unique() {
 # $1 - Version number to validate.
 # Returns: 0 if valid, 1 if invalid.
 is_valid_version() {
-    local version="$1"
+    local version=$(trim "$1")
     # Check for version formats
     if [[ "$version" =~ ^[v]?[0-9]+(\.[0-9]+)*(/[0-9]+)*$ ]]; then
         return 0
@@ -551,36 +575,111 @@ is_valid_version() {
     fi
 }
 
+# Function: compare_version
+# Purpose: Compares two version strings following Composer versioning rules, supporting complex constraints.
+# Usage: compare_version <constraint> <version>
+# Returns:
+#   - 1 if version satisfies the constraint
+#   - 0 if version does not satisfy the constraint
+compare_version() {
+    local constraint=$(trim "$1")
+    local version=$(trim "$2")
+
+    # Extract operator and version part from constraint
+    local operator="="
+    if [[ "$constraint" =~ ^([<>!=~^]+)([0-9].*)$ ]]; then
+        operator="${BASH_REMATCH[1]}"
+        constraint="${BASH_REMATCH[2]}"
+    fi
+
+    # Function to compare two versions numerically
+    compare_raw_versions() {
+        local ver1="$1"
+        local ver2="$2"
+
+        if ! is_valid_version "$ver1" || ! is_valid_version "$ver2"; then
+            echo 0
+        fi
+
+        declare -A version_labels
+        version_labels=(
+            ["dev"]=-3 ["alpha"]=-2 ["a"]=-2 ["beta"]=-1 ["b"]=-1 ["RC"]=0 ["rc"]=0 ["#"]=1 ["pl"]=2 ["p"]=2
+        )
+
+        ver1="${ver1//~/0.}"
+        ver1="${ver1//^/}"
+        ver2="${ver2//~/0.}"
+        ver2="${ver2//^/}"
+
+        IFS='.-' read -ra v1 <<<"$ver1"
+        IFS='.-' read -ra v2 <<<"$ver2"
+
+        local i=0
+        while [[ $i -lt ${#v1[@]} || $i -lt ${#v2[@]} ]]; do
+            local s1="${v1[i]}"
+            local s2="${v2[i]}"
+            [[ -z "$s1" ]] && s1=0
+            [[ -z "$s2" ]] && s2=0
+
+            if [[ "$s1" =~ ^[0-9]+$ && "$s2" =~ ^[0-9]+$ ]]; then
+                if ((10#$s1 > 10#$s2)); then
+                    echo 1
+                    return
+                fi
+                if ((10#$s1 < 10#$s2)); then
+                    echo -1
+                    return
+                fi
+            else
+                s1=${version_labels[$s1]:-$s1}
+                s2=${version_labels[$s2]:-$s2}
+
+                if [[ "$s1" > "$s2" ]]; then
+                    echo 1
+                    return
+                fi
+                if [[ "$s1" < "$s2" ]]; then
+                    echo -1
+                    return
+                fi
+            fi
+
+            ((i++))
+        done
+        echo 0
+    }
+
+    # Perform comparison based on operator
+    local cmp_result=$(compare_raw_versions "$version" "$constraint")
+
+    case "$operator" in
+    "=") [[ $cmp_result -eq 0 ]] && echo 1 || echo 0 ;;
+    "!=") [[ $cmp_result -ne 0 ]] && echo 1 || echo 0 ;;
+    "<") [[ $cmp_result -lt 0 ]] && echo 1 || echo 0 ;;
+    "<=") [[ $cmp_result -le 0 ]] && echo 1 || echo 0 ;;
+    ">") [[ $cmp_result -gt 0 ]] && echo 1 || echo 0 ;;
+    ">=") [[ $cmp_result -ge 0 ]] && echo 1 || echo 0 ;;
+    "~") [[ $cmp_result -ge 0 && $(compare_raw_versions "$version" "${constraint%.*}.999") -le 0 ]] && echo 1 || echo 0 ;;
+    "^") [[ $cmp_result -ge 0 && $(compare_raw_versions "$version" "${constraint%%.*}.999") -le 0 ]] && echo 1 || echo 0 ;;
+    *) echo 0 ;;
+    esac
+}
+
 # Function: check_bash_version
 # Description: Verifies that the installed Bash version is greater than or equal to the specified required version.
 # Returns: 0 if Bash version is valid, 1 if not.
 check_bash_version() {
-    if ! is_valid_version "$REQUIRED_BASH_VERSION"; then
+    if ! is_valid_version "$MINIMAL_BASH_VERSION"; then
         log_message "Illegal version number of required Bash"
         return 1
     fi
 
+    local expr=">=$MINIMAL_BASH_VERSION"
     local bash_version=$(bash --version | head -n 1 | awk '{print $4}')
 
-    # Extract the major, minor, and patch version components
-    local major=$(echo "$bash_version" | cut -d '.' -f 1)
-    local minor=$(echo "$bash_version" | cut -d '.' -f 2)
-    local patch=$(echo "$bash_version" | cut -d '.' -f 3)
-
-    # Log the current Bash version
-    log_message "Detected Bash version: $bash_version"
-
-    # Compare the version with the required version
-    IFS='.' read -r req_major req_minor req_patch <<<"$REQUIRED_BASH_VERSION"
-
-    if [[ "$major" -gt "$req_major" ]] ||
-        { [[ "$major" == "$req_major" && "$minor" -gt "$req_minor" ]] ||
-            { [[ "$major" == "$req_major" && "$minor" == "$req_minor" && "$patch" -ge "$req_patch" ]]; }; }; then
-        log_message "Bash version is sufficient: $bash_version"
-        return 0
-    else
-        log_message "Bash version is too old. Requires version $REQUIRED_BASH_VERSION or greater. Detected version: $bash_version"
-        return 1
+    local result=$(compare_versions "$expr" "$bash_version")
+    if [[ $result == 0 ]]; then
+        error_exit "Bash version is not compatible with the minimal required version."
     fi
 }
 
@@ -934,7 +1033,10 @@ call_func() {
 # Function to set the terminal title
 set_title() {
     local title=$(trim "$1")
-    if [[ -n "$title" ]]; then
+
+    # Check if the title is valid (only alphanumeric and spaces for simplicity)
+    if [ -n "$title" ] && echo "$title" | awk '!/[^a-zA-Z0-9 ]/' >/dev/null; then
+        # Set terminal title (in a POSIX-compliant way)
         echo -ne "\033]0;${title}\007"
     fi
     return 0
@@ -1018,6 +1120,7 @@ autorun_start() {
 # Function to initialise BISU
 initialise() {
     register_current_command # Required to be the 1st start
+    check_bash_version
     autorun_start
     check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
     check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
