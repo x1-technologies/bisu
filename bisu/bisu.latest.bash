@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.2.3"
+export BISU_VERSION="4.3.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -28,6 +28,8 @@ export SUBPROCESSES_PIDS=()
 export BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'yq' 'xxd' 'bc')
 # Required external commands list
 export REQUIRED_EXTERNAL_COMMANDS=()
+# Exit with commands
+export EXIT_WITH_COMMANDS=()
 # Global Variables
 export ROOT_LOCK_FILE_DIR="/var/run"
 export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
@@ -43,6 +45,7 @@ export PROMPT_COMMAND="set_title"
 export CURRENT_FILE_PATH=""
 # The current command by the actual script
 CURRENT_COMMAND=""
+export DEBUG_MODE="false"
 
 # Universal function to trim whitespace
 trim() {
@@ -257,7 +260,28 @@ log_message() {
 error_exit() {
     local msg=$(trim "$1")
     log_message "Error: $msg" "true"
-    eval 'kill -TERM "$$" >/dev/null 2>&1' >/dev/null 2>&1
+    eval 'kill -TERM "$$"' >/dev/null 2>&1
+}
+
+# Execute command
+exec_command() {
+    local command=$(trim "$1")
+
+    if [[ -z "$command" ]]; then
+        return 1
+    fi
+
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        log_message "*** Using Debug Mode ***"
+        log_message "* Raw Command: $ssh_command"
+    else
+        # Execute SSH command
+        eval "$command" || {
+            error_exit "Failed to execute command: $command"
+        }
+    fi
+
+    return 0
 }
 
 # Function: add_env_path
@@ -979,21 +1003,21 @@ check_commands_list() {
     local invalid_commands=""
 
     if ! is_array "$array_name"; then
-        error_exit "Invalid array name provided when checking commands."
+        error_exit "Invalid array name provided."
         return 1
     fi
 
-    array_values_string "$array_name" "commands"
+    array_values_string "$array_name" "vals"
     # Check if the array is empty
-    if [[ ${#commands[@]} == 0 ]]; then
+    if [[ ${#vals[@]} == 0 ]]; then
         return 0
     fi
 
-    for commandString in "${commands[@]}"; do
+    for val in "${vals[@]}"; do
         # Check if the command exists
-        if ! command_exists "$commandString"; then
+        if ! command_exists "$val"; then
             ((invalid_commands_count++))
-            invalid_commands+=", '$commandString'"
+            invalid_commands+=", '$val'"
             continue
         fi
     done
@@ -1003,6 +1027,31 @@ check_commands_list() {
         invalid_commands=${invalid_commands:1}
         error_exit "Missing $invalid_commands_count command(s):$invalid_commands"
     fi
+
+    return 0
+}
+
+# Function to clean files when exit
+exit_with_commands() {
+    local array_name="EXIT_WITH_COMMANDS"
+
+    if ! is_array "$array_name"; then
+        error_exit "Invalid array name provided."
+        return 1
+    fi
+
+    array_values_string "$array_name" "vals"
+    # Check if the array is empty
+    if [[ ${#vals[@]} == 0 ]]; then
+        return 0
+    fi
+
+    for val in "${vals[@]}"; do
+        val=$(trim "$val")
+        if [[ -n "$val" ]]; then
+            exec_command "$val" >/dev/null 2>&1
+        fi
+    done
 
     return 0
 }
@@ -1107,6 +1156,7 @@ cleanup() {
         kill -SIGTERM "$pid" 2>/dev/null
     done
 
+    exit_with_commands
     release_lock
     exit 0
 }
