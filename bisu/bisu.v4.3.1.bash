@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.3.0"
+export BISU_VERSION="4.3.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -273,7 +273,7 @@ exec_command() {
 
     if [[ "$DEBUG_MODE" == "true" ]]; then
         log_message "*** Using Debug Mode ***"
-        log_message "* Raw Command: $ssh_command"
+        log_message "* Raw Command: $command"
     else
         # Execute SSH command
         eval "$command" || {
