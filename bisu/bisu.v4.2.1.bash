@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.2.0"
+export BISU_VERSION="4.2.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -683,6 +683,17 @@ check_bash_version() {
     fi
 }
 
+# Function: check_bisu_version
+# Description: Verifies that the installed BISU version is greater than or equal to the specified required version.
+# Returns: 0 if Bash version is valid, 1 if not.
+check_bisu_version() {
+    local expr="$THIS_REQUIRED_BISU_VERSION"
+    local result=$(compare_versions "$expr" "$bash_version")
+    if [[ $result == 0 ]]; then
+        error_exit "BISU version is not as satisfactory."
+    fi
+}
+
 # Function to validate a variable name
 is_valid_var_name() {
     local var_name=$(trim "$1")
@@ -1121,6 +1132,7 @@ autorun_start() {
 initialise() {
     register_current_command # Required to be the 1st start
     check_bash_version
+    check_bisu_version
     autorun_start
     check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
     check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
