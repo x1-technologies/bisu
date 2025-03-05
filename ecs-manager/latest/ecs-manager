@@ -4,11 +4,14 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="~4.0"
-export BISU_WORK_PATH_PRODUCTION="/usr/local/sbin/bisu.bash"
-export BISU_WORK_PATH_DEV="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
-source "$BISU_WORK_PATH_PRODUCTION" || {
-    echo -e "Error: Unable to load BISU" >&2
+export THIS_REQUIRED_BISU_VERSION="^4.3"
+export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
+export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
+## Decide the reference BISU file by enviroment of production or testing
+export BISU_ENV="production"
+## Import BISU file
+[ "$BISU_ENV" == "production" ] && source "$BISU_PRODUCTION" || [ "$BISU_ENV" == "testing" ] && source "$BISU_TESTING" || {
+    echo "Error: Unable to load BISU" >&2
     exit 1
 }
 export CURRENT_COMMAND="${BASH_SOURCE[0]} $@"
@@ -20,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="1.0"
+export ECS_MANAGER_VERSION="2.0"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="ecs-instances"
 # The below to set the default values for the environment
@@ -47,11 +50,11 @@ export DEBUG_MODE=false
 
 # Universal function to generate proxy command
 generate_proxy_param() {
-    local use_proxy=$(trim "$1")
-    local proxy_ip_addr=$(trim "$2")
-    local proxy_port=$(trim "$3")
+    local use_proxy=$(trim "$USE_PROXY")
+    local proxy_ip_addr=$(trim "$PROXY_ADDR")
+    local proxy_port=$(trim "$PROXY_PORT")
 
-    if [ "$use_proxy" = "true" ] && is_valid_ip "$proxy_ip_addr" && is_valid_port "$proxy_port"; then
+    if [[ "$use_proxy" == "true" ]] && is_valid_ip "$proxy_ip_addr" && is_valid_port "$proxy_port"; then
         echo "-o ProxyCommand='nc -x $proxy_ip_addr:$proxy_port %h %p'"
     else
         echo ""
@@ -92,7 +95,7 @@ set_host_info() {
     exact_host_config "$host_name"
     HOST_NAME="$host_name"
 
-    local user_proxy=$(arr_get_val "USER_PROXY") && USE_PROXY="$user_proxy"
+    local use_proxy=$(arr_get_val "USE_PROXY") && USE_PROXY="$use_proxy"
     local use_mosh=$(arr_get_val "USE_MOSH") && USE_MOSH="$use_mosh"
     local username=$(arr_get_val "USERNAME") && USERNAME="$username"
     local host_addr=$(arr_get_val "HOST_ADDR") && HOST_ADDR="$host_addr"
@@ -124,24 +127,31 @@ set_host_info() {
 
 # Prepare ssh command
 prep_ssh_command() {
-    local proxy_cmd=$(trim "$1")
-    local set_account=$(trim "${2:true}")
+    local set_account=$(trim "${1:-true}")
+    local use_proxy=$(trim "${2:-auto}")
+
+    if [[ "$use_proxy" == "auto" ]]; then
+        use_proxy="$USE_PROXY"
+    fi
 
     # If MOSH is not used, connect via SSH
     ssh_command="ssh -p$HOST_PORT"
-    if [[ -n "$proxy_cmd" ]]; then
-        ssh_command="$ssh_command $proxy_cmd"
-    fi
+
     if [[ "$set_account" == "true" ]]; then
         ssh_command="$ssh_command $USERNAME@$HOST_ADDR"
     fi
 
     # Apply PEM file if preferred
     if [ "$PREFER_PEM" == "true" ]; then
-        log_message "Connecting via SSH with PEM..."
+        log_message "Connecting to [$HOST_NAME] via SSH with PEM..."
         ssh_command="$ssh_command -i '$PEM_FILE'"
     else
-        log_message "Connecting via SSH..."
+        log_message "Connecting to [$HOST_NAME] via SSH..."
+    fi
+
+    if [[ "$use_proxy" == "true" ]]; then
+        local proxy_command=$(generate_proxy_param)
+        ssh_command="$ssh_command $proxy_command"
     fi
 
     echo "$ssh_command"
@@ -183,12 +193,27 @@ get_pem_file() {
     echo "$pem_file_dir/$pem_file"
 }
 
+# Prepare command for the remote via ssh protocol
+ssh_remote_command() {
+    local command=$(trim "$1")
+    local conn_str=$(prep_ssh_command)
+    local ssh_command="$conn_str $command"
+    echo "$ssh_command"
+}
+
+# Execute command from the remote via ssh protocol
+remote_exec_command() {
+    local command=$(trim "$1")
+    local ssh_command=$(ssh_remote_command "$command")
+    exec_command "$ssh_command"
+}
+
 # Unified function for SSH and MOSH command execution
 ssh_handle() {
     local operation=$(trim "$1")
     operation="${operation:-connect}"
 
-    if [[ "$operation" != "connect" && "$operation" != "set-hostname" && "$operation" != "rsync" ]]; then
+    if [[ "$operation" != "connect" && "$operation" != "set-hostname" && "$operation" != "rsync" && "$operation" != "remote-command" ]]; then
         error_exit "Invalid operation."
     fi
 
@@ -198,10 +223,8 @@ ssh_handle() {
 
     # Define necessary variables
     local ssh_command=""
-    local proxy_cmd=$(generate_proxy_param "$USE_PROXY" "$PROXY_ADDR" "$PROXY_PORT")
     local conn_str="$USERNAME@$HOST_NAME"
     set_title "$conn_str"
-    local ssh_set_hostname_append="test -f /etc/hostname.backup.default || cp /etc/hostname /etc/hostname.backup.default; hostnamectl set-hostname $HOST_NAME"
 
     # Check if MOSH is to be used
     if [[ "$operation" == "connect" && "$USE_MOSH" = "true" ]]; then
@@ -216,7 +239,7 @@ ssh_handle() {
         fi
 
         # Construct SSH command for MOSH connection
-        ssh_command="ssh -p$HOST_PORT $proxy_cmd $USERNAME@$HOST_ADDR $params"
+        ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
         # Execute the SSH command
         response="$(eval "$ssh_command")"
 
@@ -238,12 +261,16 @@ ssh_handle() {
 
             # Run MOSH client
             mosh-client "$mosh_server_addr" "$mosh_server_port"
+
+        exec_command "$ssh_command"
     else
         # Set hostname
         if [[ "$operation" == "set-hostname" ]]; then
-            ssh_command=$(prep_ssh_command "$proxy_cmd")
+            local remote_set_hostname="test -f /etc/hostname.backup.default || cp /etc/hostname /etc/hostname.backup.default && hostnamectl set-hostname $HOST_NAME"
             log_message "Setting the hostname..."
-            ssh_command="$ssh_command '$ssh_set_hostname_append'"
+            remote_exec_command "$remote_set_hostname"
+        elif [[ "$operation" == "connect" ]]; then
+            remote_exec_command
         elif [[ "$operation" == "rsync" ]]; then
             log_message "Starting rsync..."
             local dest1=$(trim "$2")
@@ -277,33 +304,24 @@ ssh_handle() {
                 set_host_info "$dest2_type"
                 rsync_source="$dest1_path"
                 rsync_dest="$USERNAME@$HOST_ADDR:$dest2_path"
-                ssh_command=$(prep_ssh_command "$proxy_cmd" "false")
+                ssh_command=$(prep_ssh_command "false")
                 ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_source\" \"$rsync_dest\""
-            elif [[ "$dest2_type" == "local" && "$dest1_type" != "local" ]]; then
+                exec_command "$ssh_command"
+            elif [[ "$dest1_type" != "local" && "$dest2_type" == "local" ]]; then
                 set_host_info "$dest1_type"
-                rsync_dest="$dest2_path"
                 rsync_source="$USERNAME@$HOST_ADDR:$dest1_path"
-                ssh_command=$(prep_ssh_command "$proxy_cmd" "false")
-                ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_dest\" \"$rsync_source\""
+                rsync_dest="$dest2_path"
+                ssh_command=$(prep_ssh_command "false")
+                ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_source\" \"$rsync_dest\""
+                exec_command "$ssh_command"
             else
                 error_exit "Invalid destination(s), please check the correcness of the location tag(s)."
             fi
-        elif [[ "$operation" == "exec" ]]; then
+        elif [[ "$operation" == "remote-command" ]]; then
             local remote_command=$(trim "$3")
-            if [[ -z "$remote_command" ]]; then
-                usage
-            fi
-            ssh_command="$ssh_command '$remote_command'"
+            remote_exec_command "$remote_command"
         else
             usage
-        fi
-
-        if [[ "$DEBUG_MODE" == "true" ]]; then
-            log_message "Debug Mode is On."
-            log_message "Raw Command: $ssh_command"
-        else
-            # Execute SSH command
-            eval "$ssh_command"
         fi
 
         log_message "Done."
@@ -315,9 +333,9 @@ usage() {
     local current_file_path=$(current_file)
     log_message "Usage: $(basename "$current_file_path") connect <host_name>"
     log_message "       $(basename "$current_file_path") set-hostname <host_name>"
-    log_message "       $(basename "$current_file_path") rsync <host_name> 'local:/path/to/source' 'remote:/path/to/destination'"
-    log_message "       $(basename "$current_file_path") rsync <host_name> 'remote:/path/to/source' 'local:/path/to/destination'"
-    log_message "       $(basename "$current_file_path") exec <host_name> <remote_command>"
+    log_message "       $(basename "$current_file_path") rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
+    log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
+    log_message "       $(basename "$current_file_path") remote-command <host_name> <remote_command>"
     exit 1
 }
 
@@ -353,6 +371,11 @@ main() {
     "rsync")
         # Call the SSH/MOSH handler with the parameters
         ssh_handle "rsync" "$param2" "$param3"
+        ;;
+    "remote-command")
+        # Call the SSH/MOSH handler with the parameters
+        set_host_info "$param2"
+        ssh_handle "remote-command" "$param2" "$param3"
         ;;
     *)
         usage
