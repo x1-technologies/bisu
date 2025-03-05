@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.2.2"
+export BISU_VERSION="4.2.3"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -563,9 +563,11 @@ array_unique() {
 # $1 - Version number to validate.
 # Returns: 0 if valid, 1 if invalid.
 is_valid_version() {
-    local version=$(trim "$1")
-    # Check for version formats
-    if [[ "$version" =~ ^[v]?[0-9]+(\.[0-9]+)*(/[0-9]+)*$ ]]; then
+    local version
+    version=$(trim "$1")
+
+    # Check for valid version formats: optional leading space, optional 'v', followed by numbers and dots
+    if [[ "$version" =~ ^[[:space:]]*v?[0-9]+(\.[0-9]+)*$ ]]; then
         return 0
     else
         error_exit "Invalid version format: $version"
@@ -583,11 +585,17 @@ compare_version() {
     local constraint=$(trim "$1")
     local version=$(trim "$2")
 
+    # Normalize version input (strip leading 'v' or spaces)
+    version="${version//v/}" # Remove 'v' prefix if it exists
+    version="${version// /}" # Remove any spaces
+
     # Extract operator and version part from constraint
     local operator="="
     if [[ "$constraint" =~ ^([<>!=~^]+)([0-9].*)$ ]]; then
         operator="${BASH_REMATCH[1]}"
         constraint="${BASH_REMATCH[2]}"
+        constraint="${constraint//v/}" # Remove 'v' prefix if it exists
+        constraint="${constraint// /}" # Remove any spaces
     fi
 
     # Function to compare two versions numerically
@@ -595,21 +603,21 @@ compare_version() {
         local ver1="$1"
         local ver2="$2"
 
-        if ! is_valid_version "$ver1" || ! is_valid_version "$ver2"; then
-            echo 0
-        fi
-
-        declare version_labels
-        # Safely defining keys to avoid syntax issues
+        declare -a version_labels
+        # Define version labels for pre-release versions
         version_labels=(
-            [dev]=-3 [alpha]=-2 [a]=-2 [beta]=-1 [b]=-1 [RC]=0 [rc]=0 [pl]=2 [p]=2
+            [dev]=-3 [alpha]=-2 [a]=-2 [beta]=-1 [b]=-1 [rc]=0 [RC]=0
+            [stable]=1 [final]=1 [pl]=2 [p]=2 [snapshot]=3 [milestone]=4 [pre]=0
+            [v]=0 [release]=5
         )
 
+        # Normalize version parts (replace '~' with '0.' and remove '^' since they're not part of the actual version)
         ver1="${ver1//~/0.}"
         ver1="${ver1//^/}"
         ver2="${ver2//~/0.}"
         ver2="${ver2//^/}"
 
+        # Split versions by '.' and '-'
         IFS='.-' read -ra v1 <<<"$ver1"
         IFS='.-' read -ra v2 <<<"$ver2"
 
@@ -620,6 +628,7 @@ compare_version() {
             [[ -z "$s1" ]] && s1=0
             [[ -z "$s2" ]] && s2=0
 
+            # Numeric comparison of each segment
             if [[ "$s1" =~ ^[0-9]+$ && "$s2" =~ ^[0-9]+$ ]]; then
                 if ((10#$s1 > 10#$s2)); then
                     echo 1
@@ -630,6 +639,7 @@ compare_version() {
                     return
                 fi
             else
+                # Compare pre-release versions (like alpha, beta)
                 s1=${version_labels[$s1]:-$s1}
                 s2=${version_labels[$s2]:-$s2}
 
@@ -653,7 +663,6 @@ compare_version() {
 
     case "$operator" in
     "=")
-        # Ensure cmp_result is a valid integer before comparison
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
             [ "$cmp_result" -eq 0 ] && echo 1 || echo 0
         else
@@ -696,11 +705,9 @@ compare_version() {
         fi
         ;;
     "~" | "^")
-        # Check if cmp_result is a valid integer and not empty
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
             version_check=$(compare_raw_versions "$version" "${constraint%.*}.999")
 
-            # Check if the result of compare_raw_versions is valid integer and not empty
             if [[ "$version_check" =~ ^-?[0-9]+$ ]]; then
                 if [ "$cmp_result" -ge 0 ] && [ "$version_check" -le 0 ]; then
                     echo 1
@@ -720,6 +727,25 @@ compare_version() {
     esac
 }
 
+# Get bash version
+bash_version() {
+    # Get the first line of the Bash version string
+    local version_string
+    version_string=$(bash --version | head -n 1)
+
+    # Use POSIX awk to extract the version number (e.g., 5.2.37)
+    local version
+    version=$(echo "$version_string" | awk '{print $4}' | cut -d'(' -f1)
+
+    # Ensure it has a valid format (vX.X.X)
+    if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # Prefix with 'v' to match the desired format 'vX.X.X'
+        echo "v$version"
+    else
+        error_exit "Bash version format not recognised"
+    fi
+}
+
 # Function: check_bash_version
 # Description: Verifies that the installed Bash version is greater than or equal to the specified required version.
 # Returns: 0 if Bash version is valid, 1 if not.
@@ -730,7 +756,7 @@ check_bash_version() {
     fi
 
     local expr=">=$MINIMAL_BASH_VERSION"
-    local bash_version=$(bash --version | head -n 1 | awk '{print $4}')
+    local bash_version=$(bash_version)
 
     local result=$(compare_version "$expr" "$bash_version")
     if [[ $result == 0 ]]; then
@@ -743,9 +769,9 @@ check_bash_version() {
 # Returns: 0 if Bash version is valid, 1 if not.
 check_bisu_version() {
     local expr="$THIS_REQUIRED_BISU_VERSION"
-    local result=$(compare_version "$expr" "$bash_version")
+    local result=$(compare_version "$expr" "$BISU_VERSION")
     if [[ $result == 0 ]]; then
-        error_exit "BISU version is not as satisfactory."
+        error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($THIS_REQUIRED_BISU_VERSION)."
     fi
 }
 
