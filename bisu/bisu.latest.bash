@@ -2,14 +2,12 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.2.1"
+export BISU_VERSION="4.2.2"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 
-# Set PS1
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
-# Set PS4
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export AUTORUN=(
     'trap "wait" SIGCHLD'
@@ -259,7 +257,7 @@ log_message() {
 error_exit() {
     local msg=$(trim "$1")
     log_message "Error: $msg" "true"
-    exit 1
+    eval 'kill -TERM "$$" >/dev/null 2>&1' >/dev/null 2>&1
 }
 
 # Function: add_env_path
@@ -570,7 +568,7 @@ is_valid_version() {
     if [[ "$version" =~ ^[v]?[0-9]+(\.[0-9]+)*(/[0-9]+)*$ ]]; then
         return 0
     else
-        log_message "Invalid version format: $version"
+        error_exit "Invalid version format: $version"
         return 1
     fi
 }
@@ -601,9 +599,10 @@ compare_version() {
             echo 0
         fi
 
-        declare -A version_labels
+        declare version_labels
+        # Safely defining keys to avoid syntax issues
         version_labels=(
-            ["dev"]=-3 ["alpha"]=-2 ["a"]=-2 ["beta"]=-1 ["b"]=-1 ["RC"]=0 ["rc"]=0 ["#"]=1 ["pl"]=2 ["p"]=2
+            [dev]=-3 [alpha]=-2 [a]=-2 [beta]=-1 [b]=-1 [RC]=0 [rc]=0 [pl]=2 [p]=2
         )
 
         ver1="${ver1//~/0.}"
@@ -653,15 +652,71 @@ compare_version() {
     local cmp_result=$(compare_raw_versions "$version" "$constraint")
 
     case "$operator" in
-    "=") [[ $cmp_result -eq 0 ]] && echo 1 || echo 0 ;;
-    "!=") [[ $cmp_result -ne 0 ]] && echo 1 || echo 0 ;;
-    "<") [[ $cmp_result -lt 0 ]] && echo 1 || echo 0 ;;
-    "<=") [[ $cmp_result -le 0 ]] && echo 1 || echo 0 ;;
-    ">") [[ $cmp_result -gt 0 ]] && echo 1 || echo 0 ;;
-    ">=") [[ $cmp_result -ge 0 ]] && echo 1 || echo 0 ;;
-    "~") [[ $cmp_result -ge 0 && $(compare_raw_versions "$version" "${constraint%.*}.999") -le 0 ]] && echo 1 || echo 0 ;;
-    "^") [[ $cmp_result -ge 0 && $(compare_raw_versions "$version" "${constraint%%.*}.999") -le 0 ]] && echo 1 || echo 0 ;;
-    *) echo 0 ;;
+    "=")
+        # Ensure cmp_result is a valid integer before comparison
+        if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
+            [ "$cmp_result" -eq 0 ] && echo 1 || echo 0
+        else
+            echo 0
+        fi
+        ;;
+    "!=")
+        if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
+            [ "$cmp_result" -ne 0 ] && echo 1 || echo 0
+        else
+            echo 0
+        fi
+        ;;
+    "<")
+        if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
+            [ "$cmp_result" -lt 0 ] && echo 1 || echo 0
+        else
+            echo 0
+        fi
+        ;;
+    "<=")
+        if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
+            [ "$cmp_result" -le 0 ] && echo 1 || echo 0
+        else
+            echo 0
+        fi
+        ;;
+    ">")
+        if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
+            [ "$cmp_result" -gt 0 ] && echo 1 || echo 0
+        else
+            echo 0
+        fi
+        ;;
+    ">=")
+        if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
+            [ "$cmp_result" -ge 0 ] && echo 1 || echo 0
+        else
+            echo 0
+        fi
+        ;;
+    "~" | "^")
+        # Check if cmp_result is a valid integer and not empty
+        if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
+            version_check=$(compare_raw_versions "$version" "${constraint%.*}.999")
+
+            # Check if the result of compare_raw_versions is valid integer and not empty
+            if [[ "$version_check" =~ ^-?[0-9]+$ ]]; then
+                if [ "$cmp_result" -ge 0 ] && [ "$version_check" -le 0 ]; then
+                    echo 1
+                else
+                    echo 0
+                fi
+            else
+                echo 0
+            fi
+        else
+            echo 0
+        fi
+        ;;
+    *)
+        echo 0
+        ;;
     esac
 }
 
@@ -677,7 +732,7 @@ check_bash_version() {
     local expr=">=$MINIMAL_BASH_VERSION"
     local bash_version=$(bash --version | head -n 1 | awk '{print $4}')
 
-    local result=$(compare_versions "$expr" "$bash_version")
+    local result=$(compare_version "$expr" "$bash_version")
     if [[ $result == 0 ]]; then
         error_exit "Bash version is not compatible with the minimal required version."
     fi
@@ -688,7 +743,7 @@ check_bash_version() {
 # Returns: 0 if Bash version is valid, 1 if not.
 check_bisu_version() {
     local expr="$THIS_REQUIRED_BISU_VERSION"
-    local result=$(compare_versions "$expr" "$bash_version")
+    local result=$(compare_version "$expr" "$bash_version")
     if [[ $result == 0 ]]; then
         error_exit "BISU version is not as satisfactory."
     fi
