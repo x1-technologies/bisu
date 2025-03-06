@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.3.1"
+export BISU_VERSION="4.4.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -1095,40 +1095,37 @@ current_lock_file() {
     echo "$LOCK_FILE"
 }
 
-# Get the real path
-get_real_path() {
+# Get the file's real path
+file_real_path() {
     local file=$(trim "$1")
-    local find_in_path=$(trim "$2")
-    find_in_path="${find_in_path:-$(pwd)}"
 
-    if [[ -z "$file" ]]; then
+    # Return empty if file name is missing or only spaces (illegal case)
+    if [ -z "$file" ]; then
         echo ""
         return
     fi
 
-    $file=$(eval echo "$file")
+    # Expand any shell variables and tilde (~) safely
+    eval file="$file"
 
-    if string_starts_with "$file" "/" && is_file "$file"; then
+    # Normalize multiple slashes, remove spaces around slashes using awk
+    file="$(echo "$file" | awk '{gsub(/ *\/\/+ */, "/"); gsub(/ \/ /, "/")}1')"
+
+    # Convert relative paths starting with "." to absolute paths
+    case "$file" in
+    . | ./) file="$(pwd)" ;;
+    .*) file="$(pwd)/$(basename "$file")" ;;
+    esac
+
+    # Ensure final path does not contain redundant slashes or trailing spaces
+    file="$(echo "$file" | awk '{gsub(/ *\/\/+ */, "/"); gsub(/ *$/, "")}1')"
+
+    # Return valid file path if it exists, for both files and directories
+    if [ -f "$file" ] || [ -d "$file" ]; then
         echo "$file"
-        return
-    fi
-
-    local find_in_path="$find_in_path"
-
-    if string_ends_with "$find_in_path" "/"; then
-        find_in_path=$(trim_suffix "$find_in_path" "/")
-    fi
-
-    if [[ "$find_in_path" == "." ]]; then
-        find_in_path="$(dirname "$CURRENT_FILE_PATH")"
-    fi
-
-    if ! is_file "$find_in_path/$file"; then
+    else
         echo ""
-        return
     fi
-
-    echo "$find_in_path/$file"
 }
 
 # Function to acquire a lock to prevent multiple instances
