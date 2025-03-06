@@ -11,7 +11,7 @@ export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 export BISU_ENV="production"
 ## Import BISU file
 [ "$BISU_ENV" == "production" ] && source "$BISU_PRODUCTION" || [ "$BISU_ENV" == "testing" ] && source "$BISU_TESTING" || {
-    echo "Error: Unable to load BISU" >&2
+    echo -e "Error: Unable to load BISU" >&2
     exit 1
 }
 export CURRENT_COMMAND="${BASH_SOURCE[0]} $@"
