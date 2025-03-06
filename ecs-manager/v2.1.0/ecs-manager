@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="^4.3"
+export THIS_REQUIRED_BISU_VERSION="^4.4"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -23,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.0.1"
+export ECS_MANAGER_VERSION="2.1.0"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="ecs-instances"
 # The below to set the default values for the environment
@@ -282,7 +282,7 @@ ssh_handle() {
             fi
 
             # Validate format: "local:/path" or "remote:/path"
-            local valid_regex="^(.+):/.+$"
+            local valid_regex="^(.+):(.+)$"
             if [[ ! "$dest1" =~ $valid_regex ]]; then
                 error_exit "Invalid format for dest1."
             fi
@@ -302,6 +302,10 @@ ssh_handle() {
 
             if [[ "$dest1_type" == "local" && "$dest2_type" != "local" ]]; then
                 set_host_info "$dest2_type"
+                dest1_path=$(file_real_path "$dest1_path")
+                if [[ -z "$dest1_path" ]]; then
+                    error_exit "Invalid path of dest1."
+                fi
                 rsync_source="$dest1_path"
                 rsync_dest="$USERNAME@$HOST_ADDR:$dest2_path"
                 ssh_command=$(prep_ssh_command "false")
@@ -309,6 +313,10 @@ ssh_handle() {
                 exec_command "$ssh_command"
             elif [[ "$dest1_type" != "local" && "$dest2_type" == "local" ]]; then
                 set_host_info "$dest1_type"
+                dest2_path=$(file_real_path "$dest2_path")
+                if [[ -z "$dest2_path" ]]; then
+                    error_exit "Invalid path of dest2."
+                fi
                 rsync_source="$USERNAME@$HOST_ADDR:$dest1_path"
                 rsync_dest="$dest2_path"
                 ssh_command=$(prep_ssh_command "false")
