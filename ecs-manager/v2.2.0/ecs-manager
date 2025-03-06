@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="^4.4"
+export THIS_REQUIRED_BISU_VERSION="^4.4.1"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -23,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.1.0"
+export ECS_MANAGER_VERSION="2.2.0"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="ecs-instances"
 # The below to set the default values for the environment
@@ -339,6 +339,80 @@ ssh_handle() {
     fi
 }
 
+# ED25519 key generation
+gen_ed25519_key() {
+    local key_path=$(trim "$1")
+    key_path=${key_path:-"$HOME/.ssh/id_ed25519"}
+    local strength=$(trim "$2")
+    strength=${strength:-"high"}
+
+    if ! command_exists "ssh-keygen"; then
+        error_exit "ssh-keygen command not found."
+    fi
+
+    key_path=$(file_real_path "$key_path")
+    if [[ -z "$key_path" ]]; then
+        error_exit "Invalid file path."
+    fi
+
+    # Map strength levels to bcrypt-KDF key length
+    local key_length=256
+    case "$strength" in
+    low) key_length=64 ;;
+    moderate) key_length=128 ;;
+    high) key_length=256 ;;
+    extreme) key_length=512 ;;
+    *)
+        error_exit "Invalid encryption strength: $strength"
+        ;;
+    esac
+
+    key_dir="$(dirname "$key_path")"
+    mkdir_p "$key_dir"
+    local pem="$key_path"
+    local pem_pub="$pem.pub"
+
+    local temp_dir="/tmp/".$(date +'%Y-%m-%d')
+    mkdir_p "$temp_dir"
+    local temp_pem="$temp_dir/ed25519.pem"
+    local temp_pem_pub="$temp_pem.pub"
+
+    exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$(whoami)@$(hostname)\" -N \"\"" "false"
+    chmod 600 "$temp_pem"
+    chmod 600 "$temp_pem_pub"
+    move_file "$temp_pem" "$pem" || {
+        error_exit "Failed to generate ed25519 pem, please retry."
+    }
+    move_file "$temp_pem_pub" "$pem_pub" || {
+        error_exit "Failed to generate ed25519 pem, please retry."
+    }
+
+    local rsa_equivalent=""
+    case "$key_length" in
+    64)
+        rsa_equivalent="1024"
+        ;;
+    128)
+        rsa_equivalent="2048"
+        ;;
+    256)
+        rsa_equivalent="4096"
+        ;;
+    512)
+        rsa_equivalent="8192"
+        ;;
+    *)
+        rsa_equivalent="unknown"
+        return 1
+        ;;
+    esac
+
+    log_message "✅ ed25519 key files were successfully generated."
+    log_message "🔑 ed25519 key length: $key_length bit (RSA Equivalent: $rsa_equivalent bit)"
+    log_message "🔑 Private key file: $pem"
+    log_message "🔑 Public  key file: $pem_pub"
+}
+
 # Usage information
 usage() {
     local current_file_path=$(current_file)
@@ -347,6 +421,7 @@ usage() {
     log_message "       $(basename "$current_file_path") rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
     log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
     log_message "       $(basename "$current_file_path") remote-command <host_name> <remote_command>"
+    log_message "       $(basename "$current_file_path") ssh-keygen <specified_file_path> [strength=low|moderate|*high|extreme]"
     exit 1
 }
 
@@ -387,6 +462,10 @@ main() {
         # Call the SSH/MOSH handler with the parameters
         set_host_info "$param2"
         ssh_handle "remote-command" "$param2" "$param3"
+        ;;
+    "ssh-keygen")
+        # Generate a pair of regular ed25519 keys
+        gen_ed25519_key "$param2" "$param3"
         ;;
     *)
         usage
