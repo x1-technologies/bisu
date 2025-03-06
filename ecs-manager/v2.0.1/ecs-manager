@@ -23,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.0"
+export ECS_MANAGER_VERSION="2.0.1"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="ecs-instances"
 # The below to set the default values for the environment
@@ -319,6 +319,9 @@ ssh_handle() {
             fi
         elif [[ "$operation" == "remote-command" ]]; then
             local remote_command=$(trim "$3")
+            if [[ -z "$remote_command" ]]; then
+                error_exit "Please input a command for the remote running."
+            fi
             remote_exec_command "$remote_command"
         else
             usage
