@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.4.0"
+export BISU_VERSION="4.4.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -266,6 +266,8 @@ error_exit() {
 # Execute command
 exec_command() {
     local command=$(trim "$1")
+    local output=$(trim "$2")
+    output=${output:-true}
 
     if [[ -z "$command" ]]; then
         return 1
@@ -276,9 +278,15 @@ exec_command() {
         log_message "* Raw Command: $command"
     else
         # Execute SSH command
-        eval "$command" || {
-            error_exit "Failed to execute command: $command"
-        }
+        if [[ "$output" == "true" ]]; then
+            eval "$command" || {
+                error_exit "Failed to execute command: $command"
+            }
+        else
+            eval "$command" >/dev/null 2>&1 || {
+                error_exit "Failed to execute command: $command"
+            }
+        fi
     fi
 
     return 0
@@ -1095,9 +1103,11 @@ current_lock_file() {
     echo "$LOCK_FILE"
 }
 
-# Get the file's real path
+# Get the file's real path and verify the base folder's existence
 file_real_path() {
     local file=$(trim "$1")
+    local check_base_existence=$(trim "$2")
+    check_base_existence=${check_base_existence:-true}
 
     # Return empty if file name is missing or only spaces (illegal case)
     if [ -z "$file" ]; then
@@ -1120,11 +1130,16 @@ file_real_path() {
     # Ensure final path does not contain redundant slashes or trailing spaces
     file="$(echo "$file" | awk '{gsub(/ *\/\/+ */, "/"); gsub(/ *$/, "")}1')"
 
-    # Return valid file path if it exists, for both files and directories
-    if [ -f "$file" ] || [ -d "$file" ]; then
-        echo "$file"
+    if [ "$check_base_existence" == "true" ]; then
+        # Return valid file path if it exists, for both files and directories
+        if [ -f "$file" ] || [ -d "$file" ]; then
+            # Return the normalized file path if the base folder is valid
+            echo "$file"
+        else
+            echo ""
+        fi
     else
-        echo ""
+        echo "$file"
     fi
 }
 
