@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.6.0"
+export BISU_VERSION="4.7.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -322,6 +322,37 @@ exec_command() {
     return 0
 }
 
+# Confirmation method
+confirm() {
+    local message=$(trim "$1")
+    local default=$(trim "$2")
+    local prompt="[y/n]"
+
+    case "$default" in
+    [Yy]*) prompt="[Y/n]" ;; # Default Yes (uppercase Y)
+    [Nn]*) prompt="[y/N]" ;; # Default No (uppercase N)
+    esac
+
+    while true; do
+        log_message "$message $prompt "
+        read -r response
+
+        # If user just presses Enter, use default
+        if [ -z "$response" ]; then
+            case "$default" in
+            [Yy]*) return 0 ;;
+            [Nn]*) return 1 ;;
+            esac
+        fi
+
+        case "$response" in
+        [Yy]) return 0 ;; # Yes
+        [Nn]) return 1 ;; # No
+        *) return 1 ;;    # No
+        esac
+    done
+}
+
 # Function: add_env_path
 # Description: To robustly add new path to append
 add_env_path() {
@@ -375,7 +406,6 @@ is_dir() {
 file_exists() {
     local filepath=$(trim "$1")
     if ! (is_file "$filepath" || is_dir "$filepath"); then
-        log_message "File or dir $filepath does not exist."
         return 1
     fi
     return 0
@@ -462,28 +492,35 @@ touch_dir() {
 # Function: move_file
 # Description: Moves any file to the specified target path.
 # Arguments:
-#   $1 - File to move (source path).
+#   $1 - Source to move (source path).
 #   $2 - Target path (destination directory).
 # Returns: 0 if successful, 1 if failure.
 move_file() {
-    local source_file=$(trim "$1")
-    local target_dir=$(trim "$2")
+    local source_path=$(trim "$1")
+    local target_path=$(trim "$2")
+    local target_dir=""
 
-    # Check if the source file exists
-    if [[ ! -f "$source_file" ]]; then
-        log_message "Source file $source_file does not exist."
+    # Check if the source_path exists
+    if [[ ! -e "$source_path" ]]; then
+        log_message "Source $source_path does not exist."
         return 1
+    fi
+
+    if [[ -d "$target_path" ]]; then
+        target_dir="$target_path"
+    else
+        target_dir=$(dirname "$target_path")
     fi
 
     # Touch dir
     touch_dir "$target_dir"
 
     # Move the file to the target path
-    exec_command "mv \"$source_file\" \"$target_dir\""
+    exec_command "mv \"$source_path\" \"$target_path\""
 
     # Check if the move was successful
     if [[ $? != 0 ]]; then
-        log_message "Failed to move file $source_file to $target_dir"
+        log_message "Failed to move file $source_path to $target_path"
         return 1
     fi
 
