@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.4.2"
+export BISU_VERSION="4.5.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -195,7 +195,7 @@ current_log_file() {
 
     # Create directory if it doesn't exist
     if [[ ! -d "$log_file_dir" ]]; then
-        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
+        exec_command "mkdir -p \"$log_file_dir\"" && exec_command "chmod -R 755 \"$log_file_dir\"" || {
             echo -e "Error: Failed to create or set permissions for $log_file_dir" >&2
             exit 1
         }
@@ -205,7 +205,7 @@ current_log_file() {
     LOG_FILE_DIR="$log_file_dir"
     log_file="$log_file_dir/$filename.log"
 
-    touch "$log_file" || {
+    exec_command "touch \"$log_file\"" || {
         echo -e "Error: Failed to create log file $log_file" >&2
         exit 1
     }
@@ -238,7 +238,7 @@ log_message() {
 
     # Create the log file if it doesn't exist
     if [[ ! -f "$log_file" ]]; then
-        touch "$log_file" || {
+        exec_command "touch \"$log_file\"" || {
             echo -e "Failed to create log file $log_file" >&2
             exit 1
         }
@@ -352,7 +352,7 @@ file_exists() {
 }
 
 # Ensure invalid characters that will not be applied to folders
-is_sanitised_input() {
+is_sanitised_filename() {
     local input="$1"
 
     input=$(trim "$input")
@@ -376,11 +376,13 @@ is_sanitised_input() {
 # mkdir_p
 mkdir_p() {
     local dir=$(trim "$1")
-    local dir_frill=${2:-""}
-    local start_string=${3:-""}
+    local dir_frill=$(trim "$2")
+    dir_frill=${dir_frill:-""}
+    local start_string=$(trim "$3")
+    start_string=${start_string:-""}
 
     # Validate input directory name
-    is_sanitised_input "$dir" || {
+    is_sanitised_filename "$dir" || {
         log_message "No legal directory name provided."
         return 1
     }
@@ -394,11 +396,11 @@ mkdir_p() {
 
     # Check if the directory exists, if not, create it
     if [[ ! -d "$dir" ]]; then
-        mkdir -p "$dir" || {
+        exec_command "mkdir -p \"$dir\"" || {
             log_message "Failed to create $dir_description"
             return 1
         }
-        chmod -R 755 "$dir" || {
+        exec_command "chmod -R 755 \"$dir\"" || {
             log_message "Failed to change permissions for $dir_description"
             return 1
         }
@@ -442,13 +444,14 @@ move_file() {
     touch_dir "$target_dir"
 
     # Move the file to the target path
-    mv "$source_file" "$target_dir"
+    exec_command "mv \"$source_file\" \"$target_dir\""
 
     # Check if the move was successful
     if [[ $? != 0 ]]; then
         log_message "Failed to move file $source_file to $target_dir"
         return 1
     fi
+
     return 0
 }
 
@@ -1111,17 +1114,23 @@ file_real_path() {
     check_base_existence=${check_base_existence:-true}
 
     # Return empty if file name is missing or only spaces (illegal case)
-    if [ -z "$file" ]; then
+    if ! is_sanitised_filename "$file"; then
         echo ""
         return
     fi
 
     # Expand any shell variables and tilde (~) safely
     eval file="$file"
-    file=$(echo "$file" | sed 's|^~|'"$HOME"'|')
+    file=$(echo "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}')
 
-    # Normalize multiple slashes, remove spaces around slashes using awk
-    file="$(echo "$file" | awk '{gsub(/ *\/\/+ */, "/"); gsub(/ \/ /, "/")}1')"
+    # Normalize multiple slashes and remove spaces around slashes using awk
+    file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/ \/ /, "/"); print $0}')
+
+    # Check if the path is relative or absolute
+    if [[ "$file" != /* ]]; then
+        # If the path is relative (does not start with '/'), resolve it with the current directory
+        file="$(pwd)/$file"
+    fi
 
     # Convert relative paths starting with "." or ".." to absolute paths
     case "$file" in
@@ -1131,12 +1140,16 @@ file_real_path() {
         ;;
     .*)
         # If the path starts with '.', resolve it with the current directory
-        file="$(pwd)/$(basename "$file")"
+        file="$(pwd)/${file#./}"
+        ;;
+    ..*)
+        # If the path starts with '..', resolve it relative to the current directory
+        file="$(pwd)/$file"
         ;;
     esac
 
-    # Ensure final path does not contain redundant slashes or trailing spaces
-    file="$(echo "$file" | awk '{gsub(/ *\/\/+ */, "/"); gsub(/ *$/, "")}1')"
+    # Ensure final path does not contain redundant slashes or trailing spaces using awk
+    file=$(echo "$file" | awk '{gsub(/\/+$/, ""); gsub(/\/$/, ""); print $0}')
 
     # If `check_base_existence` is true, verify the file or directory exists
     if [ "$check_base_existence" == "true" ]; then
@@ -1173,7 +1186,7 @@ cleanup() {
     fi
 
     for pid in "${SUBPROCESSES_PIDS[@]}"; do
-        kill -SIGTERM "$pid" 2>/dev/null
+        exec_command "kill -SIGTERM \"$pid\"" "false"
     done
 
     exit_with_commands
@@ -1185,7 +1198,7 @@ cleanup() {
 call_func() {
     local func_name="$1"
     shift # Remove the function name from the parameter list
-    if declare -f "$func_name" >/dev/null; then
+    if declare -f "$func_name" >/dev/null 2>&1; then
         "$func_name" "$@" # Call the function with the remaining parameters
     else
         log_message "Function '$func_name' not found."
