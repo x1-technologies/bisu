@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.5.2"
+export BISU_VERSION="4.6.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -110,7 +110,24 @@ strtoupper() {
 # Function: substr
 # Description: According to its naming
 substr() {
-    echo "${1:$(($2 < 0 ? ${#1} + $2 : $2)):$3}"
+    local string="$1"
+    local offset="$2"
+    local length="${3:-${#string}}"
+
+    if ((offset < 0)); then
+        offset=$((${#string} + offset))
+    fi
+
+    if ((offset < 0 || offset >= ${#string})); then
+        echo ""
+        return
+    fi
+
+    if ((length < 0)); then
+        length=$((${#string} - offset + length))
+    fi
+
+    echo "${string:offset:length}"
 }
 
 # Function: md5_sign
@@ -142,7 +159,20 @@ string_starts_with() {
 
 # Check string end with
 string_ends_with() {
-    [[ "${1: -${#2}}" == "$2" ]]
+    local input_string=$1
+    local end_string=$2
+
+    # Ensure input_string is not empty and end_string is not longer than input_string
+    if [[ -z "$input_string" || -n "$end_string" && ${#end_string} -gt ${#input_string} ]]; then
+        return 1
+    fi
+
+    # Use pattern matching like string_starts_with
+    if [[ "$input_string" == *"$end_string" ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 # Check if the current user is root (UID 0)
@@ -390,6 +420,11 @@ mkdir_p() {
         log_message "No legal directory name provided."
         return 1
     }
+
+    # Directly return if the directory does exist
+    if [ -d "$dir" ]; then
+        return 0
+    fi
 
     # Prepare the directory description with a frill if provided
     local dir_description="${dir_frill:+ $dir_frill}dir: $dir"
