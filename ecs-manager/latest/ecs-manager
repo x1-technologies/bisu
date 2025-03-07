@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="^4.4.1"
+export THIS_REQUIRED_BISU_VERSION="^4.5.1"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -23,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.2.0"
+export ECS_MANAGER_VERSION="2.2.2"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="ecs-instances"
 # The below to set the default values for the environment
@@ -350,10 +350,12 @@ gen_ed25519_key() {
         error_exit "ssh-keygen command not found."
     fi
 
-    key_path=$(file_real_path "$key_path")
+    key_path=$(file_real_path "$key_path" "false")
     if [[ -z "$key_path" ]]; then
         error_exit "Invalid file path."
     fi
+    local key_dir=$(dirname "$key_path")
+    mkdir_p "$key_dir"
 
     # Map strength levels to bcrypt-KDF key length
     local key_length=256
@@ -367,8 +369,6 @@ gen_ed25519_key() {
         ;;
     esac
 
-    key_dir="$(dirname "$key_path")"
-    mkdir_p "$key_dir"
     local pem="$key_path"
     local pem_pub="$pem.pub"
 
@@ -378,14 +378,15 @@ gen_ed25519_key() {
     local temp_pem_pub="$temp_pem.pub"
 
     exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$(whoami)@$(hostname)\" -N \"\"" "false"
-    chmod 600 "$temp_pem"
-    chmod 600 "$temp_pem_pub"
+    exec_command "chmod 600 \"$temp_pem\""
+    exec_command "chmod 600 \"$temp_pem_pub\""
     move_file "$temp_pem" "$pem" || {
         error_exit "Failed to generate ed25519 pem, please retry."
     }
     move_file "$temp_pem_pub" "$pem_pub" || {
         error_exit "Failed to generate ed25519 pem, please retry."
     }
+    exec_command "rm -r \"$temp_dir\"" "false"
 
     local rsa_equivalent=""
     case "$key_length" in
