@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.5.1"
+export BISU_VERSION="4.5.2"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -330,14 +330,14 @@ is_numeric() {
 # Description: According to its naming
 is_file() {
     local filepath=$(trim "$1")
-    [[ -z "$filepath" || ! -f "$filepath" || ! -e "$filepath" ]] && return 1 || return 0
+    [[ -z "$filepath" || ! -f "$filepath" ]] && return 1 || return 0
 }
 
 # Function: is_dir
 # Description: According to its naming
 is_dir() {
     local dirpath=$(trim "$1")
-    [[ -z "$dirpath" || ! -d "$dirpath" || ! -e "$dirpath" ]] && return 1 || return 0
+    [[ -z "$dirpath" || ! -d "$dirpath" ]] && return 1 || return 0
 }
 
 # Function: file_exists
@@ -1129,8 +1129,8 @@ file_real_path() {
     *) file="$(pwd)/$file" ;; # Convert relative to absolute
     esac
 
-    # Normalize redundant slashes and remove `./`
-    file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.\//, "/"); print $0}')
+    # Normalize redundant slashes and remove `./` only when it's not at the start
+    file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.\//, "/"); gsub(/\/\.\$/, ""); print $0}')
 
     # Remove trailing slashes (except root "/") and spaces
     file=$(echo "$file" | awk '{gsub(/\/+$/, ""); gsub(/ *$/, ""); print $0}')
