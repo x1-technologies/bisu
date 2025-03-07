@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.5.0"
+export BISU_VERSION="4.5.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -1120,45 +1120,24 @@ file_real_path() {
     fi
 
     # Expand any shell variables and tilde (~) safely
-    eval file="$file"
+    exec_command "eval file=\"$file\"" "false"
     file=$(echo "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}')
 
-    # Normalize multiple slashes and remove spaces around slashes using awk
-    file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/ \/ /, "/"); print $0}')
-
-    # Check if the path is relative or absolute
-    if [[ "$file" != /* ]]; then
-        # If the path is relative (does not start with '/'), resolve it with the current directory
-        file="$(pwd)/$file"
-    fi
-
-    # Convert relative paths starting with "." or ".." to absolute paths
+    # Convert relative path to absolute if necessary
     case "$file" in
-    . | ./)
-        # If the path is '.' or './', set the file path to the current working directory
-        file="$(pwd)"
-        ;;
-    .*)
-        # If the path starts with '.', resolve it with the current directory
-        file="$(pwd)/${file#./}"
-        ;;
-    ..*)
-        # If the path starts with '..', resolve it relative to the current directory
-        file="$(pwd)/$file"
-        ;;
+    /*) : ;;                  # Already absolute
+    *) file="$(pwd)/$file" ;; # Convert relative to absolute
     esac
 
-    # Ensure final path does not contain redundant slashes or trailing spaces using awk
-    file=$(echo "$file" | awk '{gsub(/\/+$/, ""); gsub(/\/$/, ""); print $0}')
+    # Normalize redundant slashes and remove `./`
+    file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.\//, "/"); print $0}')
+
+    # Remove trailing slashes (except root "/") and spaces
+    file=$(echo "$file" | awk '{gsub(/\/+$/, ""); gsub(/ *$/, ""); print $0}')
 
     # If `check_base_existence` is true, verify the file or directory exists
     if [ "$check_base_existence" == "true" ]; then
-        # Return valid file path if it exists, for both files and directories
-        if [ -f "$file" ] || [ -d "$file" ]; then
-            echo "$file"
-        else
-            echo ""
-        fi
+        [ -e "$file" ] && echo "$file" || echo ""
     else
         echo "$file"
     fi
