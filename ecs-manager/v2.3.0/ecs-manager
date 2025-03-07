@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="^4.5.2"
+export THIS_REQUIRED_BISU_VERSION="^4.6.0"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -23,9 +23,9 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.2.4"
+export ECS_MANAGER_VERSION="2.3.0"
 # Set the ecs hosts configs directory path
-export HOSTS_INFO_DIR="ecs-instances"
+export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
 export HOST_NAME=""
 export USE_PROXY=false
@@ -73,7 +73,7 @@ set_pem_file_dir() {
 # Get host configuration from the configuration file
 exact_host_config() {
     local host_name=$(trim "$1")
-    local host_config_file="$(dirname "$CURRENT_FILE_PATH")/$HOSTS_INFO_DIR/$host_name.yml"
+    local host_config_file="$HOSTS_INFO_DIR/$host_name.yml"
 
     if ! is_file "$host_config_file"; then
         error_exit "The host [$host_name] config file was not found."
@@ -339,6 +339,44 @@ ssh_handle() {
     fi
 }
 
+# Shortcut for ls
+list_hosts() {
+    local sub_folder=$(trim "$1")
+    local host_config_dir="$HOSTS_INFO_DIR"
+
+    if [ -n "$sub_folder" ]; then
+        host_config_dir="$host_config_dir/$sub_folder"
+    fi
+
+    if ! is_dir "$host_config_dir"; then
+        error_exit "There is no specified sub folder."
+    fi
+
+    exec_command "ls -1 \"$host_config_dir\" 2>/dev/null | awk '/\.yml$/ { gsub(/\.yml$/, \"\"); print }'"
+}
+
+#shortcut for vi
+edit() {
+    local host_path=$(trim "$1")
+    local host_config_dir="$HOSTS_INFO_DIR"
+
+    if [ -z "$host_path" ]; then
+        error_exit "There is no specified host."
+    fi
+
+    local host_config_path="$host_config_dir/$host_path.yml"
+
+    if string_ends_with "$host_config_path" ".yml.yml"; then
+        host_config_path=$(substr "$host_config_path" 0 -4)
+    fi
+
+    if ! is_file "$host_config_path"; then
+        error_exit "There is no specified host."
+    fi
+
+    exec_command "vi \"$host_config_path\""
+}
+
 # ED25519 key generation
 gen_ed25519_key() {
     local key_path=$(trim "$1")
@@ -424,6 +462,8 @@ usage() {
     local current_file_path=$(current_file)
     log_message "Usage: $(basename "$current_file_path") connect <host_name>"
     log_message "       $(basename "$current_file_path") set-hostname <host_name>"
+    log_message "       $(basename "$current_file_path") ls [specified_folder]"
+    log_message "       $(basename "$current_file_path") edit <specified_host>"
     log_message "       $(basename "$current_file_path") rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
     log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
     log_message "       $(basename "$current_file_path") remote-command <host_name> <remote_command>"
@@ -449,6 +489,8 @@ main() {
     PREFER_PEM="${PREFER_PEM:-true}"
     PEM_FILE="${PEM_FILE:-}"
 
+    mkdir_p "$HOSTS_INFO_DIR"
+
     case "$action" in
     "connect")
         # Call the SSH/MOSH handler with the parameters
@@ -459,6 +501,14 @@ main() {
         # Call the SSH/MOSH handler with the parameters
         set_host_info "$param2"
         ssh_handle "set-hostname"
+        ;;
+    "ls")
+        # Call the SSH/MOSH handler with the parameters
+        list_hosts "$param2"
+        ;;
+    "edit")
+        # Call the SSH/MOSH handler with the parameters
+        edit "$param2"
         ;;
     "rsync")
         # Call the SSH/MOSH handler with the parameters
