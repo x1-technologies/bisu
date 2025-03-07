@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.4.1"
+export BISU_VERSION="4.4.2"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -1105,6 +1105,7 @@ current_lock_file() {
 
 # Get the file's real path and verify the base folder's existence
 file_real_path() {
+    # Trim spaces and handle parameters
     local file=$(trim "$1")
     local check_base_existence=$(trim "$2")
     check_base_existence=${check_base_existence:-true}
@@ -1117,23 +1118,30 @@ file_real_path() {
 
     # Expand any shell variables and tilde (~) safely
     eval file="$file"
+    file=$(echo "$file" | sed 's|^~|'"$HOME"'|')
 
     # Normalize multiple slashes, remove spaces around slashes using awk
     file="$(echo "$file" | awk '{gsub(/ *\/\/+ */, "/"); gsub(/ \/ /, "/")}1')"
 
-    # Convert relative paths starting with "." to absolute paths
+    # Convert relative paths starting with "." or ".." to absolute paths
     case "$file" in
-    . | ./) file="$(pwd)" ;;
-    .*) file="$(pwd)/$(basename "$file")" ;;
+    . | ./)
+        # If the path is '.' or './', set the file path to the current working directory
+        file="$(pwd)"
+        ;;
+    .*)
+        # If the path starts with '.', resolve it with the current directory
+        file="$(pwd)/$(basename "$file")"
+        ;;
     esac
 
     # Ensure final path does not contain redundant slashes or trailing spaces
     file="$(echo "$file" | awk '{gsub(/ *\/\/+ */, "/"); gsub(/ *$/, "")}1')"
 
+    # If `check_base_existence` is true, verify the file or directory exists
     if [ "$check_base_existence" == "true" ]; then
         # Return valid file path if it exists, for both files and directories
         if [ -f "$file" ] || [ -d "$file" ]; then
-            # Return the normalized file path if the base folder is valid
             echo "$file"
         else
             echo ""
