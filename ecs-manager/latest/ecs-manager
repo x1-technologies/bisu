@@ -23,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.4.0"
+export ECS_MANAGER_VERSION="2.4.1"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -485,9 +485,18 @@ edit() {
 
 #shortcut for remove
 remove() {
-    local host_path=$(trim "$1")
+    local param1=$(trim "$1")
+    local param2=$(trim "$2")
+
+    if [[ "$param1" == "-f" ]] || [[ "$param1" == "--force" ]] && [ -n "$param2" ]; then
+        local force="$param1"
+        local host_path="$param2"
+    else
+        local host_path="$param1"
+        local force="$param2"
+    fi
+
     local host_config_dir="$HOSTS_INFO_DIR"
-    local force=$(trim "$2")
     local command=""
     local is_dir="false"
 
