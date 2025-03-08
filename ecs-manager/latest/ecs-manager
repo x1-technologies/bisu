@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="^4.8.0"
+export THIS_REQUIRED_BISU_VERSION="^4.8.1"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -23,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.5.0"
+export ECS_MANAGER_VERSION="2.5.1"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -424,6 +424,10 @@ create() {
         host_config_path=$(substr "$host_config_path" 0 -4)
     fi
 
+    if is_file "$host_config_path"; then
+        error_exit "Specified host already exists."
+    fi
+
     host_config_dir=$(dirname "$host_config_path")
     mkdir_p "$host_config_dir" || {
         error_exit "Failed to mkdir: \"$host_config_dir\""
@@ -448,12 +452,11 @@ PEM_FILE: ""
 EOF
 
     vi "$tmpfile"
-
-    if [ -s "$tmpfile" ]; then
-        move_file "$tmpfile" "$host_config_path" || {
-            error_exit "Failed to create host config."
+    local vi_status=$?
+    if [[ "$vi_status" == 0 ]] && [ -s "$tmpfile" ]; then
+        move_file "$tmpfile" "$host_config_path" "false" && {
+            log_message "Host config file has been saved as: $host_config_path"
         }
-        log_message "Host config file has been saved as: $host_config_path"
     fi
 }
 
