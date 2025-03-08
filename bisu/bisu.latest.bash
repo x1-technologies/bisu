@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.8.0"
+export BISU_VERSION="4.8.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -558,11 +558,14 @@ mkdir_p() {
 # Arguments:
 #   $1 - Source to move (source path).
 #   $2 - Target path (destination directory).
+#   $3 - Force override (optional), if set to "true", will overwrite the target file if it exists.
 # Returns: 0 if successful, 1 if failure.
 move_file() {
     local source_path=$(trim "$1")
     local target_path=$(trim "$2")
     local target_dir=""
+    local force_override=$(trim "$3")
+    force_override=${force_override:-"true"}
 
     # Check if the source_path exists
     if [[ ! -e "$source_path" ]]; then
@@ -583,10 +586,11 @@ move_file() {
     target_path="$file_path"
     target_dir="$file_dir"
 
-    # Touch dir
-    mkdir_p "$target_dir"
+    if [[ "$force_override" == "false" ]] && [[ -e "$target_path" ]]; then
+        return 1
+    fi
 
-    # Move the file to the target path
+    mkdir_p "$target_dir"
     exec_command "mv \"$source_path\" \"$target_path\""
 
     # Check if the move was successful
