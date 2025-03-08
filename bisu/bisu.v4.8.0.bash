@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.7.0"
+export BISU_VERSION="4.8.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -11,7 +11,7 @@ export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export AUTORUN=(
     'trap "wait" SIGCHLD'
-    'trap "set_title "$DEFAULT_TITLE"" EXIT'
+    'trap "set_title \"$DEFAULT_TITLE\"" EXIT'
     'acquire_lock'
     'trap "cleanup" EXIT INT TERM HUP'
 )
@@ -63,7 +63,7 @@ command_path() {
     command_path=$(echo "$1" | awk '{print $1}')
     command_path=$(trim "$command_path")
     [[ -n "$command_path" ]] && echo "$command_path" || {
-        echo -e "Error: Failed to get command path" >&2
+        echo -e "Error: Failed to get command path" 2>&1
         exit 1
     }
 }
@@ -72,7 +72,7 @@ command_path() {
 # Description: According to its naming
 current_command() {
     if [[ -z $CURRENT_COMMAND ]]; then
-        echo -e "Error: Invalid current command" >&2
+        echo -e "Error: Invalid current command" 2>&1
         exit 1
     fi
 
@@ -84,7 +84,7 @@ current_command() {
 current_file() {
     CURRENT_FILE_PATH=$(command_path "$(current_command)")
     if [[ -z $CURRENT_FILE_PATH ]] || ! is_file "$CURRENT_FILE_PATH"; then
-        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" >&2
+        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" 2>&1
         exit 1
     fi
     echo "$CURRENT_FILE_PATH"
@@ -140,7 +140,7 @@ md5_sign() {
 # Description: According to its naming
 current_dir() {
     echo $(dirname $(current_file)) || {
-        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" >&2
+        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" 2>&1
         exit 1
     }
 }
@@ -203,8 +203,9 @@ is_valid_date() {
 current_log_file() {
     local log_file_dir="$LOG_FILE_DIR"
     local log_file=""
+
     local filename=$(basename "$(current_file)") || {
-        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" >&2
+        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" 2>&1
         exit 1
     }
 
@@ -225,8 +226,8 @@ current_log_file() {
 
     # Create directory if it doesn't exist
     if [[ ! -d "$log_file_dir" ]]; then
-        exec_command "mkdir -p \"$log_file_dir\"" && exec_command "chmod -R 755 \"$log_file_dir\"" || {
-            echo -e "Error: Failed to create or set permissions for $log_file_dir" >&2
+        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
+            echo -e "Error: Failed to create or set permissions for $log_file_dir" 2>&1
             exit 1
         }
     fi
@@ -235,14 +236,14 @@ current_log_file() {
     LOG_FILE_DIR="$log_file_dir"
     log_file="$log_file_dir/$filename.log"
 
-    exec_command "touch \"$log_file\"" || {
-        echo -e "Error: Failed to create log file $log_file" >&2
+    touch "$log_file" || {
+        echo -e "Error: Failed to create log file $log_file" 2>&1
         exit 1
     }
 
     # Validate log file creation
     if ! [[ -e "$log_file" && -f "$log_file" ]]; then
-        echo -e "Error: Log file $log_file creation failed" >&2
+        echo -e "Error: Log file $log_file creation failed" 2>&1
         exit 1
     fi
 
@@ -262,14 +263,14 @@ log_message() {
 
     # Ensure the log directory exists
     mkdir -p "$log_dir" || {
-        echo -e "Failed to create log directory: $log_dir" >&2
+        echo -e "Failed to create log directory: $log_dir" 2>&1
         exit 1
     }
 
     # Create the log file if it doesn't exist
     if [[ ! -f "$log_file" ]]; then
-        exec_command "touch \"$log_file\"" || {
-            echo -e "Failed to create log file $log_file" >&2
+        touch "$log_file" || {
+            echo -e "Failed to create log file $log_file" 2>&1
             exit 1
         }
     fi
@@ -277,7 +278,7 @@ log_message() {
     # Log the message with a timestamp to the log file and optionally to stderr
     if [[ "$stderr_flag" == "true" ]]; then
         # Log to both log file and stderr
-        echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file" >&2
+        echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file" 2>&1
     else
         # Log to the log file only
         echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file" >/dev/null
@@ -309,7 +310,7 @@ exec_command() {
     else
         # Execute SSH command
         if [[ "$output" == "true" ]]; then
-            eval "$command" || {
+            eval "$command" 2>&1 || {
                 error_exit "Failed to execute command: $command"
             }
         else
@@ -351,6 +352,50 @@ confirm() {
         *) return 1 ;;    # No
         esac
     done
+}
+
+# Get the file's real path and verify the base folder's existence
+file_real_path() {
+    # Trim spaces and handle parameters
+    local file=$(trim "$1")
+    local check_base_existence=$(trim "$2")
+    check_base_existence=${check_base_existence:-false}
+
+    # Expand shell variables and tilde (~) safely
+    file=$(eval echo "$file")
+    file=$(echo "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}')
+
+    # Convert relative paths to absolute paths
+    case "$file" in
+    /*) : ;;                                              # Already absolute
+    .) file="$(pwd)" ;;                                   # Convert "." to PWD
+    ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
+    ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
+    ../*) file="$(cd "${file%/*}" && pwd)/${file##*/}" ;; # Handle "../file"
+    *) file="$(pwd)/$file" ;;                             # Convert other relative paths
+    esac
+
+    # Normalize redundant slashes and remove `./` safely using POSIX awk
+    file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}')
+
+    # Remove trailing slashes (except root "/") and spaces
+    file=$(echo "$file" | awk '{
+        if (length($0) > 1) gsub(/\/+$/, ""); 
+        gsub(/ *$/, ""); 
+        print $0
+    }')
+
+    # Ensure the root path is handled correctly, i.e., "/" should not be turned into ""
+    if [ "$file" = "/" ]; then
+        file="/"
+    fi
+
+    # If `check_base_existence` is true, verify the file or directory exists
+    if [ "$check_base_existence" = "true" ]; then
+        [ -e "$file" ] && echo "$file" || echo ""
+    else
+        echo "$file"
+    fi
 }
 
 # Function: add_env_path
@@ -411,24 +456,79 @@ file_exists() {
     return 0
 }
 
-# Ensure invalid characters that will not be applied to folders
-is_sanitised_filename() {
-    local input="$1"
+# Get file's extension
+fileext() {
+    # Ensure the input is a valid filename
+    local filename="$1"
 
-    input=$(trim "$input")
-    if [[ -z "$input" ]]; then
+    # Check if the filename is empty
+    if [ -z "$filename" ]; then
+        echo ""
         return 1
     fi
 
-    # Remove ANSI escape sequences (i.e., control characters used for terminal colours or formatting)
-    input=$(echo "$input" | awk '{gsub(/\x1b\[[0-9;]*[a-zA-Z]/, "")}1')
-    # Remove any characters that are not alphanumeric, underscore, or hyphen
-    input=$(echo "$input" | awk '{gsub(/[^a-zA-Z0-9_-]/, "")}1')
+    # Extract the file extension using POSIX awk
+    local ext
+    ext=$(echo "$filename" | awk -F. '{if (NF > 1) {print $NF}}')
+    ext=$(trim "$ext")
 
-    input=$(trim "$input")
-    if [[ -z "$input" ]]; then
+    # Output the extension, or an empty string if no extension is found
+    if [ -z "$ext" ]; then
+        echo ""
+    fi
+
+    echo "$ext"
+    return 0
+}
+
+# Get file info
+get_file_info() {
+    local file=$(trim "$1")
+    file=$(file_real_path "$file")
+    if [ -z "$file" ]; then
         return 1
     fi
+
+    arr_reset || return 1
+
+    local filename=""
+    local file_ext=""
+    local file_path="$file"
+    local file_dir=""
+    local file_exists="false"
+    local file_is_dir="false"
+    local file_is_file="false"
+    local file_has_ext="false"
+
+    if [ -d "$file" ]; then
+        file_is_dir="true"
+        file_exists="true"
+    elif [ -f "$file" ]; then
+        file_is_file="true"
+        file_exists="true"
+    fi
+
+    filename=$(basename "$file")
+    file_dir=$(dirname "$file")
+    file_ext=$(fileext "$file")
+
+    if [ -n "$file_ext" ]; then
+        file_has_ext="true"
+    fi
+
+    if [ "$file_has_ext" == "false" ]; then
+        file_dir="$file_path"
+        filename=""
+    fi
+
+    arr_set_val "FILE_NAME" "$filename"
+    arr_set_val "FILE_EXT" "$file_ext"
+    arr_set_val "FILE_PATH" "$file_path"
+    arr_set_val "FILE_DIR" "$file_dir"
+    arr_set_val "FILE_EXISTS" "$file_exists"
+    arr_set_val "FILE_IS_DIR" "$file_is_dir"
+    arr_set_val "FILE_IS_FILE" "$file_is_file"
+    arr_set_val "FILE_HAS_EXT" "$file_has_ext"
 
     return 0
 }
@@ -436,56 +536,20 @@ is_sanitised_filename() {
 # mkdir_p
 mkdir_p() {
     local dir=$(trim "$1")
-    local dir_frill=$(trim "$2")
-    dir_frill=${dir_frill:-""}
-    local start_string=$(trim "$3")
-    start_string=${start_string:-""}
-
-    # Validate input directory name
-    is_sanitised_filename "$dir" || {
-        log_message "No legal directory name provided."
-        return 1
-    }
-    string_starts_with "$dir" "$start_string" || {
-        log_message "No legal directory name provided."
-        return 1
-    }
-
-    # Directly return if the directory does exist
-    if [ -d "$dir" ]; then
-        return 0
-    fi
-
-    # Prepare the directory description with a frill if provided
-    local dir_description="${dir_frill:+ $dir_frill}dir: $dir"
+    dir=$(file_real_path "$dir")
 
     # Check if the directory exists, if not, create it
-    if [[ ! -d "$dir" ]]; then
+    if ! file_exists "$dir"; then
         exec_command "mkdir -p \"$dir\"" || {
-            log_message "Failed to create $dir_description"
+            log_message "Failed to mkdir: $dir"
             return 1
         }
         exec_command "chmod -R 755 \"$dir\"" || {
-            log_message "Failed to change permissions for $dir_description"
+            log_message "Failed to change permissions for $dir"
             return 1
         }
     fi
 
-    return 0
-}
-
-# Function: touch_dir
-# Description: According to its naming
-touch_dir() {
-    local target_dir=$(trim "$1")
-
-    # Check if the directory path is valid and non-empty
-    if [[ -z "$target_dir" ]]; then
-        log_message "Invalid directory path provided."
-        return 1
-    fi
-
-    mkdir_p "$target_dir"
     return 0
 }
 
@@ -506,14 +570,21 @@ move_file() {
         return 1
     fi
 
-    if [[ -d "$target_path" ]]; then
-        target_dir="$target_path"
-    else
-        target_dir=$(dirname "$target_path")
-    fi
+    get_file_info "$target_path"
+    local filename=$(arr_get_val "FILE_NAME")
+    local file_path=$(arr_get_val "FILE_PATH")
+    local file_ext=$(arr_get_val "FILE_EXT")
+    local file_dir=$(arr_get_val "FILE_DIR")
+    local file_exists=$(arr_get_val "FILE_EXISTS")
+    local file_is_dir=$(arr_get_val "FILE_IS_DIR")
+    local file_is_file=$(arr_get_val "FILE_IS_FILE")
+    local file_has_ext=$(arr_get_val "FILE_HAS_EXT")
+
+    target_path="$file_path"
+    target_dir="$file_dir"
 
     # Touch dir
-    touch_dir "$target_dir"
+    mkdir_p "$target_dir"
 
     # Move the file to the target path
     exec_command "mv \"$source_path\" \"$target_path\""
@@ -662,6 +733,71 @@ array_unique() {
         return 1
     fi
     eval "$array_name=($(echo \${$array_name[@]} | tr ' ' '\n' | sort -u | tr '\n' ' '))"
+}
+
+# Private global variables to simulate associative array behavior
+declare -a _ASSOC_KEYS=()
+declare -a _ASSOC_VALUES=()
+
+# Function to dynamically set or update a key-value pair
+arr_set_val() {
+    local key value found=0
+
+    key=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+    value=$(echo "$2" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+
+    # Validate input
+    [ -z "$key" ] && return # Ignore empty keys
+
+    # Type handling (preserve numbers and booleans correctly)
+    case "$value" in
+    "true" | "false") ;;                                        # Keep booleans unchanged
+    '' | [0-9]* | *[.][0-9]*) ;;                                # Keep numbers (integers & floats)
+    *) value=$(echo "$value" | awk '{gsub(/"/, ""); print}') ;; # Strip double quotes from strings
+    esac
+
+    # Search for existing key and update if found
+    for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
+        if [ "${_ASSOC_KEYS[$i]}" = "$key" ]; then
+            _ASSOC_VALUES[$i]="$value"
+            found=1
+            break
+        fi
+    done
+
+    # Append new key-value pair if not found
+    if [ "$found" -eq 0 ]; then
+        _ASSOC_KEYS+=("$key")
+        _ASSOC_VALUES+=("$value")
+    fi
+}
+
+# Function to access elements like an associative array using global variables
+arr_get_val() {
+    local search_key
+    search_key=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+
+    for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
+        if [ "${_ASSOC_KEYS[$i]}" = "$search_key" ]; then
+            echo "${_ASSOC_VALUES[$i]}"
+            return
+        fi
+    done
+    echo ""
+}
+
+# Function to reset the associative array
+arr_reset() {
+    # Ensure arrays exist before resetting
+    if ! is_array "_ASSOC_KEYS" || ! is_array "_ASSOC_VALUES"; then
+        return 1
+    fi
+
+    # Clear the keys and values arrays
+    _ASSOC_KEYS=() || return 1
+    _ASSOC_VALUES=() || return 1
+
+    return 0
 }
 
 # Function: is_valid_version
@@ -923,57 +1059,20 @@ yaml_to_json() {
     yq -o json 2>/dev/null <<<"$yaml" || echo "{}"
 }
 
-# Private global variables to simulate associative array behavior
-declare -a _ASSOC_KEYS=()
-declare -a _ASSOC_VALUES=()
-
 # Convert plaintext YAML-like key:value pairs into global variables simulating an associative array
 yaml_to_array() {
-    local input
+    local input key value
     if [ $# -eq 0 ]; then
         input=$(cat)
     else
-        input="$(trim "$1")"
+        input=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
     fi
 
-    _ASSOC_KEYS=()   # Clear existing keys
-    _ASSOC_VALUES=() # Clear existing values
+    arr_reset || return
 
     while IFS=':' read -r key value; do
-        if [ -z "$key" ]; then
-            continue # Skip empty lines or keys
-        fi
-
-        key=$(echo "$key" | tr -d '"' | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
-        value=$(echo "$value" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
-
-        # Handle value types
-        case "$value" in
-        "true" | "false") ;;
-        [0-9]* | [0-9]*.[0-9]*) ;;
-        *) value="$(echo "$value" | awk '{gsub(/"/, ""); print}')" ;; # Escape double quotes within strings
-        esac
-
-        _ASSOC_KEYS+=("$key")
-        _ASSOC_VALUES+=("$value")
+        arr_set_val "$key" "$value" # Use unified function for all array logic
     done <<<"$input"
-}
-
-# Function to access elements like an associative array using global variables
-arr_get_val() {
-    if ! is_array "_ASSOC_KEYS" || ! is_array "_ASSOC_VALUES"; then
-        echo ""
-        return
-    fi
-
-    local search_key=$(trim "$1")
-    for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
-        if [ "${_ASSOC_KEYS[$i]}" = "$search_key" ]; then
-            echo $(trim "${_ASSOC_VALUES[$i]}")
-            return
-        fi
-    done
-    echo ""
 }
 
 # To validate if a word is in a string
@@ -1153,7 +1252,7 @@ current_lock_file() {
 
         if ! is_dir "$lock_file_dir"; then
             lock_file_dir="$HOME/.local/var/run"
-            touch_dir "$lock_file_dir"
+            mkdir_p "$lock_file_dir"
         fi
 
         if ! is_dir "$lock_file_dir"; then
@@ -1176,43 +1275,6 @@ current_lock_file() {
     fi
 
     echo "$LOCK_FILE"
-}
-
-# Get the file's real path and verify the base folder's existence
-file_real_path() {
-    # Trim spaces and handle parameters
-    local file=$(trim "$1")
-    local check_base_existence=$(trim "$2")
-    check_base_existence=${check_base_existence:-true}
-
-    # Return empty if file name is missing or only spaces (illegal case)
-    if ! is_sanitised_filename "$file"; then
-        echo ""
-        return
-    fi
-
-    # Expand any shell variables and tilde (~) safely
-    exec_command "eval file=\"$file\"" "false"
-    file=$(echo "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}')
-
-    # Convert relative path to absolute if necessary
-    case "$file" in
-    /*) : ;;                  # Already absolute
-    *) file="$(pwd)/$file" ;; # Convert relative to absolute
-    esac
-
-    # Normalize redundant slashes and remove `./` only when it's not at the start
-    file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.\//, "/"); gsub(/\/\.\$/, ""); print $0}')
-
-    # Remove trailing slashes (except root "/") and spaces
-    file=$(echo "$file" | awk '{gsub(/\/+$/, ""); gsub(/ *$/, ""); print $0}')
-
-    # If `check_base_existence` is true, verify the file or directory exists
-    if [ "$check_base_existence" == "true" ]; then
-        [ -e "$file" ] && echo "$file" || echo ""
-    else
-        echo "$file"
-    fi
 }
 
 # Function to acquire a lock to prevent multiple instances
