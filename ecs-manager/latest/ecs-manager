@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="^4.7.0"
+export THIS_REQUIRED_BISU_VERSION="^4.8.0"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -23,7 +23,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.4.1"
+export ECS_MANAGER_VERSION="2.5.0"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -302,7 +302,7 @@ ssh_handle() {
 
             if [[ "$dest1_type" == "local" && "$dest2_type" != "local" ]]; then
                 set_host_info "$dest2_type"
-                dest1_path=$(file_real_path "$dest1_path")
+                dest1_path=$(file_real_path "$dest1_path" "true")
                 if [[ -z "$dest1_path" ]]; then
                     error_exit "Invalid path of dest1."
                 fi
@@ -413,7 +413,7 @@ create() {
     fi
 
     local host_config_path="$host_config_dir/$host_path"
-    host_config_path=$(file_real_path "$host_config_path" "false")
+    host_config_path=$(file_real_path "$host_config_path")
 
     if [ -z "$host_config_path" ]; then
         error_exit "There is no specified host."
@@ -425,7 +425,9 @@ create() {
     fi
 
     host_config_dir=$(dirname "$host_config_path")
-    mkdir_p "$host_config_dir"
+    mkdir_p "$host_config_dir" || {
+        error_exit "Failed to mkdir: \"$host_config_dir\""
+    }
 
     local tmpfile="$(mktemp)" || {
         error_exit "Failed to create temp file."
@@ -465,7 +467,7 @@ edit() {
     fi
 
     local host_config_path="$host_config_dir/$host_path"
-    host_config_path=$(file_real_path "$host_config_path" "false")
+    host_config_path=$(file_real_path "$host_config_path")
 
     if [ -z "$host_config_path" ]; then
         error_exit "There is no specified host."
@@ -505,7 +507,7 @@ remove() {
     fi
 
     local host_config_path="$host_config_dir/$host_path"
-    host_config_path=$(file_real_path "$host_config_path" "false")
+    host_config_path=$(file_real_path "$host_config_path")
 
     if [ -z "$host_config_path" ]; then
         error_exit "There is no specified host."
@@ -550,23 +552,33 @@ remove() {
 # ED25519 key generation
 gen_ed25519_key() {
     local key_path=$(trim "$1")
-    key_path=${key_path:-"$HOME/.ssh/id_ed25519"}
     local comment=$(trim "$2")
     comment=${comment:-"$(whoami)@$(hostname)"}
     local strength=$(trim "$3")
     strength=${strength:-"high"}
+    local default_filename="id_ed25519"
+    local key_dir=""
 
     if ! command_exists "ssh-keygen"; then
         error_exit "ssh-keygen command not found."
     fi
 
-    key_path=$(file_real_path "$key_path" "false")
-    if is_dir "$key_path"; then
-        local key_dir="$key_path"
-    else
-        local key_dir=$(dirname "$key_path")
+    get_file_info "$key_path"
+    local filename=$(arr_get_val "FILE_NAME")
+    local file_path=$(arr_get_val "FILE_PATH")
+    local file_ext=$(arr_get_val "FILE_EXT")
+    local file_dir=$(arr_get_val "FILE_DIR")
+    local file_exists=$(arr_get_val "FILE_EXISTS")
+    local file_is_dir=$(arr_get_val "FILE_IS_DIR")
+    local file_is_file=$(arr_get_val "FILE_IS_FILE")
+    local file_has_ext=$(arr_get_val "FILE_HAS_EXT")
+
+    if [ -z "$filename" ]; then
+        filename="$default_filename"
     fi
 
+    key_path="$file_path"
+    key_dir="$file_dir"
     mkdir_p "$key_dir"
 
     # Map strength levels to bcrypt-KDF key length
@@ -581,10 +593,12 @@ gen_ed25519_key() {
         ;;
     esac
 
-    local pem="$key_path"
+    local pem="$key_dir/$filename"
     local pem_pub="$pem.pub"
 
-    local temp_dir="/tmp/".$(date +'%Y-%m-%d')
+    local temp_dir="/tmp"
+    local datetime=$(date +'%Y-%m-%d')
+    temp_dir="$temp_dir/ed25519_$datetime"
     mkdir_p "$temp_dir"
     local temp_pem="$temp_dir/ed25519.pem"
     local temp_pem_pub="$temp_pem.pub"
@@ -592,12 +606,9 @@ gen_ed25519_key() {
     exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$comment\" -N \"\"" "false"
     exec_command "chmod 600 \"$temp_pem\""
     exec_command "chmod 600 \"$temp_pem_pub\""
-    move_file "$temp_pem" "$pem" || {
-        error_exit "Failed to generate ed25519 pem, please retry."
-    }
-    move_file "$temp_pem_pub" "$pem_pub" || {
-        error_exit "Failed to generate ed25519 pem, please retry."
-    }
+
+    move_file "$temp_pem" "$pem"
+    move_file "$temp_pem_pub" "$pem_pub"
     array_unique_push "EXIT_WITH_COMMANDS" "rm -r \"$temp_dir\""
 
     local rsa_equivalent=""
@@ -639,7 +650,7 @@ usage() {
     log_message "       $(basename "$current_file_path") rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
     log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
     log_message "       $(basename "$current_file_path") remote-command <host_name> <remote_command>"
-    log_message "       $(basename "$current_file_path") ssh-keygen [specified_file_path] [comment] [strength=low|moderate|*high|extreme]"
+    log_message "       $(basename "$current_file_path") genkey [specified_file_path] [comment] [strength=low|moderate|*high|extreme]"
     exit 1
 }
 
@@ -661,7 +672,9 @@ main() {
     PREFER_PEM="${PREFER_PEM:-true}"
     PEM_FILE="${PEM_FILE:-}"
 
-    mkdir_p "$HOSTS_INFO_DIR"
+    mkdir_p "$HOSTS_INFO_DIR" || {
+        error_exit "Failed to mkdir: \"$HOSTS_INFO_DIR\""
+    }
 
     case "$action" in
     "connect")
@@ -699,7 +712,7 @@ main() {
         set_host_info "$param2"
         ssh_handle "remote-command" "$param2" "$param3"
         ;;
-    "ssh-keygen")
+    "genkey")
         # Generate a pair of regular ed25519 keys
         gen_ed25519_key "$param2" "$param3"
         ;;
