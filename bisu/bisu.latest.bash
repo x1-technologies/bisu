@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.8.1"
+export BISU_VERSION="4.8.2"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -762,7 +762,7 @@ arr_set_val() {
 
     # Search for existing key and update if found
     for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
-        if [ "${_ASSOC_KEYS[$i]}" = "$key" ]; then
+        if [[ "${_ASSOC_KEYS[$i]}" == "$key" ]]; then
             _ASSOC_VALUES[$i]="$value"
             found=1
             break
@@ -782,7 +782,7 @@ arr_get_val() {
     search_key=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
 
     for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
-        if [ "${_ASSOC_KEYS[$i]}" = "$search_key" ]; then
+        if [[ "${_ASSOC_KEYS[$i]}" == "$search_key" ]]; then
             echo "${_ASSOC_VALUES[$i]}"
             return
         fi
@@ -1066,16 +1066,27 @@ yaml_to_json() {
 # Convert plaintext YAML-like key:value pairs into global variables simulating an associative array
 yaml_to_array() {
     local input key value
+    # If no argument is passed, read from stdin, otherwise handle the passed argument
     if [ $# -eq 0 ]; then
         input=$(cat)
     else
         input=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
     fi
 
+    # Reset the array first
     arr_reset || return
 
+    # Read the input line by line
     while IFS=':' read -r key value; do
-        arr_set_val "$key" "$value" # Use unified function for all array logic
+        # Trim spaces and remove quotes from key and value using POSIX awk
+        key=$(echo "$key" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, ""); gsub(/'\''/, ""); print}')
+        value=$(echo "$value" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, ""); gsub(/'\''/, ""); print}')
+
+        # Skip if the key is empty (or invalid)
+        [ -z "$key" ] && continue
+
+        # Set the key-value pair
+        arr_set_val "$key" "$value"
     done <<<"$input"
 }
 
