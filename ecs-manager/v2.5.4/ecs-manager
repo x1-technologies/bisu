@@ -26,7 +26,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.5.3"
+export ECS_MANAGER_VERSION="2.5.4"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -657,6 +657,7 @@ usage() {
     log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
     log_message "       $(basename "$current_file_path") remote-command <host_name> <remote_command>"
     log_message "       $(basename "$current_file_path") genkey [specified_file_path] [comment] [strength=low|moderate|*high|extreme]"
+    log_message "       $(basename "$current_file_path") install"
     exit 1
 }
 
