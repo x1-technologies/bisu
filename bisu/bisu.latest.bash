@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.8.2"
+export BISU_VERSION="4.9.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -39,12 +39,14 @@ export LOCK_FILE=""
 export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file location
 export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file location
 export LOG_FILE=""
-export BISU_TARGET_PATH="/usr/local/sbin/bisu.bash" # Default target path for moving scripts
+export TARGET_PATH_PREFIX="/usr/local/sbin" # Default target path for moving scripts
 export PROMPT_COMMAND="set_title"
 # The current file path
 export CURRENT_FILE_PATH=""
+# The current file name
+export CURRENT_FILE_NAME=""
 # The current command by the actual script
-CURRENT_COMMAND=""
+export CURRENT_COMMAND=""
 export DEBUG_MODE="false"
 
 # Universal function to trim whitespace
@@ -57,13 +59,29 @@ bisu_file() {
     echo "$BISU_FILE_PATH"
 }
 
+# Function: output a message
+output() {
+    local message=$(trim "$1")
+    local use_newline=$(trim "$2")
+    use_newline=${use_newline:-"true"}
+    local redirect_stdout=$(trim "$3")
+    redirect_stdout=${redirect_stdout:-"true"}
+
+    use_newline=${use_newline:-"true"}
+    if [[ "$use_newline" == "true" ]]; then
+        echo -e "$message" 2>&1
+    else
+        echo -en "$message" 2>&1
+    fi
+}
+
 # Function: command_path
 # Description: According to its naming
 command_path() {
     command_path=$(echo "$1" | awk '{print $1}')
     command_path=$(trim "$command_path")
     [[ -n "$command_path" ]] && echo "$command_path" || {
-        echo -e "Error: Failed to get command path" 2>&1
+        output "Error: Failed to get command path"
         exit 1
     }
 }
@@ -72,7 +90,7 @@ command_path() {
 # Description: According to its naming
 current_command() {
     if [[ -z $CURRENT_COMMAND ]]; then
-        echo -e "Error: Invalid current command" 2>&1
+        output "Error: Invalid current command"
         exit 1
     fi
 
@@ -84,10 +102,36 @@ current_command() {
 current_file() {
     CURRENT_FILE_PATH=$(command_path "$(current_command)")
     if [[ -z $CURRENT_FILE_PATH ]] || ! is_file "$CURRENT_FILE_PATH"; then
-        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" 2>&1
+        output "Error: Invalid current file path: $CURRENT_FILE_PATH"
         exit 1
     fi
     echo "$CURRENT_FILE_PATH"
+}
+
+current_filename() {
+    if [[ -z $CURRENT_FILE_NAME ]]; then
+        CURRENT_FILE_NAME=$(basename "$(current_file)")
+        if [[ -z $CURRENT_FILE_NAME ]]; then
+            output "Error: Invalid current file name"
+            exit 1
+        fi
+    fi
+    echo "$CURRENT_FILE_NAME"
+}
+
+# Function: target_path
+# Description: According to its naming
+target_path() {
+    local target_path="$TARGET_PATH_PREFIX"
+    if [ -n "$(current_file)" ]; then
+        local current_file=$(current_file)
+    else
+        local current_file=$(bisu_file)
+    fi
+    current_file=$(basename "$current_file")
+    target_path="$target_path/$current_file"
+    target_path=$(file_real_path "$target_path")
+    echo "$target_path"
 }
 
 # Register the current command
@@ -140,7 +184,7 @@ md5_sign() {
 # Description: According to its naming
 current_dir() {
     echo $(dirname $(current_file)) || {
-        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" 2>&1
+        output "Error: Invalid current file path: $CURRENT_FILE_PATH"
         exit 1
     }
 }
@@ -205,7 +249,7 @@ current_log_file() {
     local log_file=""
 
     local filename=$(basename "$(current_file)") || {
-        echo -e "Error: Invalid current file path: $CURRENT_FILE_PATH" 2>&1
+        output "Error: Invalid current file path: $CURRENT_FILE_PATH"
         exit 1
     }
 
@@ -227,7 +271,7 @@ current_log_file() {
     # Create directory if it doesn't exist
     if [[ ! -d "$log_file_dir" ]]; then
         mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
-            echo -e "Error: Failed to create or set permissions for $log_file_dir" 2>&1
+            output "Error: Failed to create or set permissions for $log_file_dir"
             exit 1
         }
     fi
@@ -237,13 +281,13 @@ current_log_file() {
     log_file="$log_file_dir/$filename.log"
 
     touch "$log_file" || {
-        echo -e "Error: Failed to create log file $log_file" 2>&1
+        output "Error: Failed to create log file $log_file"
         exit 1
     }
 
     # Validate log file creation
     if ! [[ -e "$log_file" && -f "$log_file" ]]; then
-        echo -e "Error: Log file $log_file creation failed" 2>&1
+        output "Error: Log file $log_file creation failed"
         exit 1
     fi
 
@@ -256,32 +300,36 @@ current_log_file() {
 #   $1 - Message to log.
 # Returns: None (logs message to file).
 log_message() {
-    local msg="$1"
-    local stderr_flag="${2:-true}"
-    local log_file="$(current_log_file)"
+    local msg=$(trim "$1")
+    local use_newline=$(trim "$2")
+    use_newline=${use_newline:-"true"}
+    local log_only=$(trim "$3")
+    log_only=${log_only:-"false"}
+
+    local log_file=$(current_log_file)
     local log_dir=$(dirname "$log_file")
 
     # Ensure the log directory exists
     mkdir -p "$log_dir" || {
-        echo -e "Failed to create log directory: $log_dir" 2>&1
+        output "Failed to create log directory: $log_dir" "$use_newline"
         exit 1
     }
 
     # Create the log file if it doesn't exist
     if [[ ! -f "$log_file" ]]; then
         touch "$log_file" || {
-            echo -e "Failed to create log file $log_file" 2>&1
+            output "Failed to create log file $log_file" "$use_newline"
             exit 1
         }
     fi
 
     # Log the message with a timestamp to the log file and optionally to stderr
-    if [[ "$stderr_flag" == "true" ]]; then
+    if [[ "$log_only" == "true" ]]; then
         # Log to both log file and stderr
-        echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file" 2>&1
+        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >/dev/null
     else
         # Log to the log file only
-        echo -e "$(date +'%Y-%m-%d %H:%M:%S') - $msg" | tee -a "$log_file" >/dev/null
+        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" 2>&1
     fi
 
     return 0
@@ -290,7 +338,12 @@ log_message() {
 # Function to handle errors
 error_exit() {
     local msg=$(trim "$1")
-    log_message "Error: $msg" "true"
+    local use_newline=$(trim "$2")
+    use_newline=${use_newline:-"true"}
+    local log_only=$(trim "$3")
+    log_only=${log_only:-"false"}
+
+    log_message "Error: $msg" "$use_newline" "$log_only"
     eval 'kill -TERM "$$"' >/dev/null 2>&1
 }
 
@@ -335,15 +388,13 @@ confirm() {
     esac
 
     while true; do
-        log_message "$message $prompt "
-        read -r response
+        log_message "$message" "false"
+        read -r -p " $prompt " response
 
         # If user just presses Enter, use default
+        response=$(trim "$response")
         if [ -z "$response" ]; then
-            case "$default" in
-            [Yy]*) return 0 ;;
-            [Nn]*) return 1 ;;
-            esac
+            response="$default"
         fi
 
         case "$response" in
@@ -611,15 +662,6 @@ move_current_script() {
     local target_path=$(trim "$1")
 
     log_message "Moving current script: $current_script"
-    move_file "$current_script" "$target_path"
-}
-
-# Function: move_bisu
-move_bisu() {
-    local current_script=$(bisu_file)
-    local target_path=$(trim "$1")
-
-    log_message "Moving BISU script to path: $target_path"
     move_file "$current_script" "$target_path"
 }
 
@@ -1431,32 +1473,45 @@ initialise() {
     load_required_scripts
 }
 
-# Confirm to install BISU
-confirm_to_install_bisu() {
+# Function to check if BISU is installed
+is_installed() {
+    [[ "$(current_file)" != "$(target_path)" ]] && return 1
+    return 0
+}
+
+# Confirm to install
+confirm_to_install() {
     local arg
-    # Trim and convert input to lowercase
     arg=$(strtolower "$(trim "$1")")
 
-    # Only proceed if the input matches "bisu_install"
-    if [[ "$arg" == "bisu_install" ]]; then
-        read -p "Are you sure to install BISU? (Y/n): " c
-        c="${c:-y}" # Default to 'y' if input is empty
-        if [[ "$c" =~ ^[Yy]$ ]]; then
-            move_bisu
+    if [[ "$arg" == "install" ]]; then
+        is_installed && error_exit "$(current_filename) has already installed at: $(current_file)"
+        if confirm "Are you sure to install $(current_file)?" "y"; then
+            install_script
+        else
+            error_exit "Aborted."
         fi
     fi
+}
+
+# Function: install_script
+install_script() {
+    local current_script=$(current_file)
+    local target_path="$(target_path)"
+
+    log_message "Moving BISU script to path: $target_path"
+    exec_command "cp \"$current_script\" \"$target_path\""
 }
 
 # bisu autorun function
 bisu_main() {
     # initialisation actions
     initialise
-
     local action=$(trim "$1")
     local param=$(trim "$2")
 
     case "$action" in
-    "bisu_install") confirm_to_install_bisu "$action" ;;
+    "install") confirm_to_install "$action" ;;
     *) ;;
     esac
 }
