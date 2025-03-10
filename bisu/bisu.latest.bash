@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="4.9.0"
+export BISU_VERSION="5.0.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -25,7 +25,7 @@ export REQUIRED_SCRIPT_FILES=()
 # Subprocesses pids to cleanup
 export SUBPROCESSES_PIDS=()
 # Required external commands list
-export BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'yq' 'xxd' 'bc')
+export BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'xxd' 'bc')
 # Required external commands list
 export REQUIRED_EXTERNAL_COMMANDS=()
 # Exit with commands
@@ -217,6 +217,18 @@ string_ends_with() {
     fi
 
     return 1
+}
+
+# To validate if a phrase is in a string
+string_has_phrase() {
+    local string=$(trim "$1")
+    local phrase=$(trim "$2")
+    local match_whole_word=$(trim "$3")
+    match_whole_word=${match_whole_word:-true}
+
+    [ -n "$string" ] || return 1
+    [ -n "$phrase" ] || return 1
+    return [[ "${match_whole_word}" == "true" ]] && [[ " ${string:-} " =~ " $phrase " ]] || [[ "${string:-}" =~ "$phrase" ]]
 }
 
 # Check if the current user is root (UID 0)
@@ -426,7 +438,7 @@ file_real_path() {
     *) file="$(pwd)/$file" ;;                             # Convert other relative paths
     esac
 
-    # Normalize redundant slashes and remove `./` safely using POSIX awk
+    # Normalise redundant slashes and remove `./` safely using POSIX awk
     file=$(echo "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}')
 
     # Remove trailing slashes (except root "/") and spaces
@@ -846,6 +858,130 @@ arr_reset() {
     return 0
 }
 
+# Convert array to string (with optional delimiter).
+# If no delimiter is specified, defaults to the global private arrays "_ASSOC_KEYS" and "_ASSOC_VALUES".
+array_to_string() {
+    local delimiter="$1" # The delimiter provided by the user
+    local result=""      # Result string initialization
+
+    # Default behavior if delimiter is not specified
+    if [ -z "$delimiter" ]; then
+        delimiter=" " # Set default delimiter to space
+    fi
+
+    # Check if _ASSOC_KEYS and _ASSOC_VALUES arrays are non-empty
+    if [ ${#_ASSOC_KEYS[@]} -eq 0 ] || [ ${#_ASSOC_VALUES[@]} -eq 0 ]; then
+        echo ""
+        return 1 # Return empty string if arrays are empty
+    fi
+
+    # Iterate over the _ASSOC_KEYS array and build the result string with delimiter
+    for i in "${!_ASSOC_KEYS[@]}"; do
+        # Fetch key-value pairs from the global arrays
+        local key="${_ASSOC_KEYS[$i]}"
+        local value="${_ASSOC_VALUES[$i]}"
+
+        # Handle empty or missing keys/values
+        if [ -z "$key" ] || [ -z "$value" ]; then
+            continue # Skip empty key-value pairs
+        fi
+
+        # Append formatted key-value pair to the result string
+        if [ -z "$result" ]; then
+            result="${key}:${value}" # First pair, no delimiter before
+        else
+            result="${result}${delimiter}${key}:${value}" # Add delimiter between subsequent pairs
+        fi
+    done
+
+    # Output the result string
+    echo "$result"
+    return 0
+}
+
+# Convert JSON array to bash array
+array_to_json() {
+    local array_data=$(trim "$1")
+    local use_private_array=$(trim "$2")
+    use_private_array=${use_private_array:-"false"}
+    local array_name=$(trim "$3")
+
+    # If use_private_array is true, we don't need a specific array name or array_data
+    if [ "$use_private_array" == "true" ]; then
+        array_name="_ASSOC_VALUES"
+        array_data=""
+
+        # Construct a default associative array using _ASSOC_KEYS and _ASSOC_VALUES
+        for i in "${!_ASSOC_KEYS[@]}"; do
+            array_data+="$array_name[\"${_ASSOC_KEYS[$i]}\"]=\"${_ASSOC_VALUES[$i]}\""$'\n'
+        done
+    else
+        # If not using a private array, use the passed array_name or default it
+        array_name=${array_name:-"_ASSOC_VALUES"}
+    fi
+
+    if ! is_array "$array_name"; then
+        echo ""
+        return 1
+    fi
+
+    # Initialize the result JSON object
+    local result="{"
+    local first=1
+
+    # Process each line of array_data
+    while IFS= read -r line; do
+        # Skip comments and empty lines
+        if [[ "$line" =~ \["([^\"]+)"\]\=\"([^\"]*)\" ]]; then
+            continue
+        fi
+
+        # Skip array declaration line
+        if [[ "$line" =~ declare\ -a\ "$array_name" ]]; then
+            continue
+        fi
+
+        # Use awk for processing key-value pairs
+        line=$(echo "$line" | awk -v arr="$array_name" '
+        match($0, arr"\\[\"([^\"]+)\"\\]=\"([^\"]+)\"", m) {
+            key = m[1]
+            value = m[2]
+
+            # Escape quotes in key and value
+            gsub(/"/, "\\\"", key)
+            gsub(/"/, "\\\"", value)
+
+            # Return key-value pair in JSON format
+            print "\"" key "\": \"" value "\""
+        }
+        ')
+
+        # If no match, continue to the next line
+        if [ -z "$line" ]; then
+            continue
+        fi
+
+        # Append the key-value pair to the result JSON
+        if [ "$first" -eq 0 ]; then
+            result+=","
+        fi
+        result+="$line"
+        first=0
+    done <<<"$array_data"
+
+    # Close the JSON object and print the result
+    result+="}"
+
+    # Check if result ends with '}' (valid JSON), otherwise return empty
+    string_ends_with "$result" "}" || {
+        echo ""
+        return 1
+    }
+
+    echo "$result"
+    return 0
+}
+
 # Function: is_valid_version
 # Description: Validates a version number in formats vX.Y.Z, X.Y.Z, X.Y, or X/Y/Z.
 # Arguments:
@@ -856,12 +992,11 @@ is_valid_version() {
     version=$(trim "$1")
 
     # Check for valid version formats: optional leading space, optional 'v', followed by numbers and dots
-    if [[ "$version" =~ ^[[:space:]]*v?[0-9]+(\.[0-9]+)*$ ]]; then
-        return 0
-    else
-        error_exit "Invalid version format: $version"
+    if ! [[ "$version" =~ ^[[:space:]]*v?[0-9]+(\.[0-9]+)*$ ]]; then
         return 1
     fi
+
+    return 0
 }
 
 # Function: compare_version
@@ -874,7 +1009,7 @@ compare_version() {
     local constraint=$(trim "$1")
     local version=$(trim "$2")
 
-    # Normalize version input (strip leading 'v' or spaces)
+    # Normalise version input (strip leading 'v' or spaces)
     version="${version//v/}" # Remove 'v' prefix if it exists
     version="${version// /}" # Remove any spaces
 
@@ -900,7 +1035,7 @@ compare_version() {
             [v]=0 [release]=5
         )
 
-        # Normalize version parts (replace '~' with '0.' and remove '^' since they're not part of the actual version)
+        # Normalise version parts (replace '~' with '0.' and remove '^' since they're not part of the actual version)
         ver1="${ver1//~/0.}"
         ver1="${ver1//^/}"
         ver2="${ver2//~/0.}"
@@ -1073,36 +1208,178 @@ is_valid_var_name() {
     return 0
 }
 
+# ipv4 validator
+is_valid_ipv4() {
+    local ip=$(trim "$1")
+
+    # Validate the IPv4 address: 4 octets, each between 0 and 255
+    if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        return 1
+    fi
+
+    # Validate each octet (between 0 and 255)
+    IFS='.' read -r -a octets <<<"$ip"
+    for octet in "${octets[@]}"; do
+        if [[ "$octet" -lt 0 || "$octet" -gt 255 || ! "$octet" =~ ^[0-9]+$ ]]; then
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+# ipv6 validator
+is_valid_ipv6() {
+    local ip=$(trim "$1")
+
+    # Validate the IPv6 address: Standard format or shorthand (allowed "::")
+    if [[ ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}$ && ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,7}:$ &&
+        ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}$ && ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,5}(:[0-9A-Fa-f]{1,4}){1,2}$ &&
+        ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,4}(:[0-9A-Fa-f]{1,4}){1,3}$ && ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,3}(:[0-9A-Fa-f]{1,4}){1,4}$ &&
+        ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,2}(:[0-9A-Fa-f]{1,4}){1,5}$ && ! "$ip" =~ ^[0-9A-Fa-f]{1,4}:([0-9A-Fa-f]{1,4}:){1,6}$ ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
 # Universal function to validate IP address
 is_valid_ip() {
-    local ip=$(trim "$1")
-    if [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-        local IFS=.
-        read -r i1 i2 i3 i4 <<<"$ip"
-        if [[ $i1 -le 255 && $i2 -le 255 && $i3 -le 255 && $i4 -le 255 ]]; then
-            return 0
-        fi
-    fi
-    return 1
+    ! is_valid_ipv4 && ! is_valid_ipv6 && return 1
+    return 0
 }
 
 # Universal function to validate port number
 is_valid_port() {
     local port=$(trim "$1")
-    if [[ $port =~ ^[0-9]+$ ]] && ((port >= 0 && port <= 65535)); then
-        return 0
+
+    # Validate the port range: Must be a number between 0 and 65535
+    if [[ ! "$port" =~ ^[0-9]+$ ]] || [[ "$port" -lt 0 || "$port" -gt 65535 ]]; then
+        return 1
     fi
-    return 1
+
+    return 0
+}
+
+# Domain name validator
+is_valid_domain() {
+    local url=$(trim "$1")
+    local remaining_url="${url#*://}"
+    local domain="${remaining_url%%/*}"
+
+    if [[ ! "$domain" =~ ^([a-zA-Z0-9-.])+(\.[a-zA-Z]{2,16})$ ]] || [[ "$domain" =~ -- || "$domain" =~ ^[-.] ||
+        "$domain" =~ [-.]$ || "$domain" =~ \.\. ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Email address validator
+is_valid_email() {
+    local email=$(trim "$1")
+    local local_part="${email%%@*}"
+    local domain_part="${email#*@}"
+
+    # Validate the local part: Alphanumeric + . _ -, no consecutive dots or invalid start/end
+    if [[ ! "$local_part" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9]$ ]] || [[ "$local_part" =~ \.\. ]] ||
+        [[ "$local_part" =~ ^[._-] ]] || [[ "$local_part" =~ [._-]$ ]]; then
+        return 1
+    fi
+
+    # Validate the domain part: Alphanumeric, dot separator, valid TLD (2-16 chars)
+    if [[ ! "$domain_part" =~ ^[A-Za-z0-9][-A-Za-z0-9.]*[A-Za-z0-9]\.[A-Za-z]{2,16}$ ]] || [[ "$domain_part" =~ \.\. ]] ||
+        [[ "$domain_part" =~ -- ]] || [[ "$domain_part" =~ ^[-.] ]] || [[ "$domain_part" =~ [-.]$ ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Json validator
+is_valid_json() {
+    local input=$(trim "$1")
+
+    # Use awk to validate JSON structure
+    echo "$input" | awk '
+    BEGIN {
+        # Set flags for valid structure
+        inside_object = 0;
+        inside_array = 0;
+        valid = 1;
+    }
+    
+    # Detect opening of JSON object or array
+    /^[[:space:]]*\{/ { inside_object = 1; next }
+    /^[[:space:]]*\[/ { inside_array = 1; next }
+    
+    # Detect closing of JSON object or array
+    /^[[:space:]]*\}/ { if (!inside_object) { valid = 0; exit }; inside_object = 0; next }
+    /^[[:space:]]*\]/ { if (!inside_array) { valid = 0; exit }; inside_array = 0; next }
+
+    # Detect key-value pairs for objects
+    /^[[:space:]]*"[^"]*"[[:space:]]*:[[:space:]]*"/ {
+        # Check if key and value are in the expected format
+        if ($0 !~ /"[[:alnum:]_]+":/) {
+            valid = 0;
+            exit
+        }
+        next
+    }
+
+    # Detect values for arrays
+    /^[[:space:]]*[^,]*[[:space:]]*$/ {
+        next
+    }
+
+    END {
+        if (inside_object || inside_array) {
+            valid = 0;  # Ensures the structure ends properly
+        }
+        exit valid;
+    }' || {
+        return 1
+    }
+
+    # Return the result of validation
+    return $?
 }
 
 # Function to convert YAML to JSON
 yaml_to_json() {
-    local yaml="$(trim "$1")"
-    if ! command -v yq &>/dev/null; then
-        echo "{}"
-        return
-    fi
-    yq -o json 2>/dev/null <<<"$yaml" || echo "{}"
+    local yaml=$(trim "$1")
+
+    [ -n "$yaml" ] || {
+        echo ""
+        return 1
+    }
+
+    # Convert YAML to JSON using AWK + while IFS
+    echo "$yaml" | awk '
+    BEGIN {
+        indent_level = 0;
+        print "{";
+    }
+    /^[[:space:]]*#/ { next }  # Skip comments
+    /^[[:space:]]*$/ { next }  # Skip empty lines
+    /^[[:space:]]*[^[:space:]:]+:/ {
+        gsub(/^[[:space:]]+/, "", $0);  # Trim leading spaces
+        key_value=$0;
+        split(key_value, pair, ": ");
+        key = pair[1];
+        value = (length(pair) > 1) ? pair[2] : "";  # Handle empty values
+        gsub(/"/, "\\\"", key);  # Escape double quotes in key
+        gsub(/"/, "\\\"", value);  # Escape double quotes in value
+        if (NR > 1) { print ","; }
+        printf "  \"%s\": \"%s\"", key, value;
+    }
+    END { print "\n}"; }
+    ' || {
+        echo ""
+        return 1
+    }
+
+    return 0
 }
 
 # Convert plaintext YAML-like key:value pairs into global variables simulating an associative array
@@ -1112,11 +1389,11 @@ yaml_to_array() {
     if [ $# -eq 0 ]; then
         input=$(cat)
     else
-        input=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+        input=$(trim "$1")
     fi
 
     # Reset the array first
-    arr_reset || return
+    arr_reset || return 1
 
     # Read the input line by line
     while IFS=':' read -r key value; do
@@ -1128,16 +1405,408 @@ yaml_to_array() {
         [ -z "$key" ] && continue
 
         # Set the key-value pair
-        arr_set_val "$key" "$value"
-    done <<<"$input"
+        arr_set_val "$key" "$value" || return 1
+    done <<<"$input" || return 1
+
+    return 0
 }
 
-# To validate if a word is in a string
-word_exists() {
-    local word=$(trim "$1")
-    local string=$(trim "$2")
-    local match_whole_word=${3:-true}
-    [[ "${match_whole_word}" == "true" ]] && [[ " ${string:-} " =~ " $word " ]] || [[ "${string:-}" =~ "$word" ]]
+# Parse JSON into array
+json_to_array() {
+    local input key value
+    # If no argument is passed, read from stdin, otherwise handle the passed argument
+    if [ $# -eq 0 ]; then
+        input=$(cat)
+    else
+        input=$(trim "$1")
+    fi
+
+    # Reset the array first
+    arr_reset || return 1
+
+    # Read the input line by line
+    while IFS= read -r line; do
+        # Trim spaces around the line
+        line=$(echo "$line" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+
+        # Skip empty lines and braces (starting or ending JSON object)
+        if [[ -z "$line" || "$line" =~ ^[\{\}]$ ]]; then
+            continue
+        fi
+
+        # Handle key-value pairs
+        if [[ "$line" =~ ^\"([^\"]+)\"\:\s*\"([^\"]+)\"$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+
+            # Remove quotes from key and value using POSIX awk
+            key=$(echo "$key" | awk '{gsub(/"/, ""); print}')
+            value=$(echo "$value" | awk '{gsub(/"/, ""); print}')
+
+            # Skip if the key is empty (or invalid)
+            [ -z "$key" ] && continue
+
+            # Set the key-value pair
+            arr_set_val "$key" "$value" || return 1
+        fi
+    done <<<"$input" || return
+
+    return 0
+}
+
+# urlencode
+urlencode() {
+    local str=$(trim "$1")
+
+    [ -n "$str" ] || {
+        echo ""
+        return 1
+    } # Empty input -> return empty string
+
+    echo "$str" | awk '
+    BEGIN {
+        # Define safe characters in an associative array for O(1) lookup
+        split("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~", safe_chars, "");
+        for (i in safe_chars) safe_map[safe_chars[i]] = 1;
+    }
+    {
+        output = "";
+        while (length($0) > 0) {
+            c = substr($0, 1, 1);
+            ascii = ord(c);
+            $0 = substr($0, 2);  # Remove first character
+
+            if (ascii < 0 || ascii > 127) {
+                print ""; exit 1;  # Reject non-ASCII input safely
+            }
+
+            if (c in safe_map) {
+                output = output c;  # Safe character, append directly
+            } else {
+                output = output "%" sprintf("%02X", ascii);  # Percent-encoded
+            }
+        }
+        print output;
+    }
+    function ord(c) {
+        return sprintf("%d", c);  # Efficient ASCII conversion
+    }'
+
+    return 0
+}
+
+# Decode URL-encoded string
+urldecode() {
+    local str=$(trim "$1")
+    [ -n "$str" ] || {
+        echo ""
+        return 1
+    } # Return empty string if input is empty
+
+    echo "$str" | awk '
+    BEGIN { output = "" }
+    {
+        while (length($0) > 0) {
+            c = substr($0, 1, 1);
+            if (c == "%") {
+                hex = substr($0, 2, 2);
+                if (hex ~ /^[0-9A-Fa-f]{2}$/) {
+                    output = output sprintf("%c", strtonum("0x" hex));  # Decode hex
+                    $0 = substr($0, 4);  # Skip %XX
+                } else {
+                    print ""; exit 1;  # Invalid encoding, fail safely
+                }
+            } else {
+                output = output c;  # Append safe characters directly
+                $0 = substr($0, 2);
+            }
+        }
+        print output;
+    }'
+
+    return 0
+}
+
+# Check if a URL is encoded
+url_is_encoded() {
+    local segment=$(trim "$1")
+
+    [ -n "$segment" ] || {
+        echo "Segment is empty"
+        return 1
+    } # Handle empty input safely
+
+    # Check for correctly formatted percent-encoded sequences
+    if ! echo "$segment" | awk 'BEGIN { valid=1 } /%[0-9A-Fa-f]{2}/ { if (!match($0, /%[0-9A-Fa-f]{2}/)) valid=0 } END { exit !valid }'; then
+        return 1 # False, it's not encoded
+    fi
+
+    return 0 # True, it's encoded
+}
+
+# Normalise a URL and analyse its info
+get_url_info() {
+    local url=$(trim "$1")
+
+    # Step 1: Check if URL has a scheme and extract components using awk
+    local scheme="http"
+    local domain=""
+    local path=""
+    local url_is_encoded=""
+    local unencoded_url=""
+    local unencoded_req_path=""
+    local encoded_url=""
+    local encoded_req_path=""
+
+    # Check if scheme exists and extract scheme and remaining URL
+    if echo "$url" | awk -F "://" '{if (NF > 1) print $1}' | grep -q '[a-zA-Z]'; then
+        # Extract scheme and remaining URL
+        scheme=$(echo "$url" | awk -F "://" '{print $1}')
+        remaining_url=$(echo "$url" | awk -F "://" '{print $2}')
+    else
+        remaining_url="$url"
+    fi
+
+    # Step 2: Use awk to extract domain and path from the remaining URL
+    while IFS="/" read -r domain_part rest; do
+        domain="$domain_part"
+        path="/$rest"
+    done <<<"$remaining_url"
+
+    # Step 3: Validate scheme (if scheme is present)
+    if [[ -n "$scheme" && ! "$scheme" =~ ^(http|https|ftp)$ ]]; then
+        echo ""
+        return 1
+    fi
+
+    # Step 4: Validate domain (basic check for alphanumeric and dots/hyphens)
+    if [[ -z "$domain" || ! "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+        echo ""
+        return 1
+    fi
+
+    # Step 5: Normalize the path (handle multiple '?' and missing root '/')
+    path=$(echo "$path" | awk '{gsub(/\?/, "&"); print}')
+
+    # If the path is empty or doesn't start with '/', add the root '/'
+    if [ -z "$path" ] || ! string_starts_with "$path" "/"; then
+        path="/$path"
+    fi
+
+    # Remove extra '?' in the path (only keep the first one)
+    path=$(echo "$path" | awk '{if (match($0, /\?.*\?/)) sub(/\?.*/, "?"); print}')
+
+    # Step 6: Output the normalised URL
+    normalised_url="$scheme://$domain$path"
+    if url_is_encoded "$path"; then
+        url_is_encoded="true"
+        encoded_req_path="$path"
+        encoded_url="$normalised_url"
+        unencoded_req_path=$(urldecode "$path")
+        unencoded_url="$scheme://$domain$unencoded_req_path"
+    else
+        url_is_encoded="false"
+        unencoded_req_path="$path"
+        unencoded_url="$normalised_url"
+        encoded_req_path=$(urlencode "$path")
+        encoded_url="$scheme://$domain$encoded_req_path"
+    fi
+
+    arr_reset || return 1
+    arr_set_val "URL_SCHEME" "$scheme"
+    arr_set_val "URL_DOMAIN" "$domain"
+    arr_set_val "UNENCODED_REQ_PATH" "$unencoded_req_path"
+    arr_set_val "UNENCODED_URL" "$unencoded_url"
+    arr_set_val "ENCODED_REQ_PATH" "$encoded_req_path"
+    arr_set_val "ENCODED_URL" "$encoded_url"
+
+    return 0
+}
+
+# Url params to json conversion
+urlparams_to_json() {
+    local str=$(trim "$1")
+    string_starts_with "$str" "/" && {
+        str=$(substr "$str" 1)
+    }
+
+    [ -n "$str" ] || {
+        echo "{}"
+        return 1
+    } # Return empty JSON if input is empty
+
+    echo "$str" | awk -F '&' '
+    BEGIN { print "{"; first = 1 }
+    {
+        for (i = 1; i <= NF; i++) {
+            split($i, kv, "=");
+            key = kv[1];
+            value = (length(kv) > 1) ? kv[2] : "";  # Handle key-only params
+
+            # Print comma separator except for first entry
+            if (!first) printf(", ");
+            first = 0;
+
+            # Print key-value pair safely
+            printf("\"%s\": \"%s\"", key, value);
+        }
+    }
+    END { print "}" }' || {
+        echo ""
+        return 1
+    }
+
+    return 0
+}
+
+# Convert JSON to URL parameters
+json_to_urlparams() {
+    local str=$(trim "$1")
+    [ -n "$str" ] || {
+        echo ""
+        return 1
+    } # Return empty string if input is empty
+
+    echo "$str" | awk '
+    BEGIN { RS=","; gsub(/[{\"}]/, ""); first = 1 }
+    {
+        split($0, kv, ":");
+        key = trim(kv[1]);
+        value = (length(kv) > 1) ? trim(kv[2]) : "";
+
+        # Print separator except for first entry
+        if (!first) printf("&");
+        first = 0;
+
+        # Print key-value pair safely
+        printf("%s=%s", key, value);
+    }' || {
+        echo ""
+        return 1
+    }
+
+    return 0
+}
+
+# Reliable curl with retries, POSIX-compliant
+reliable_curl() {
+    local url=$(trim "$1")
+    local method=$(trim "$2")
+    local output_file=$(trim "$3")
+    local data=$(trim "$4")
+    local retries=$(trim "$5")
+    retries=${retries:-3}
+    local retry_interval=$(trim "$6")
+    retry_interval=${retry_interval:-3}
+
+    local status=1
+    local save_option=""
+    local info_option=""
+
+    # Validate inputs
+    if [ -z "$url" ]; then
+        output "URL is required."
+        return 1
+    fi
+
+    if ! is_numeric "$retries"; then
+        output "Invalid retries value."
+        return 1
+    fi
+
+    if [ -n "$output_file" ]; then
+        output_file=$(file_real_path "$output_file")
+        save_option="-o '$output_file'"
+    else
+        save_option="-O"
+    fi
+
+    get_url_info "$url"
+    url=$(arr_get_val "ENCODED_URL")
+    local unencoded_req_path=$(arr_get_val "UNENCODED_REQ_PATH")
+    local unencoded_url=$(arr_get_val "UNENCODED_URL")
+    local encoded_req_path=$(arr_get_val "ENCODED_REQ_PATH")
+    local encoded_url=$(arr_get_val "ENCODED_URL")
+    local url_params="$unencoded_req_path"
+    local url_params_json=$(urlparams_to_json "$url_params")
+
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        info_option="-SL"
+    else
+        info_option="-sL"
+    fi
+
+    local ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6479.47 Safari/537.36 Edg/130.0.2716.102"
+
+    while [ "$retries" -gt 0 ]; do
+        case "$method" in
+        GET)
+            exec_command "curl $info_option -X GET '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false"
+            ;;
+        POST)
+            exec_command "curl $info_option -X POST '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false"
+            ;;
+        *)
+            output "Unsupported method '$method'."
+            return 1
+            ;;
+        esac
+        status=$?
+        if [ "$status" -eq 0 ]; then
+            return 0
+        fi
+        retries=$((retries - 1))
+        if [ "$retries" -gt 0 ]; then
+            output "Last request has failed, retrying... ($retries retries left)"
+        fi
+    done
+
+    return "$status"
+}
+
+# HTTP GET with resume support
+http_get() {
+    # Ensure local variables
+    local url=$(trim "$1")
+    local output_file=$(trim "$2")
+    local retries=$(trim "$3")
+    retries=${retries:-3}
+
+    # Input validation
+    if [ -z "$url" ] || [ -z "$output_file" ]; then
+        output "URL and output file are required."
+        return 1
+    fi
+
+    if ! reliable_curl "$url" "GET" "$output_file" "" "$retries"; then
+        output "Request failed."
+        return 1
+    fi
+
+    return 0
+}
+
+# HTTP POST with retries
+http_post() {
+    # Ensure local variables
+    local url=$(trim "$1")
+    local output_file=$(trim "$2")
+    local data=$(trim "$3")
+    local retries=$(trim "$4")
+    retries=${retries:-3}
+
+    # Input validation
+    if [ -z "$url" ] || [ -z "$output_file" ]; then
+        output "URL and output file are required."
+        return 1
+    fi
+
+    if ! reliable_curl "$url" "POST" "$output_file" "$data" "$retries"; then
+        output "Request failed."
+        return 1
+    fi
+
+    return 0
 }
 
 # Generate a secure random UUIDv4 (128 bits)
