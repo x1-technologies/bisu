@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.0.1"
+export BISU_VERSION="5.0.2"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -61,7 +61,7 @@ bisu_file() {
 
 # Function: output a message
 output() {
-    local message=$(trim "$1")
+    local message="$1"
     local use_newline=$(trim "$2")
     use_newline=${use_newline:-"true"}
     local redirect_stdout=$(trim "$3")
@@ -312,7 +312,7 @@ current_log_file() {
 #   $1 - Message to log.
 # Returns: None (logs message to file).
 log_message() {
-    local msg=$(trim "$1")
+    local msg="$1"
     local use_newline=$(trim "$2")
     use_newline=${use_newline:-"true"}
     local log_only=$(trim "$3")
