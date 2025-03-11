@@ -1,8 +1,8 @@
 ################################# BISU_START: Bash Internal Simple Utils #################################
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
-# Official Web Site: https://x-1.tech
+# Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.0.0"
+export BISU_VERSION="5.0.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -855,47 +855,6 @@ arr_reset() {
     _ASSOC_KEYS=() || return 1
     _ASSOC_VALUES=() || return 1
 
-    return 0
-}
-
-# Convert array to string (with optional delimiter).
-# If no delimiter is specified, defaults to the global private arrays "_ASSOC_KEYS" and "_ASSOC_VALUES".
-array_to_string() {
-    local delimiter="$1" # The delimiter provided by the user
-    local result=""      # Result string initialization
-
-    # Default behavior if delimiter is not specified
-    if [ -z "$delimiter" ]; then
-        delimiter=" " # Set default delimiter to space
-    fi
-
-    # Check if _ASSOC_KEYS and _ASSOC_VALUES arrays are non-empty
-    if [ ${#_ASSOC_KEYS[@]} -eq 0 ] || [ ${#_ASSOC_VALUES[@]} -eq 0 ]; then
-        echo ""
-        return 1 # Return empty string if arrays are empty
-    fi
-
-    # Iterate over the _ASSOC_KEYS array and build the result string with delimiter
-    for i in "${!_ASSOC_KEYS[@]}"; do
-        # Fetch key-value pairs from the global arrays
-        local key="${_ASSOC_KEYS[$i]}"
-        local value="${_ASSOC_VALUES[$i]}"
-
-        # Handle empty or missing keys/values
-        if [ -z "$key" ] || [ -z "$value" ]; then
-            continue # Skip empty key-value pairs
-        fi
-
-        # Append formatted key-value pair to the result string
-        if [ -z "$result" ]; then
-            result="${key}:${value}" # First pair, no delimiter before
-        else
-            result="${result}${delimiter}${key}:${value}" # Add delimiter between subsequent pairs
-        fi
-    done
-
-    # Output the result string
-    echo "$result"
     return 0
 }
 
@@ -2116,6 +2075,15 @@ check_processes() {
             sleep 2
         done
     fi
+}
+
+# Execute a command when quit
+exec_when_quit() {
+    local command=$(trim "$1")
+    array_unique_push "EXIT_WITH_COMMANDS" "$command" || {
+        return 1
+    }
+    return 0
 }
 
 # Start autorun list
