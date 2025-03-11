@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo bash ./bisu.bash install
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION=">=5.0.1"
+export THIS_REQUIRED_BISU_VERSION=">=5.0.2"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
