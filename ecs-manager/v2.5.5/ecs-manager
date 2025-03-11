@@ -2,9 +2,9 @@
 
 ######################################################## BISU Importer Start #########################################################
 ## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://raw.githubusercontent.com/x-1-repo/bisu/master/bisu/bisu.latest.bash -o "/usr/local/sbin/bisu.bash"
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo bash ./bisu.bash install
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION="^4.9.0"
+export THIS_REQUIRED_BISU_VERSION=">=5.0.1"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -26,7 +26,7 @@ bisu_main "$@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.5.4"
+export ECS_MANAGER_VERSION="2.5.5"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -145,7 +145,7 @@ prep_ssh_command() {
     fi
 
     # Apply PEM file if preferred
-    if [ "$PREFER_PEM" == "true" ]; then
+    if [[ "$PREFER_PEM" == "true" ]]; then
         log_message "Connecting to [$HOST_NAME] via SSH with PEM..."
         ssh_command="$ssh_command -i '$PEM_FILE'"
     else
@@ -439,7 +439,7 @@ create() {
     local tmpfile="$(mktemp)" || {
         error_exit "Failed to create temp file."
     }
-    array_unique_push "EXIT_WITH_COMMANDS" "rm -f \"$tmpfile\""
+    exec_when_quit "rm \"$tmpfile\""
 
     cat >"$tmpfile" <<EOF
 USE_PROXY: false
@@ -454,9 +454,11 @@ PREFER_PEM: false
 PEM_FILE: ""
 EOF
 
+    local tempfileMd5=$(md5sum "$tmpfile")
     vi "$tmpfile"
     local vi_status=$?
-    if [[ "$vi_status" == 0 ]] && [ -s "$tmpfile" ]; then
+
+    if [[ "$vi_status" == 0 ]] && [ -s "$tmpfile" ] && [[ "$tempfileMd5" != $(md5sum "$tmpfile") ]]; then
         move_file "$tmpfile" "$host_config_path" "false" && {
             log_message "Host config file has been saved as: $host_config_path"
         }
@@ -615,7 +617,7 @@ gen_ed25519_key() {
 
     move_file "$temp_pem" "$pem"
     move_file "$temp_pem_pub" "$pem_pub"
-    array_unique_push "EXIT_WITH_COMMANDS" "rm -r \"$temp_dir\""
+    exec_when_quit "rm -r \"$temp_dir\""
 
     local rsa_equivalent=""
     case "$key_length" in
