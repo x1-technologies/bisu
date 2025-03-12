@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.0"
+export BISU_VERSION="5.1.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -1229,7 +1229,7 @@ is_valid_ipv6() {
 
 # Universal function to validate IP address
 is_valid_ip() {
-    ! is_valid_ipv4 && ! is_valid_ipv6 && return 1
+    ! is_valid_ipv4 && ! is_valid_ipv6 || return 1
     return 0
 }
 
