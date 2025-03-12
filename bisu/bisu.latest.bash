@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.4"
+export BISU_VERSION="5.1.5"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -98,8 +98,7 @@ command_exists() {
 # Description: According to its naming
 current_command() {
     if [[ -z "$CURRENT_COMMAND" ]]; then
-        output "Error: Invalid current command"
-        exit 1
+        error_exit "Invalid current command"
     fi
 
     echo "$CURRENT_COMMAND"
@@ -115,8 +114,7 @@ current_args() {
 # Description: According to its naming
 current_file() {
     if [[ -z $CURRENT_FILE_PATH ]] || ! is_file "$CURRENT_FILE_PATH"; then
-        output "Error: Invalid current file path: $CURRENT_FILE_PATH"
-        exit 1
+        error_exit "Invalid current file path: $CURRENT_FILE_PATH"
     fi
 
     echo "$CURRENT_FILE_PATH"
@@ -126,8 +124,7 @@ current_file() {
 # Description: According to its naming
 current_filename() {
     if [[ -z $CURRENT_FILE_NAME ]]; then
-        output "Error: Invalid current file name"
-        exit 1
+        error_exit "Invalid current file name"
     fi
     echo "$CURRENT_FILE_NAME"
 }
@@ -1947,7 +1944,7 @@ current_lock_file() {
 
         LOCK_FILE_DIR="$lock_file_dir"
         LOCK_ID=$(md5_sign "$(current_command)")
-        LOCK_FILE="$LOCK_FILE_DIR/$(basename $(current_file))_$LOCK_ID.lock" || {
+        LOCK_FILE="$LOCK_FILE_DIR/$(current_filename)_$LOCK_ID.lock" || {
             error_exit "Failed to set LOCK_FILE."
         }
     fi
