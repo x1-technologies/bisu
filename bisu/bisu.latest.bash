@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.1"
+export BISU_VERSION="5.1.2"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -82,21 +82,22 @@ output() {
     fi
 }
 
-# Function: command_path
-# Description: According to its naming
-command_path() {
-    command_path=$(echo "$1" | awk '{print $1}')
-    command_path=$(trim "$command_path")
-    [[ -n "$command_path" ]] && echo "$command_path" || {
-        output "Error: Failed to get command path"
-        exit 1
-    }
+# Function to check if a command is existent
+command_exists() {
+    local command=$(trim "$1")
+    if [[ -z "$command" ]]; then
+        return 0
+    fi
+    if ! command -v "$command" &>/dev/null; then
+        return 1
+    fi
+    return 0
 }
 
 # Function: current_command
 # Description: According to its naming
 current_command() {
-    if [[ -z $CURRENT_COMMAND ]]; then
+    if [[ -z "$CURRENT_COMMAND" ]]; then
         output "Error: Invalid current command"
         exit 1
     fi
@@ -113,11 +114,25 @@ current_args() {
 # Function: current_file
 # Description: According to its naming
 current_file() {
-    CURRENT_FILE_PATH=$(command_path "$(current_command)")
+    if [[ -z "$CURRENT_FILE_PATH" ]]; then
+        local command=$(current_command)
+        local current_file=""
+        # Extract the command name (first word) from the input
+        command="${command%% *}" # Removes everything after the first space
+
+        # Try to resolve the absolute path of the command
+        if [ -x "$command" ]; then
+            CURRENT_FILE_PATH="$(cd "$(dirname "$command")" && pwd)/$(basename "$command")"
+        else
+            CURRENT_FILE_PATH="$(command -v "$command" 2>/dev/null || which "$command" 2>/dev/null)"
+        fi
+    fi
+
     if [[ -z $CURRENT_FILE_PATH ]] || ! is_file "$CURRENT_FILE_PATH"; then
         output "Error: Invalid current file path: $CURRENT_FILE_PATH"
         exit 1
     fi
+
     echo "$CURRENT_FILE_PATH"
 }
 
@@ -187,7 +202,7 @@ substr() {
 # Function: md5_sign
 # Description: According to its naming
 md5_sign() {
-    echo -n "$1" | md5sum | awk '{print $1}'
+    echo $(trim "$1") | md5sum | awk '{print $1}'
 }
 
 # Function: current_dir
@@ -1876,18 +1891,6 @@ random_string() {
     echo "$shuffled_charset" | head -c "$length" || echo ""
 }
 
-# Function to check if a command is existent
-command_exists() {
-    local commandString=$(trim "$1")
-    if [[ -z "$commandString" ]]; then
-        return 0
-    fi
-    if ! command -v "$commandString" &>/dev/null; then
-        return 1
-    fi
-    return 0
-}
-
 # Function to check existence of external commands
 check_commands_list() {
     local array_name=$(trim "$1")
@@ -2134,8 +2137,14 @@ separate_command() {
 # Register the current command
 register_current_command() {
     separate_command "$@"
-    CURRENT_COMMAND=$(arr_get_val "CURRENT_COMMAND")
-    CURRENT_ARGS=$(arr_get_val "CURRENT_ARGS")
+    local current_command=$(arr_get_val "CURRENT_COMMAND")
+    local current_args=$(arr_get_val "CURRENT_ARGS")
+
+    CURRENT_COMMAND="$currrent_command"
+    CURRENT_ARGS=$(trim "$current_args")
+    [ -n "$CURRENT_ARGS" ] && {
+        CURRENT_COMMAND="$CURRENT_COMMAND $CURRENT_ARGS"
+    }
 }
 
 # Get args and store them in an associative array
