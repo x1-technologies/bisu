@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.0.2"
+export BISU_VERSION="5.1.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -20,12 +20,14 @@ export HOME=$(eval echo ~${SUDO_USER:-$USER})
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # Default title
 export DEFAULT_TITLE="-bash"
+# Auto line-break length
+export LINE_BREAK_LENGTH=160
 # Required files
 export REQUIRED_SCRIPT_FILES=()
 # Subprocesses pids to cleanup
 export SUBPROCESSES_PIDS=()
 # Required external commands list
-export BISU_REQUIRED_EXTERNAL_COMMANDS=('uuidgen' 'md5sum' 'awk' 'xxd' 'bc')
+export BISU_REQUIRED_EXTERNAL_COMMANDS=('getopt' 'awk' 'xxd' 'bc' 'uuidgen' 'md5sum')
 # Required external commands list
 export REQUIRED_EXTERNAL_COMMANDS=()
 # Exit with commands
@@ -47,6 +49,11 @@ export CURRENT_FILE_PATH=""
 export CURRENT_FILE_NAME=""
 # The current command by the actual script
 export CURRENT_COMMAND=""
+# The current args by the actual script
+export CURRENT_ARGS=()
+# Specific Empty Expression
+export EMPTY_EXPR="0x00"
+# Debug Switch
 export DEBUG_MODE="false"
 
 # Universal function to trim whitespace
@@ -69,9 +76,9 @@ output() {
 
     use_newline=${use_newline:-"true"}
     if [[ "$use_newline" == "true" ]]; then
-        echo -e "$message" 2>&1
+        echo -e "$message" | fold -s -w $LINE_BREAK_LENGTH 2>&1
     else
-        echo -en "$message" 2>&1
+        echo -en "$message" 2>&1 | fold -s -w $LINE_BREAK_LENGTH
     fi
 }
 
@@ -97,6 +104,12 @@ current_command() {
     echo "$CURRENT_COMMAND"
 }
 
+# Function: current_args
+# Description: According to its naming
+current_args() {
+    echo "$CURRENT_ARGS"
+}
+
 # Function: current_file
 # Description: According to its naming
 current_file() {
@@ -108,6 +121,8 @@ current_file() {
     echo "$CURRENT_FILE_PATH"
 }
 
+# Function: current_filename
+# Description: According to its naming
 current_filename() {
     if [[ -z $CURRENT_FILE_NAME ]]; then
         CURRENT_FILE_NAME=$(basename "$(current_file)")
@@ -132,11 +147,6 @@ target_path() {
     target_path="$target_path/$current_file"
     target_path=$(file_real_path "$target_path")
     echo "$target_path"
-}
-
-# Register the current command
-register_current_command() {
-    current_file &>/dev/null
 }
 
 # Function: strtolower
@@ -680,22 +690,37 @@ move_current_script() {
 # Function to check if a variable is an array
 is_array() {
     local array_name=$(trim "$1")
-    # Negate the test for `declare -a` using ! logic
+
     if ! declare -p "$array_name" 2>/dev/null | grep -q 'declare -a'; then
-        return 1 # Not an array
+        return 1
     fi
-    return 0 # Is an array
+
+    return 0
+}
+
+# Function to check if an array is available
+array_is_available() {
+    local array_name=$(trim "$1")
+
+    is_array "$array_name" || return 1
+
+    [ -n "${array_name[*]}" ] || return 1
+
+    return 0
 }
 
 # Array values as string
-array_values_string() {
+array_copy() {
     local array_name=$(trim "$1")
     local var_name=$(trim "$2")
+
     if ! is_array "$array_name" || ! is_valid_var_name "$var_name"; then
-        echo ""
-        return
+        return 1
     fi
-    eval "$var_name=(\"\${$array_name[@]}\")" || error_exit "Failed to get array values."
+
+    eval "$var_name=(\"\${$array_name[@]}\")" || return 1
+
+    return 0
 }
 
 # Function to add an element to a specified global array
@@ -1869,16 +1894,11 @@ check_commands_list() {
     local invalid_commands_count=0
     local invalid_commands=""
 
-    if ! is_array "$array_name"; then
+    if ! array_is_available "$array_name"; then
         error_exit "Invalid array name provided."
-        return 1
     fi
 
-    array_values_string "$array_name" "vals"
-    # Check if the array is empty
-    if [[ ${#vals[@]} == 0 ]]; then
-        return 0
-    fi
+    array_copy "$array_name" "vals"
 
     for val in "${vals[@]}"; do
         # Check if the command exists
@@ -1894,24 +1914,17 @@ check_commands_list() {
         invalid_commands=${invalid_commands:1}
         error_exit "Missing $invalid_commands_count command(s):$invalid_commands"
     fi
-
-    return 0
 }
 
 # Function to clean files when exit
 exit_with_commands() {
     local array_name="EXIT_WITH_COMMANDS"
 
-    if ! is_array "$array_name"; then
+    if ! array_is_available "$array_name"; then
         error_exit "Invalid array name provided."
-        return 1
     fi
 
-    array_values_string "$array_name" "vals"
-    # Check if the array is empty
-    if [[ ${#vals[@]} == 0 ]]; then
-        return 0
-    fi
+    array_copy "$array_name" "vals"
 
     for val in "${vals[@]}"; do
         val=$(trim "$val")
@@ -1919,8 +1932,6 @@ exit_with_commands() {
             exec_command "$val" >/dev/null 2>&1
         fi
     done
-
-    return 0
 }
 
 # The current file's run lock by signed md5 of full path
@@ -2086,6 +2097,111 @@ exec_when_quit() {
     return 0
 }
 
+# Execute a command when quit
+separate_command() {
+    local input="$@" # Full input string
+    local cmd
+    local args
+    local params=""
+
+    # Step 1: Extract command and parameters using `awk` + `while IFS` to handle space and empty string
+    while IFS= read -r word; do
+        if [ -z "$cmd" ]; then
+            cmd="$word" # First word is the command
+        else
+            params="$params \"$word\"" # Everything after is considered a parameter
+        fi
+    done <<<"$(echo "$input" | awk '{for(i=1;i<=NF;i++) print $i}')"
+
+    if [ -z "$cmd" ]; then
+        return 1
+    fi
+
+    # Step 2: Validate if the command exists
+    if ! command -v "$cmd" &>/dev/null; then
+        array_unique_push "REQUIRED_COMMANDS" "$cmd"
+        return 1
+    fi
+
+    arr_reset || return 1
+
+    arr_set_val "CURRENT_COMMAND" "$cmd"
+    arr_set_val "CURRENT_ARGS" "$params"
+
+    return 0
+}
+
+# Register the current command
+register_current_command() {
+    separate_command "$@"
+    CURRENT_COMMAND=$(arr_get_val "CURRENT_COMMAND")
+    CURRENT_ARGS=$(arr_get_val "CURRENT_ARGS")
+}
+
+# Get args and store them in an associative array
+get_args() {
+    local key
+    local value
+    local param
+    local pos_index=1
+    local emptyExpr="0x00"
+    local args
+
+    eval "set -- $(current_args)"
+    [[ $# -gt 0 ]] && arr_reset || return 1
+
+    while [[ $# -gt 0 ]]; do
+        param="$1"
+
+        # Long options (e.g., --key=value)
+        if [[ "$param" =~ ^-- ]]; then
+            key="${param#--}"
+            if [[ "$param" =~ = ]]; then
+                value="${param#*=}" # Extract value after '='
+            elif [[ "$2" != --* && "$2" != -* && -n "$2" ]]; then
+                value="$2" # Next argument is the value
+                shift
+            else
+                value="$emptyExpr" # Explicitly tag empty standalone flag
+            fi
+            arr_set_val "$key" "$value"
+
+        # Short options (e.g., -f, -abc)
+        elif [[ "$param" =~ ^- ]]; then
+            key="${param#-}"
+            if [[ ${#key} -gt 1 ]]; then
+                # Handle combined short flags (e.g., -abc)
+                for ((i = 0; i < ${#key}; i++)); do
+                    arr_set_val "${key:i:1}" "$emptyExpr"
+                done
+            else
+                # Single short flag (e.g., -f)
+                if [[ "$2" != --* && "$2" != -* && -n "$2" ]]; then
+                    value="$2"
+                    arr_set_val "$key" "$value"
+                    shift
+                else
+                    arr_set_val "$key" "$emptyExpr" # Explicitly tag empty standalone flag
+                fi
+            fi
+
+        # End of options marker (--)
+        elif [[ "$param" == -- ]]; then
+            shift
+            break
+
+        # Positional arguments (e.g., file1, file2)
+        else
+            arr_set_val "$pos_index" "$param"
+            ((pos_index++))
+        fi
+
+        shift
+    done
+
+    return 0
+}
+
 # Start autorun list
 autorun_start() {
     if ! is_array "AUTORUN"; then
@@ -2101,7 +2217,7 @@ autorun_start() {
 
 # Function to initialise BISU
 initialise() {
-    register_current_command # Required to be the 1st start
+    register_current_command "$@" # Required to be the 1st start
     check_bash_version
     check_bisu_version
     autorun_start
@@ -2120,10 +2236,25 @@ is_installed() {
 confirm_to_install() {
     local arg
     arg=$(strtolower "$(trim "$1")")
+    local option_force=""
+    local force="false"
+    local choice="y"
 
     if [[ "$arg" == "install" ]]; then
-        is_installed && error_exit "$(current_filename) has already installed at: $(current_file)"
-        if confirm "Are you sure to install $(current_file)?" "y"; then
+        get_args
+        option_force=$(arr_get_val "f")
+        [[ -n "$option_force" ]] || {
+            option_force=$(arr_get_val "force")
+        }
+
+        if [[ -n "$option_force" ]] && [[ "$option_force" == "$EMPTY_EXPR" ]]; then
+            force="true"
+            choice="n"
+        fi
+
+        is_installed && [[ "$force" == "false" ]] &&
+            error_exit "$(current_filename) has already installed at: $(current_file), please use -f if you want to forcefully override it."
+        if confirm "Are you sure to install $(current_file)?" "$choice"; then
             install_script
         else
             error_exit "Aborted."
@@ -2142,8 +2273,9 @@ install_script() {
 
 # bisu autorun function
 bisu_main() {
-    # initialisation actions
-    initialise
+    initialise "$@"
+    eval "set -- $(current_args)"
+
     local action=$(trim "$1")
     local param=$(trim "$2")
 
