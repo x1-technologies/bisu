@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.3"
+export BISU_VERSION="5.1.4"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -126,11 +126,8 @@ current_file() {
 # Description: According to its naming
 current_filename() {
     if [[ -z $CURRENT_FILE_NAME ]]; then
-        CURRENT_FILE_NAME=$(basename "$(current_file)")
-        if [[ -z $CURRENT_FILE_NAME ]]; then
-            output "Error: Invalid current file name"
-            exit 1
-        fi
+        output "Error: Invalid current file name"
+        exit 1
     fi
     echo "$CURRENT_FILE_NAME"
 }
@@ -2128,6 +2125,8 @@ register_current_command() {
 
     CURRENT_FILE_PATH="$current_file_path"
     CURRENT_COMMAND="$CURRENT_FILE_PATH"
+    CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
+
     CURRENT_ARGS=$(trim "$current_args")
     [ -n "$CURRENT_ARGS" ] && {
         CURRENT_COMMAND="$CURRENT_COMMAND $CURRENT_ARGS"
