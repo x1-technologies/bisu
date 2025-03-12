@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.5"
+export BISU_VERSION="5.1.6"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -189,8 +189,7 @@ md5_sign() {
 # Description: According to its naming
 current_dir() {
     echo $(dirname $(current_file)) || {
-        output "Error: Invalid current file path: $CURRENT_FILE_PATH"
-        exit 1
+        error_exit "Invalid current file path: $CURRENT_FILE_PATH"
     }
 }
 
@@ -266,8 +265,7 @@ current_log_file() {
     local log_file=""
 
     local filename=$(basename "$(current_file)") || {
-        output "Error: Invalid current file path: $CURRENT_FILE_PATH"
-        exit 1
+        error_exit "Invalid current file path: $CURRENT_FILE_PATH"
     }
 
     # Check if log file directory is valid, otherwise set based on user privileges
@@ -288,8 +286,7 @@ current_log_file() {
     # Create directory if it doesn't exist
     if [[ ! -d "$log_file_dir" ]]; then
         mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
-            output "Error: Failed to create or set permissions for $log_file_dir"
-            exit 1
+            error_exit "Failed to create or set permissions for $log_file_dir"
         }
     fi
 
@@ -298,14 +295,12 @@ current_log_file() {
     log_file="$log_file_dir/$filename.log"
 
     touch "$log_file" || {
-        output "Error: Failed to create log file $log_file"
-        exit 1
+        error_exit "Failed to create log file $log_file"
     }
 
     # Validate log file creation
     if ! [[ -e "$log_file" && -f "$log_file" ]]; then
-        output "Error: Log file $log_file creation failed"
-        exit 1
+        error_exit "Log file $log_file creation failed"
     fi
 
     echo "$log_file"
@@ -328,15 +323,13 @@ log_message() {
 
     # Ensure the log directory exists
     mkdir -p "$log_dir" || {
-        output "Failed to create log directory: $log_dir" "$use_newline"
-        exit 1
+        error_exit "Failed to create log directory: $log_dir" "$use_newline"
     }
 
     # Create the log file if it doesn't exist
     if [[ ! -f "$log_file" ]]; then
         touch "$log_file" || {
-            output "Failed to create log file $log_file" "$use_newline"
-            exit 1
+            error_exit "Failed to create log file $log_file" "$use_newline"
         }
     fi
 
@@ -361,7 +354,7 @@ error_exit() {
     log_only=${log_only:-"false"}
 
     log_message "Error: $msg" "$use_newline" "$log_only"
-    eval 'kill -TERM "$$"' >/dev/null 2>&1
+    eval 'kill -TERM "$$" >/dev/null 2>&1' >/dev/null 2>&1
 }
 
 # Execute command
