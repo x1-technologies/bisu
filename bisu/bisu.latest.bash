@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.2"
+export BISU_VERSION="5.1.3"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -114,20 +114,6 @@ current_args() {
 # Function: current_file
 # Description: According to its naming
 current_file() {
-    if [[ -z "$CURRENT_FILE_PATH" ]]; then
-        local command=$(current_command)
-        local current_file=""
-        # Extract the command name (first word) from the input
-        command="${command%% *}" # Removes everything after the first space
-
-        # Try to resolve the absolute path of the command
-        if [ -x "$command" ]; then
-            CURRENT_FILE_PATH="$(cd "$(dirname "$command")" && pwd)/$(basename "$command")"
-        else
-            CURRENT_FILE_PATH="$(command -v "$command" 2>/dev/null || which "$command" 2>/dev/null)"
-        fi
-    fi
-
     if [[ -z $CURRENT_FILE_PATH ]] || ! is_file "$CURRENT_FILE_PATH"; then
         output "Error: Invalid current file path: $CURRENT_FILE_PATH"
         exit 1
@@ -2137,10 +2123,11 @@ separate_command() {
 # Register the current command
 register_current_command() {
     separate_command "$@"
-    local current_command=$(arr_get_val "CURRENT_COMMAND")
+    local current_file_path=$(arr_get_val "CURRENT_COMMAND")
     local current_args=$(arr_get_val "CURRENT_ARGS")
 
-    CURRENT_COMMAND="$currrent_command"
+    CURRENT_FILE_PATH="$current_file_path"
+    CURRENT_COMMAND="$CURRENT_FILE_PATH"
     CURRENT_ARGS=$(trim "$current_args")
     [ -n "$CURRENT_ARGS" ] && {
         CURRENT_COMMAND="$CURRENT_COMMAND $CURRENT_ARGS"
