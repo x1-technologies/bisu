@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.7"
+export BISU_VERSION="5.1.8"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -2129,7 +2129,7 @@ get_args() {
     local value
     local param
     local pos_index=1
-    local emptyExpr="0x00"
+    local emptyExpr="$EMPTY_EXPR"
     local args
 
     eval "set -- $(current_args)"
