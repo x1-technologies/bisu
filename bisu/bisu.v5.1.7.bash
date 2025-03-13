@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.6"
+export BISU_VERSION="5.1.7"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -353,7 +353,7 @@ error_exit() {
     local log_only=$(trim "$3")
     log_only=${log_only:-"false"}
 
-    log_message "Error: $msg" "$use_newline" "$log_only"
+    log_message "Error:( $msg" "$use_newline" "$log_only"
     eval 'kill -TERM "$$" >/dev/null 2>&1' >/dev/null 2>&1
 }
 
