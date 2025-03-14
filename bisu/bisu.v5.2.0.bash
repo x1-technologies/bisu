@@ -2,11 +2,13 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.1.8"
+export BISU_VERSION="5.2.0"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 
+export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
+export _ASSOC_VALUES=() # Core array for the common associative array values, no modification
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export AUTORUN=(
@@ -27,7 +29,7 @@ export REQUIRED_SCRIPT_FILES=()
 # Subprocesses pids to cleanup
 export SUBPROCESSES_PIDS=()
 # Required external commands list
-export BISU_REQUIRED_EXTERNAL_COMMANDS=('getopt' 'awk' 'xxd' 'bc' 'uuidgen' 'md5sum')
+export BISU_REQUIRED_EXTERNAL_COMMANDS=('getopt' 'awk' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee')
 # Required external commands list
 export REQUIRED_EXTERNAL_COMMANDS=()
 # Exit with commands
@@ -66,6 +68,11 @@ bisu_file() {
     echo "$BISU_FILE_PATH"
 }
 
+# BISU file name
+bisu_filename() {
+    echo $(basename $(bisu_file))
+}
+
 # Function: output a message
 output() {
     local message="$1"
@@ -78,7 +85,7 @@ output() {
     if [[ "$use_newline" == "true" ]]; then
         echo -e "$message" | fold -s -w $LINE_BREAK_LENGTH 2>&1
     else
-        echo -en "$message" 2>&1 | fold -s -w $LINE_BREAK_LENGTH
+        echo -en "$message" | fold -s -w $LINE_BREAK_LENGTH 2>&1
     fi
 }
 
@@ -94,11 +101,27 @@ command_exists() {
     return 0
 }
 
+# Quit the current command with a protocol-based signal
+quit() {
+    eval 'kill -TERM "$$"' >/dev/null 2>&1
+}
+
+# Dump
+dump() {
+    local msg=$(trim "$1")
+    local use_newline=$(trim "$2")
+    use_newline=${use_newline:-"true"}
+
+    output "$msg" "$use_newline" "true"
+    quit
+}
+
 # Function: current_command
 # Description: According to its naming
 current_command() {
     if [[ -z "$CURRENT_COMMAND" ]]; then
-        error_exit "Invalid current command"
+        output "Invalid current command"
+        quit
     fi
 
     echo "$CURRENT_COMMAND"
@@ -114,7 +137,8 @@ current_args() {
 # Description: According to its naming
 current_file() {
     if [[ -z $CURRENT_FILE_PATH ]] || ! is_file "$CURRENT_FILE_PATH"; then
-        error_exit "Invalid current file path: $CURRENT_FILE_PATH"
+        output "Invalid current file path: $CURRENT_FILE_PATH"
+        quit
     fi
 
     echo "$CURRENT_FILE_PATH"
@@ -124,9 +148,143 @@ current_file() {
 # Description: According to its naming
 current_filename() {
     if [[ -z $CURRENT_FILE_NAME ]]; then
-        error_exit "Invalid current file name"
+        output "Invalid current file name"
+        quit
     fi
     echo "$CURRENT_FILE_NAME"
+}
+
+# Function: current_dir
+# Description: According to its naming
+current_dir() {
+    echo $(dirname $(current_file)) || {
+        output "Invalid current file path: $CURRENT_FILE_PATH"
+        quit
+    }
+}
+
+# The current log file
+current_log_file() {
+    local log_file_dir="$LOG_FILE_DIR"
+    local log_file=""
+
+    local filename=$(current_filename) || {
+        output "Invalid current file path: $CURRENT_FILE_PATH"
+        quit
+    }
+
+    # Check if log file directory is valid, otherwise set based on user privileges
+    if ! [[ -n "$log_file_dir" && -e "$log_file_dir" && -d "$log_file_dir" ]]; then
+        log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
+    fi
+
+    # Default to $HOME if no valid directory found
+    log_file_dir="${log_file_dir:-$HOME/.local/var/run}"
+
+    # Remove trailing slash if exists
+    [[ "$log_file_dir" =~ /$ ]] && log_file_dir="${log_file_dir%/}"
+
+    # Construct log file directory with current date, ensuring it's only appended once
+    log_file_dir="$log_file_dir/$filename"
+    log_file_dir="$log_file_dir/$(date +'%Y-%m')"
+
+    # Create directory if it doesn't exist
+    if [[ ! -d "$log_file_dir" ]]; then
+        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
+            output "Failed to create or set permissions for $log_file_dir"
+            quit
+        }
+    fi
+
+    # Final checks and log file creation
+    LOG_FILE_DIR="$log_file_dir"
+    log_file="$log_file_dir/$filename.log"
+
+    touch "$log_file" || {
+        output "Failed to create log file $log_file"
+        quit
+    }
+
+    # Validate log file creation
+    if ! [[ -f "$log_file" ]]; then
+        output "Log file $log_file creation failed"
+        quit
+    fi
+
+    echo "$log_file"
+}
+
+# Function: log_message
+# Description: Logs messages with timestamps to a specified log file, with fallback options.
+log_message() {
+    local msg="$1"
+    local use_newline=$(trim "$2")
+    use_newline=${use_newline:-"true"}
+    local log_only=$(trim "$3")
+    log_only=${log_only:-"false"}
+
+    local log_file=$(current_log_file)
+    local log_dir=$(dirname "$log_file")
+
+    # Log the message with a timestamp to the log file and optionally to stderr
+    if [[ "$log_only" == "true" ]]; then
+        # Log to both log file and stderr
+        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >/dev/null
+    else
+        # Log to the log file only
+        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" 2>&1
+    fi
+}
+
+# Function to handle errors
+error_exit() {
+    local msg=$(trim "$1")
+    local use_newline=$(trim "$2")
+    use_newline=${use_newline:-"true"}
+    local log_only=$(trim "$3")
+    log_only=${log_only:-"false"}
+
+    log_message "Error:( $msg" "$use_newline" "$log_only"
+    quit
+}
+
+# The current file's run lock by signed md5 of full path
+current_lock_file() {
+    if [[ -z "$LOCK_ID" ]]; then
+        local lock_file_dir="$LOCK_FILE_DIR"
+        if ! is_dir "$lock_file_dir"; then
+            if is_root_user; then
+                lock_file_dir="$ROOT_LOCK_FILE_DIR"
+            else
+                lock_file_dir="$USER_LOCK_FILE_DIR"
+            fi
+        fi
+
+        if ! is_dir "$lock_file_dir"; then
+            lock_file_dir="$HOME/.local/var/run"
+            mkdir_p "$lock_file_dir"
+        fi
+
+        if ! is_dir "$lock_file_dir"; then
+            error_exit "Lock file creation failed."
+        fi
+
+        if string_ends_with "$lock_file_dir" "/"; then
+            lock_file_dir=$(substr "$lock_file_dir" -1)
+        fi
+
+        LOCK_FILE_DIR="$lock_file_dir"
+        LOCK_ID=$(md5_sign "$(current_command)")
+        LOCK_FILE="$LOCK_FILE_DIR/$(current_filename)_$LOCK_ID.lock" || {
+            error_exit "Failed to set LOCK_FILE."
+        }
+    fi
+
+    if [[ -z "$LOCK_ID" ]]; then
+        error_exit "Could not set LOCK_ID."
+    fi
+
+    echo "$LOCK_FILE"
 }
 
 # Function: target_path
@@ -138,8 +296,7 @@ target_path() {
     else
         local current_file=$(bisu_file)
     fi
-    current_file=$(basename "$current_file")
-    target_path="$target_path/$current_file"
+    target_path="$target_path/$(current_filename)"
     target_path=$(file_real_path "$target_path")
     echo "$target_path"
 }
@@ -183,14 +340,6 @@ substr() {
 # Description: According to its naming
 md5_sign() {
     echo $(trim "$1") | md5sum | awk '{print $1}'
-}
-
-# Function: current_dir
-# Description: According to its naming
-current_dir() {
-    echo $(dirname $(current_file)) || {
-        error_exit "Invalid current file path: $CURRENT_FILE_PATH"
-    }
 }
 
 # Check string start with
@@ -257,104 +406,6 @@ is_valid_date() {
     else
         return 1 # Invalid date
     fi
-}
-
-# The current log file
-current_log_file() {
-    local log_file_dir="$LOG_FILE_DIR"
-    local log_file=""
-
-    local filename=$(basename "$(current_file)") || {
-        error_exit "Invalid current file path: $CURRENT_FILE_PATH"
-    }
-
-    # Check if log file directory is valid, otherwise set based on user privileges
-    if ! [[ -n "$log_file_dir" && -e "$log_file_dir" && -d "$log_file_dir" ]]; then
-        log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
-    fi
-
-    # Default to $HOME if no valid directory found
-    log_file_dir="${log_file_dir:-$HOME/.local/var/run}"
-
-    # Remove trailing slash if exists
-    [[ "$log_file_dir" =~ /$ ]] && log_file_dir="${log_file_dir%/}"
-
-    # Construct log file directory with current date, ensuring it's only appended once
-    log_file_dir="$log_file_dir/$filename"
-    log_file_dir="$log_file_dir/$(date +'%Y-%m')"
-
-    # Create directory if it doesn't exist
-    if [[ ! -d "$log_file_dir" ]]; then
-        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
-            error_exit "Failed to create or set permissions for $log_file_dir"
-        }
-    fi
-
-    # Final checks and log file creation
-    LOG_FILE_DIR="$log_file_dir"
-    log_file="$log_file_dir/$filename.log"
-
-    touch "$log_file" || {
-        error_exit "Failed to create log file $log_file"
-    }
-
-    # Validate log file creation
-    if ! [[ -e "$log_file" && -f "$log_file" ]]; then
-        error_exit "Log file $log_file creation failed"
-    fi
-
-    echo "$log_file"
-}
-
-# Function: log_message
-# Description: Logs messages with timestamps to a specified log file, with fallback options.
-# Arguments:
-#   $1 - Message to log.
-# Returns: None (logs message to file).
-log_message() {
-    local msg="$1"
-    local use_newline=$(trim "$2")
-    use_newline=${use_newline:-"true"}
-    local log_only=$(trim "$3")
-    log_only=${log_only:-"false"}
-
-    local log_file=$(current_log_file)
-    local log_dir=$(dirname "$log_file")
-
-    # Ensure the log directory exists
-    mkdir -p "$log_dir" || {
-        error_exit "Failed to create log directory: $log_dir" "$use_newline"
-    }
-
-    # Create the log file if it doesn't exist
-    if [[ ! -f "$log_file" ]]; then
-        touch "$log_file" || {
-            error_exit "Failed to create log file $log_file" "$use_newline"
-        }
-    fi
-
-    # Log the message with a timestamp to the log file and optionally to stderr
-    if [[ "$log_only" == "true" ]]; then
-        # Log to both log file and stderr
-        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >/dev/null
-    else
-        # Log to the log file only
-        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" 2>&1
-    fi
-
-    return 0
-}
-
-# Function to handle errors
-error_exit() {
-    local msg=$(trim "$1")
-    local use_newline=$(trim "$2")
-    use_newline=${use_newline:-"true"}
-    local log_only=$(trim "$3")
-    log_only=${log_only:-"false"}
-
-    log_message "Error:( $msg" "$use_newline" "$log_only"
-    eval 'kill -TERM "$$" >/dev/null 2>&1' >/dev/null 2>&1
 }
 
 # Execute command
@@ -697,6 +748,32 @@ array_is_available() {
     return 0
 }
 
+# Function to check if a value is in an array
+in_array() {
+    # Ensure there are at least 2 arguments (needle and at least one haystack item)
+    if [ $# -lt 2 ]; then
+        return 1
+    fi
+
+    local needle="$1"
+    shift
+
+    # Ensure the needle is not empty
+    if [ -z "$needle" ]; then
+        return 1
+    fi
+
+    # Use awk to check if the needle exists in the arguments
+    # We use awk's pattern matching to compare each argument to the needle
+    printf "%s\n" "$@" | awk -v needle="$needle" '
+        BEGIN { found = 0 }
+        $0 == needle { found = 1; exit }
+        END { exit found ? 0 : 1 }
+    ' || return 1
+
+    return $?
+}
+
 # Array values as string
 array_copy() {
     local array_name=$(trim "$1")
@@ -805,10 +882,6 @@ array_unique() {
     fi
     eval "$array_name=($(echo \${$array_name[@]} | tr ' ' '\n' | sort -u | tr '\n' ' '))"
 }
-
-# Private global variables to simulate associative array behavior
-declare -a _ASSOC_KEYS=()
-declare -a _ASSOC_VALUES=()
 
 # Function to dynamically set or update a key-value pair
 arr_set_val() {
@@ -1166,7 +1239,8 @@ check_bash_version() {
 check_bisu_version() {
     local expr="$THIS_REQUIRED_BISU_VERSION"
     local result=$(compare_version "$expr" "$BISU_VERSION")
-    if [[ $result == 0 ]]; then
+
+    if [[ $result == 0 ]] && [[ $(current_filename) != $(bisu_filename) ]]; then
         error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($THIS_REQUIRED_BISU_VERSION)."
     fi
 }
@@ -1910,45 +1984,6 @@ exit_with_commands() {
     done
 }
 
-# The current file's run lock by signed md5 of full path
-current_lock_file() {
-    if [[ -z "$LOCK_ID" ]]; then
-        local lock_file_dir="$LOCK_FILE_DIR"
-        if ! is_dir "$lock_file_dir"; then
-            if is_root_user; then
-                lock_file_dir="$ROOT_LOCK_FILE_DIR"
-            else
-                lock_file_dir="$USER_LOCK_FILE_DIR"
-            fi
-        fi
-
-        if ! is_dir "$lock_file_dir"; then
-            lock_file_dir="$HOME/.local/var/run"
-            mkdir_p "$lock_file_dir"
-        fi
-
-        if ! is_dir "$lock_file_dir"; then
-            error_exit "Lock file creation failed."
-        fi
-
-        if string_ends_with "$lock_file_dir" "/"; then
-            lock_file_dir=$(substr "$lock_file_dir" -1)
-        fi
-
-        LOCK_FILE_DIR="$lock_file_dir"
-        LOCK_ID=$(md5_sign "$(current_command)")
-        LOCK_FILE="$LOCK_FILE_DIR/$(current_filename)_$LOCK_ID.lock" || {
-            error_exit "Failed to set LOCK_FILE."
-        }
-    fi
-
-    if [[ -z "$LOCK_ID" ]]; then
-        error_exit "Could not set LOCK_ID."
-    fi
-
-    echo "$LOCK_FILE"
-}
-
 # Function to acquire a lock to prevent multiple instances
 acquire_lock() {
     local lock_file=$(current_lock_file)
@@ -1977,17 +2012,6 @@ cleanup() {
     exit_with_commands
     release_lock
     exit 0
-}
-
-# Function to dynamically call internal functions
-call_func() {
-    local func_name="$1"
-    shift # Remove the function name from the parameter list
-    if declare -f "$func_name" >/dev/null 2>&1; then
-        "$func_name" "$@" # Call the function with the remaining parameters
-    else
-        log_message "Function '$func_name' not found."
-    fi
 }
 
 # Function to set the terminal title
@@ -2109,7 +2133,7 @@ separate_command() {
 
 # Register the current command
 register_current_command() {
-    separate_command "$@"
+    separate_command "$0 $@"
     local current_file_path=$(arr_get_val "CURRENT_COMMAND")
     local current_args=$(arr_get_val "CURRENT_ARGS")
 
@@ -2125,14 +2149,11 @@ register_current_command() {
 
 # Get args and store them in an associative array
 get_args() {
-    local key
-    local value
-    local param
-    local pos_index=1
-    local emptyExpr="$EMPTY_EXPR"
-    local args
+    local key value param pos_index=1
+    local emptyExpr="$EMPTY_EXPR" # Referenced EMPTY_EXPR (0x00)
 
     eval "set -- $(current_args)"
+
     [[ $# -gt 0 ]] && arr_reset || return 1
 
     while [[ $# -gt 0 ]]; do
@@ -2147,18 +2168,18 @@ get_args() {
                 value="$2" # Next argument is the value
                 shift
             else
-                value="$emptyExpr" # Explicitly tag empty standalone flag
+                value="$emptyExpr" # Assign EMPTY_EXPR for standalone flags
             fi
             arr_set_val "$key" "$value"
 
-        # Short options (e.g., -f, -abc)
-        elif [[ "$param" =~ ^- ]]; then
+        # Short options (e.g., -f, -abc, -a value)
+        elif [[ "$param" =~ ^- && "$param" != "-" ]]; then
             key="${param#-}"
             if [[ ${#key} -gt 1 ]]; then
-                # Handle combined short flags (e.g., -abc)
-                for ((i = 0; i < ${#key}; i++)); do
-                    arr_set_val "${key:i:1}" "$emptyExpr"
-                done
+                # Handle multiple short flags safely (e.g., -abc, -aaa)
+                while IFS= read -rn1 opt && [[ -n "$opt" ]]; do
+                    arr_set_val "$opt" "$emptyExpr"
+                done <<<"$key"
             else
                 # Single short flag (e.g., -f)
                 if [[ "$2" != --* && "$2" != -* && -n "$2" ]]; then
@@ -2166,12 +2187,12 @@ get_args() {
                     arr_set_val "$key" "$value"
                     shift
                 else
-                    arr_set_val "$key" "$emptyExpr" # Explicitly tag empty standalone flag
+                    arr_set_val "$key" "$emptyExpr"
                 fi
             fi
 
-        # End of options marker (--)
-        elif [[ "$param" == -- ]]; then
+        # Handle case where "--" is explicitly used to separate options
+        elif [[ "$param" == "--" ]]; then
             shift
             break
 
@@ -2202,71 +2223,67 @@ autorun_start() {
 
 # Function to initialise BISU
 initialise() {
-    register_current_command "$@" # Required to be the 1st start
+    register_current_command "$@" # Need to be in the fixed 1st order
     check_bash_version
     check_bisu_version
     autorun_start
     check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
     check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
     load_required_scripts
+    # Integrated installation
+    confirm_to_install
 }
 
 # Function to check if BISU is installed
 is_installed() {
-    [[ "$(current_file)" != "$(target_path)" ]] && return 1
+    local current_script=$(current_file)
+    local target_path=$(target_path)
+    [[ "$current_script" != "$target_path" ]] && return 1
     return 0
 }
 
 # Confirm to install
 confirm_to_install() {
-    local arg
-    arg=$(strtolower "$(trim "$1")")
-    local option_force=""
+    get_args
+    local param1=$(arr_get_val 1)
+    local option_force=$(arr_get_val "f") || $(arr_get_val "force")
+    local action="$param1"
     local force="false"
     local choice="y"
+    local current_file=$(current_file)
+    local current_filename=$(current_filename)
 
-    if [[ "$arg" == "install" ]]; then
-        get_args
-        option_force=$(arr_get_val "f")
-        [[ -n "$option_force" ]] || {
-            option_force=$(arr_get_val "force")
-        }
+    [[ -z "$action" ]] && action="$option_force"
+    [[ "$action" == "$EMPTY_EXPR" ]] && action=""
 
-        if [[ -n "$option_force" ]] && [[ "$option_force" == "$EMPTY_EXPR" ]]; then
-            force="true"
+    if [[ "$action" == "install" ]]; then
+        in_array "$option_force" "install" "$EMPTY_EXPR" && force="true"
+
+        if is_installed; then
             choice="n"
+            if [[ "$force" == "false" ]]; then
+                error_exit "$current_filename has already installed at: $current_file, please use -f if you want to forcefully override it."
+            fi
         fi
 
-        is_installed && [[ "$force" == "false" ]] &&
-            error_exit "$(current_filename) has already installed at: $(current_file), please use -f if you want to forcefully override it."
-        if confirm "Are you sure to install $(current_file)?" "$choice"; then
-            install_script
-        else
+        if ! confirm "Are you sure to install $current_filename?" "$choice"; then
             error_exit "Aborted."
         fi
+
+        install_script
     fi
 }
 
 # Function: install_script
 install_script() {
     local current_script=$(current_file)
-    local target_path="$(target_path)"
+    local current_script_name=$(current_filename)
+    local target_path=$(target_path)
 
-    log_message "Moving BISU script to path: $target_path"
+    log_message "Moving $current_script_name to path: $target_path"
     exec_command "cp \"$current_script\" \"$target_path\""
 }
 
-# bisu autorun function
-bisu_main() {
-    initialise "$@"
-    eval "set -- $(current_args)"
-
-    local action=$(trim "$1")
-    local param=$(trim "$2")
-
-    case "$action" in
-    "install") confirm_to_install "$action" ;;
-    *) ;;
-    esac
-}
+# Initialisation
+initialise "$@"
 ################################################ BISU_END ################################################
