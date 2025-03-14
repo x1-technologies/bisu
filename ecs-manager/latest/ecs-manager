@@ -4,7 +4,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo bash ./bisu.bash install
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION=">=5.1.0"
+export THIS_REQUIRED_BISU_VERSION=">=5.2.0"
 export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
 export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
 ## Decide the reference BISU file by enviroment of production or testing
@@ -17,7 +17,6 @@ export BISU_ENV="production"
 ## <required-external-commands>
 export REQUIRED_EXTERNAL_COMMANDS=('vi')
 ## </required-external-commands>
-bisu_main "${BASH_SOURCE[0]} $@"
 ######################################################## BISU Importer End ###########################################################
 
 # An agile tool to easily manage over 1,000 ECS instances
@@ -25,7 +24,7 @@ bisu_main "${BASH_SOURCE[0]} $@"
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.1"
+export ECS_MANAGER_VERSION="2.6.2"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -501,10 +500,7 @@ remove() {
     local host_path=""
 
     get_args
-    option_force=$(arr_get_val "f")
-    [[ -n "$option_force" ]] || {
-        option_force=$(arr_get_val "force")
-    }
+    option_force=$(arr_get_val "f") || $(arr_get_val "force")
 
     if [[ -n "$option_force" ]]; then
         force="true"
@@ -670,10 +666,6 @@ usage() {
 
 # Main function to collect parameters and invoke SSH/MOSH handler
 main() {
-    local action=$(trim "$1")
-    local param2=$(trim "$2")
-    local param3=$(trim "$3")
-
     # Parameters (these can come from the environment or command-line arguments)
     USE_PROXY="${USE_PROXY:-false}"
     USE_MOSH="${USE_MOSH:-false}"
@@ -686,9 +678,15 @@ main() {
     PREFER_PEM="${PREFER_PEM:-true}"
     PEM_FILE="${PEM_FILE:-}"
 
-    mkdir_p "$HOSTS_INFO_DIR" || {
-        error_exit "Failed to mkdir: \"$HOSTS_INFO_DIR\""
-    }
+    get_args
+    local param1=$(arr_get_val 1)
+    local param2=$(arr_get_val 2)
+    local param3=$(arr_get_val 3)
+    local option_force=$(arr_get_val "f") || $(arr_get_val "force")
+    local action="$param1"
+
+    [[ -z "$param1" ]] && action="$option_force"
+    [[ "$action" == "$EMPTY_EXPR" ]] && action=""
 
     case "$action" in
     "connect")
@@ -729,10 +727,6 @@ main() {
     "genkey")
         # Generate a pair of regular ed25519 keys
         gen_ed25519_key "$param2" "$param3"
-        ;;
-    "install")
-        # Installation
-        confirm_to_install
         ;;
     "help" | "--help" | "-h" | "usage" | "")
         usage
