@@ -1,12 +1,13 @@
-################################# BISU_START: Bash Internal Simple Utils #################################
-# Recommended BISU PATH: /usr/local/sbin/bisu.bash
-# Official Web Site: https://bisu.x-1.tech
+#!/bin/bash
+############################################### BISU_START: Bash Internal Simple Utils ###############################################
+## Official Web Site: https://bisu.x-1.tech
+## Recommended BISU PATH: /usr/local/sbin/bisu.bash
+## Have a fresh installation for BISU with copy and paste the command below
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash install
 # Define BISU VERSION
-export BISU_VERSION="5.2.2"
-
+export BISU_VERSION="5.2.3"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
-
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
 export _ASSOC_VALUES=() # Core array for the common associative array values, no modification
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
@@ -2279,7 +2280,8 @@ confirm_to_install() {
         if is_installed; then
             choice="n"
             if [[ "$force" == "false" ]]; then
-                error_exit "$current_filename has already installed at: $current_file, please use -f if you want to forcefully override it."
+                error_exit "$current_filename has already installed at: $current_file, \
+                please use -f if you want to forcefully override it."
             fi
         fi
 
@@ -2303,4 +2305,4 @@ install_script() {
 
 # Initialisation
 initialise "$@"
-################################################ BISU_END ################################################
+############################################################## BISU_END ##############################################################
