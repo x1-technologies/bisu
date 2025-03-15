@@ -3,9 +3,9 @@
 ## Official Web Site: https://bisu.x-1.tech
 ## Recommended BISU PATH: /usr/local/sbin/bisu.bash
 ## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash install
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.2.3"
+export BISU_VERSION="5.2.5"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -2254,9 +2254,8 @@ initialise() {
 
 # Function to check if BISU is installed
 is_installed() {
-    local current_script=$(current_file)
     local target_path=$(target_path)
-    [[ "$current_script" != "$target_path" ]] && return 1
+    is_file "$target_path" || return 1
     return 0
 }
 
