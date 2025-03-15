@@ -24,7 +24,7 @@ export REQUIRED_EXTERNAL_COMMANDS=('vi')
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.3"
+export ECS_MANAGER_VERSION="2.6.4"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -493,24 +493,28 @@ edit() {
 
 #shortcut for remove
 remove() {
-    local param1=$(trim "$1")
-    local param2=$(trim "$2")
+    local param1=$(arr_get_val 1)
+    local param2=$(arr_get_val 2)
     local option_force=""
     local force="false"
-    local host_path=""
+    local host_path="$param2"
 
     get_args
     option_force=$(arr_get_val "f" "force")
 
     if [[ -n "$option_force" ]]; then
         force="true"
-        if [[ "$option_force" == "$EMPTY_EXPR" ]]; then
-            host_path=$(arr_get_val 2)
-        else
-            host_path="$option_force"
+        if [[ "$option_force" == "rm" ]]; then
+            param2="$param1"
+            param1="$option_force"
+        elif [[ "$option_force" != "$EMPTY_EXPR" ]]; then
+            param2="$option_force"
         fi
-    else
-        host_path=$(arr_get_val 2)
+    fi
+
+    host_path="$param2"
+    if [[ "$host_path" == "$EMPTY_EXPR" ]]; then
+        host_path=""
     fi
 
     if [ -z "$host_path" ]; then
@@ -686,15 +690,21 @@ main() {
     local option_help=$(arr_get_val "h" "help")
     local action="$param1"
 
-    [[ -n "$param1" ]] || {
-        if [[ "$option_help" == "$EMPTY_EXPR" ]]; then
-            action="help"
-        elif [[ "$option_force" == "$EMPTY_EXPR" ]]; then
-            action="force"
+    if [ -n "$option_force" ] && [[ "$option_force" != "$EMPTY_EXPR" ]]; then
+        if [[ "$param1" != "rm" ]]; then
+            param3="$param2"
+            param2="$param1"
+            param1="$option_force"
+        else
+            param2="$option_force"
         fi
+    fi
 
-        [[ "$action" == "$EMPTY_EXPR" ]] && action=""
+    [ -n "$option_help" ] && {
+        param1="help"
     }
+
+    action="$param1"
 
     case "$action" in
     "connect")
@@ -739,7 +749,7 @@ main() {
     "force")
         error_exit "option -f/--force must be used with the action 'install' or 'rm'."
         ;;
-    "help" | "--help" | "-h" | "usage")
+    "help" | "--help" | "h" | "-h" | "usage")
         usage
         ;;
     *)
