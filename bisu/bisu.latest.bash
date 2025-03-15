@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.2.0"
+export BISU_VERSION="5.2.1"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -883,7 +883,7 @@ array_unique() {
     eval "$array_name=($(echo \${$array_name[@]} | tr ' ' '\n' | sort -u | tr '\n' ' '))"
 }
 
-# Function to dynamically set or update a key-value pair
+# Function to dynamically set or update a key-value pair for the common array
 arr_set_val() {
     local key value found=0
 
@@ -916,21 +916,36 @@ arr_set_val() {
     fi
 }
 
-# Function to access elements like an associative array using global variables
+# Function to access elements for the common associative array and looping search for the first populated value
 arr_get_val() {
-    local search_key
-    search_key=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+    # Loop through all passed arguments
+    for search_key in "$@"; do
+        # Trim whitespace from the search key
+        search_key=$(trim "$search_key")
 
-    for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
-        if [[ "${_ASSOC_KEYS[$i]}" == "$search_key" ]]; then
-            echo "${_ASSOC_VALUES[$i]}"
-            return
+        # Check if the search_key is empty
+        if [[ -z "$search_key" ]]; then
+            continue
         fi
+
+        # Find matching key in the list of keys
+        idx=$(printf "%s\n" "${_ASSOC_KEYS[@]}" | awk -v key="$search_key" '$0 == key {print NR; exit}')
+
+        # If no match is found, continue to the next key
+        if [[ -z "$idx" ]]; then
+            continue
+        fi
+
+        # Return corresponding value from _ASSOC_VALUES
+        echo "${_ASSOC_VALUES[$((idx - 1))]}"
+        return 0
     done
+
     echo ""
+    return 0
 }
 
-# Function to reset the associative array
+# Function to reset the common associative array
 arr_reset() {
     # Ensure arrays exist before resetting
     if ! is_array "_ASSOC_KEYS" || ! is_array "_ASSOC_VALUES"; then
@@ -2160,11 +2175,12 @@ get_args() {
         param="$1"
 
         # Long options (e.g., --key=value)
-        if [[ "$param" =~ ^-- ]]; then
+        if [[ "$param" == --* ]]; then
             key="${param#--}"
-            if [[ "$param" =~ = ]]; then
+
+            if [[ "$param" == *=* ]]; then
                 value="${param#*=}" # Extract value after '='
-            elif [[ "$2" != --* && "$2" != -* && -n "$2" ]]; then
+            elif [[ -n "$2" && "$2" != -* ]]; then
                 value="$2" # Next argument is the value
                 shift
             else
@@ -2173,16 +2189,17 @@ get_args() {
             arr_set_val "$key" "$value"
 
         # Short options (e.g., -f, -abc, -a value)
-        elif [[ "$param" =~ ^- && "$param" != "-" ]]; then
+        elif [[ "$param" == -?* && "$param" != "-" ]]; then
             key="${param#-}"
+
             if [[ ${#key} -gt 1 ]]; then
-                # Handle multiple short flags safely (e.g., -abc, -aaa)
+                # Handle multiple short flags safely (e.g., -abc)
                 while IFS= read -rn1 opt && [[ -n "$opt" ]]; do
                     arr_set_val "$opt" "$emptyExpr"
                 done <<<"$key"
             else
-                # Single short flag (e.g., -f)
-                if [[ "$2" != --* && "$2" != -* && -n "$2" ]]; then
+                # Single short flag (e.g., -f value)
+                if [[ -n "$2" && "$2" != -* ]]; then
                     value="$2"
                     arr_set_val "$key" "$value"
                     shift
@@ -2191,7 +2208,7 @@ get_args() {
                 fi
             fi
 
-        # Handle case where "--" is explicitly used to separate options
+        # Handle `--` explicitly used to separate options
         elif [[ "$param" == "--" ]]; then
             shift
             break
@@ -2246,7 +2263,7 @@ is_installed() {
 confirm_to_install() {
     get_args
     local param1=$(arr_get_val 1)
-    local option_force=$(arr_get_val "f") || $(arr_get_val "force")
+    local option_force=$(arr_get_val "f" "force")
     local action="$param1"
     local force="false"
     local choice="y"
