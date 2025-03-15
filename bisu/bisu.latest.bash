@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.2.7"
+export BISU_VERSION="5.2.8"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -2280,10 +2280,10 @@ confirm_to_install() {
 
         if is_installed; then
             choice="n"
-            confirm_msg="$current_filename has already installed at: $target_path. Do you want to reinstall it?"
+            confirm_msg="$current_filename has already been installed at: $target_path. Do you want to reinstall it?"
 
             if [[ "$force" == "false" ]]; then
-                error_exit "$current_filename has already installed at: $target_path, \
+                error_exit "$current_filename has already been installed at: $target_path, \
                 please use -f if you want to forcefully override it."
             fi
         fi
