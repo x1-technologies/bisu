@@ -2,7 +2,7 @@
 # Recommended BISU PATH: /usr/local/sbin/bisu.bash
 # Official Web Site: https://bisu.x-1.tech
 # Define BISU VERSION
-export BISU_VERSION="5.2.1"
+export BISU_VERSION="5.2.2"
 
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
@@ -83,9 +83,9 @@ output() {
 
     use_newline=${use_newline:-"true"}
     if [[ "$use_newline" == "true" ]]; then
-        echo -e "$message" | fold -s -w $LINE_BREAK_LENGTH 2>&1
+        printf "$message\n" | fold -s -w $LINE_BREAK_LENGTH 2>&1
     else
-        echo -en "$message" | fold -s -w $LINE_BREAK_LENGTH 2>&1
+        printf "$message" | fold -s -w $LINE_BREAK_LENGTH 2>&1
     fi
 }
 
@@ -386,7 +386,7 @@ string_has_phrase() {
 
 # Check if the current user is root (UID 0)
 is_root_user() {
-    if [ "$(id -u)" != 0 ]; then
+    if [[ "$(id -u)" != 0 ]]; then
         return 1
     fi
     return 0
