@@ -24,7 +24,7 @@ export REQUIRED_EXTERNAL_COMMANDS=('vi')
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.2"
+export ECS_MANAGER_VERSION="2.6.3"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -500,7 +500,7 @@ remove() {
     local host_path=""
 
     get_args
-    option_force=$(arr_get_val "f") || $(arr_get_val "force")
+    option_force=$(arr_get_val "f" "force")
 
     if [[ -n "$option_force" ]]; then
         force="true"
@@ -682,11 +682,19 @@ main() {
     local param1=$(arr_get_val 1)
     local param2=$(arr_get_val 2)
     local param3=$(arr_get_val 3)
-    local option_force=$(arr_get_val "f") || $(arr_get_val "force")
+    local option_force=$(arr_get_val "f" "force")
+    local option_help=$(arr_get_val "h" "help")
     local action="$param1"
 
-    [[ -z "$param1" ]] && action="$option_force"
-    [[ "$action" == "$EMPTY_EXPR" ]] && action=""
+    [[ -n "$param1" ]] || {
+        if [[ "$option_help" == "$EMPTY_EXPR" ]]; then
+            action="help"
+        elif [[ "$option_force" == "$EMPTY_EXPR" ]]; then
+            action="force"
+        fi
+
+        [[ "$action" == "$EMPTY_EXPR" ]] && action=""
+    }
 
     case "$action" in
     "connect")
@@ -728,12 +736,20 @@ main() {
         # Generate a pair of regular ed25519 keys
         gen_ed25519_key "$param2" "$param3"
         ;;
-    "help" | "--help" | "-h" | "usage" | "")
+    "force")
+        error_exit "option -f/--force must be used with the action 'install' or 'rm'."
+        ;;
+    "help" | "--help" | "-h" | "usage")
         usage
         ;;
     *)
-        error_exit "Unintelligible option: $action; Please type 'help' for more info."
-        usage
+        local msg
+        if [[ -n "$action" ]]; then
+            msg="Unintelligible action '$action'; Please type 'help' for more info."
+        else
+            msg="Unintelligible option; Please type 'help' for more info."
+        fi
+        error_exit "$msg"
         ;;
     esac
 }
