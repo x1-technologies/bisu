@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.2.8"
+export BISU_VERSION="5.2.9"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -84,10 +84,12 @@ output() {
 
     use_newline=${use_newline:-"true"}
     if [[ "$use_newline" == "true" ]]; then
-        printf "$message\n" | fold -s -w $LINE_BREAK_LENGTH 2>&1
+        echo -e "$message" | fold -s -w $LINE_BREAK_LENGTH >&2 || return 1
     else
-        printf "$message" | fold -s -w $LINE_BREAK_LENGTH 2>&1
+        echo -en "$message" | fold -s -w $LINE_BREAK_LENGTH >&2 || return 1
     fi
+
+    return 0
 }
 
 # Function to check if a command is existent
@@ -104,7 +106,7 @@ command_exists() {
 
 # Quit the current command with a protocol-based signal
 quit() {
-    eval 'kill -TERM "$$"' >/dev/null 2>&1
+    eval 'kill -TERM "$$"' >/dev/null >&2
 }
 
 # Dump
@@ -230,11 +232,13 @@ log_message() {
     # Log the message with a timestamp to the log file and optionally to stderr
     if [[ "$log_only" == "true" ]]; then
         # Log to both log file and stderr
-        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >/dev/null
+        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >/dev/null || return 1
     else
         # Log to the log file only
-        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" 2>&1
+        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >&2 || return 1
     fi
+
+    return 0
 }
 
 # Function to handle errors
@@ -425,11 +429,11 @@ exec_command() {
     else
         # Execute SSH command
         if [[ "$output" == "true" ]]; then
-            eval "$command" 2>&1 || {
+            eval "$command" >&2 || {
                 error_exit "Failed to execute command: $command"
             }
         else
-            eval "$command" >/dev/null 2>&1 || {
+            eval "$command" >/dev/null >&2 || {
                 error_exit "Failed to execute command: $command"
             }
         fi
@@ -1995,7 +1999,7 @@ exit_with_commands() {
     for val in "${vals[@]}"; do
         val=$(trim "$val")
         if [[ -n "$val" ]]; then
-            exec_command "$val" >/dev/null 2>&1
+            exec_command "$val" >/dev/null >&2
         fi
     done
 }
