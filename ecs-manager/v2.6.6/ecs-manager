@@ -25,7 +25,7 @@ export REQUIRED_EXTERNAL_COMMANDS=('vi')
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.5"
+export ECS_MANAGER_VERSION="2.6.6"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -199,7 +199,8 @@ get_pem_file() {
 ssh_remote_command() {
     local command=$(trim "$1")
     local conn_str=$(prep_ssh_command)
-    local ssh_command="$conn_str $command"
+    local ssh_command="$conn_str"
+    [[ -n "$command" ]] && ssh_command="$ssh_command $command"
     echo "$ssh_command"
 }
 
