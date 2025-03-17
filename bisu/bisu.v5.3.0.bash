@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.2.9"
+export BISU_VERSION="5.3.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -106,7 +106,7 @@ command_exists() {
 
 # Quit the current command with a protocol-based signal
 quit() {
-    eval 'kill -TERM "$$"' >/dev/null >&2
+    eval 'kill -TERM "$$"' &>/dev/null >&2
 }
 
 # Dump
@@ -232,7 +232,7 @@ log_message() {
     # Log the message with a timestamp to the log file and optionally to stderr
     if [[ "$log_only" == "true" ]]; then
         # Log to both log file and stderr
-        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >/dev/null || return 1
+        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" &>/dev/null || return 1
     else
         # Log to the log file only
         output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >&2 || return 1
@@ -341,6 +341,48 @@ substr() {
     echo "${string:offset:length}"
 }
 
+# Description: Normalise a string
+normalise_string() {
+    # Ensure input is not empty
+    if [ -z "$1" ]; then
+        echo ""
+        return 1
+    fi
+
+    # Process input using `while IFS` and `awk` for robustness
+    while IFS= read -r input_string; do
+        # POSIX compliant 'awk' to remove leading/trailing spaces and quotes
+        normalised=$(echo "$input_string" | awk '
+            {
+                # Trim leading and trailing whitespace
+                gsub(/^[ \t]+|[ \t]+$/, "", $0);
+                
+                # Remove leading and trailing quotes (both single and double)
+                gsub(/^["'\''"]|["'\''"]$/, "", $0);
+                
+                # Replace multiple spaces/tabs with a single space
+                gsub(/[ \t]+/, " ", $0);
+                
+                print $0;  # Return the normalised string
+            }
+        ')
+
+        # If the normalised string is empty, return empty
+        if [ -z "$normalised" ]; then
+            echo ""
+            return 1
+        fi
+
+        # Output the normalised string
+        echo "$normalised"
+    done <<<"$1" || {
+        echo ""
+        return 1
+    }
+
+    return 0
+}
+
 # Function: md5_sign
 # Description: According to its naming
 md5_sign() {
@@ -433,7 +475,7 @@ exec_command() {
                 error_exit "Failed to execute command: $command"
             }
         else
-            eval "$command" >/dev/null >&2 || {
+            eval "$command" &>/dev/null >&2 || {
                 error_exit "Failed to execute command: $command"
             }
         fi
@@ -1999,7 +2041,7 @@ exit_with_commands() {
     for val in "${vals[@]}"; do
         val=$(trim "$val")
         if [[ -n "$val" ]]; then
-            exec_command "$val" >/dev/null >&2
+            exec_command "$val" &>/dev/null >&2
         fi
     done
 }
@@ -2039,7 +2081,7 @@ set_title() {
     local title=$(trim "$1")
 
     # Check if the title is valid (only alphanumeric and spaces for simplicity)
-    if [ -n "$title" ] && echo "$title" | awk '!/[^a-zA-Z0-9 ]/' >/dev/null; then
+    if [ -n "$title" ] && echo "$title" | awk '!/[^a-zA-Z0-9 ]/' &>/dev/null; then
         # Set terminal title (in a POSIX-compliant way)
         echo -ne "\033]0;${title}\007"
     fi
@@ -2119,7 +2161,7 @@ exec_when_quit() {
 
 # Execute a command when quit
 separate_command() {
-    local input="$@" # Full input string
+    local input=$(printf '%s ' "$@") # Full input string
     local cmd
     local args
     local params=""
@@ -2129,17 +2171,11 @@ separate_command() {
         if [ -z "$cmd" ]; then
             cmd="$word" # First word is the command
         else
-            params="$params \"$word\"" # Everything after is considered a parameter
+            params="$params $word" # Everything after is considered a parameter
         fi
-    done <<<"$(echo "$input" | awk '{for(i=1;i<=NF;i++) print $i}')"
+    done <<<"$(echo "$input" | awk '{for(i=1;i<=NF;i++) print $i}')" || return 0
 
     if [ -z "$cmd" ]; then
-        return 1
-    fi
-
-    # Step 2: Validate if the command exists
-    if ! command -v "$cmd" &>/dev/null; then
-        array_unique_push "REQUIRED_COMMANDS" "$cmd"
         return 1
     fi
 
@@ -2153,11 +2189,19 @@ separate_command() {
 
 # Register the current command
 register_current_command() {
-    separate_command "$0 $@"
-    local current_file_path=$(arr_get_val "CURRENT_COMMAND")
-    local current_args=$(arr_get_val "CURRENT_ARGS")
+    local params=($(printf '%s ' "$@"))
+    local current_file_path=""
+    local current_args=""
 
-    CURRENT_FILE_PATH="$current_file_path"
+    for param in "${params[@]}"; do
+        if [[ -z "$current_file_path" ]]; then
+            current_file_path="$param"
+        else
+            current_args="$current_args $param"
+        fi
+    done
+
+    CURRENT_FILE_PATH=$(normalise_string "$current_file_path")
     CURRENT_COMMAND="$CURRENT_FILE_PATH"
     CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
 
@@ -2170,41 +2214,52 @@ register_current_command() {
 # Get args and store them in an associative array
 get_args() {
     local key value param pos_index=1
-    local emptyExpr="$EMPTY_EXPR" # Referenced EMPTY_EXPR (0x00)
+    local emptyExpr="$EMPTY_EXPR" # Assign with 0x00
+    local args=$(current_args)
 
-    eval "set -- $(current_args)"
+    eval "set -- $(printf '%s ' "$args")" 2>/dev/null || return 1
 
-    [[ $# -gt 0 ]] && arr_reset || return 1
+    # Check if there are arguments; reset array or fail
+    [ $# -gt 0 ] && arr_reset || return 1
 
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         param="$1"
 
         # Long options (e.g., --key=value)
-        if [[ "$param" == --* ]]; then
+        if [ "${param#--}" != "$param" ]; then
             key="${param#--}"
 
-            if [[ "$param" == *=* ]]; then
+            # Check if param contains '='
+            case "$param" in
+            *=*)
                 value="${param#*=}" # Extract value after '='
-            elif [[ -n "$2" && "$2" != -* ]]; then
-                value="$2" # Next argument is the value
-                shift
-            else
-                value="$emptyExpr" # Assign EMPTY_EXPR for standalone flags
-            fi
+                ;;
+            *)
+                if [ -n "$2" ] && [ "${2#-}" = "$2" ]; then
+                    value="$2" # Next arg is value if not an option
+                    shift
+                else
+                    value="$emptyExpr" # Standalone flag gets EMPTY_EXPR
+                fi
+                ;;
+            esac
             arr_set_val "$key" "$value"
 
-        # Short options (e.g., -f, -abc, -a value)
-        elif [[ "$param" == -?* && "$param" != "-" ]]; then
+        # Short options (e.g., -f, -abc)
+        elif [ "${param#-}" != "$param" ] && [ "$param" != "-" ]; then
             key="${param#-}"
 
-            if [[ ${#key} -gt 1 ]]; then
-                # Handle multiple short flags safely (e.g., -abc)
-                while IFS= read -rn1 opt && [[ -n "$opt" ]]; do
-                    arr_set_val "$opt" "$emptyExpr"
-                done <<<"$key"
+            # Handle multiple short flags (e.g., -abc)
+            if [ ${#key} -gt 1 ]; then
+                printf '%s\n' "$key" | while IFS= read -r opt; do
+                    # Split into individual characters using awk
+                    echo "$opt" | awk '{for(i=1;i<=length($0);i++)print substr($0,i,1)}' | while IFS= read -r single_opt; do
+                        [ -n "$single_opt" ] && arr_set_val "$single_opt" "$emptyExpr"
+                    done
+                done
             else
                 # Single short flag (e.g., -f value)
-                if [[ -n "$2" && "$2" != -* ]]; then
+                if [ -n "$2" ] && [ "${2#-}" == "$2" ]; then
                     value="$2"
                     arr_set_val "$key" "$value"
                     shift
@@ -2213,15 +2268,15 @@ get_args() {
                 fi
             fi
 
-        # Handle `--` explicitly used to separate options
-        elif [[ "$param" == "--" ]]; then
+        # Explicit separator '--'
+        elif [ "$param" == "--" ]; then
             shift
             break
 
-        # Positional arguments (e.g., file1, file2)
+        # Positional arguments
         else
             arr_set_val "$pos_index" "$param"
-            ((pos_index++))
+            pos_index=$((pos_index + 1))
         fi
 
         shift
@@ -2245,7 +2300,7 @@ autorun_start() {
 
 # Function to initialise BISU
 initialise() {
-    register_current_command "$@" # Need to be in the fixed 1st order
+    register_current_command $(printf '%s ' "$@") # Need to be in the fixed 1st order
     check_bash_version
     check_bisu_version
     autorun_start
@@ -2312,5 +2367,5 @@ install_script() {
 }
 
 # Initialisation
-initialise "$@"
+initialise $(printf '"%s" ' "$0" "$@")
 ############################################################## BISU_END ##############################################################
