@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.6.0"
+export BISU_VERSION="5.6.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -2719,7 +2719,7 @@ set_title() {
     # Check if the title is valid (only alphanumeric and spaces for simplicity)
     if [ -n "$title" ] && echo "$title" | awk '!/[^a-zA-Z0-9 ]/' &>/dev/null; then
         # Set terminal title (in a POSIX-compliant way)
-        echo -ne "\033]0;${title}\007"
+        echo -ne "\033]0;${title}\007" 2>/dev/null
     fi
     return 0
 }
