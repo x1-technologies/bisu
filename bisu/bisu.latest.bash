@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.5.0"
+export BISU_VERSION="5.5.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -58,8 +58,6 @@ export CURRENT_COMMAND=""
 export CURRENT_ARGS=()
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
-# Specify the preservation time limit
-export PRESERVATION_TIME_LIMIT=60
 # Debug Switch
 export DEBUG_MODE="false"
 
@@ -2357,8 +2355,6 @@ exit_with_commands() {
         fi
     done
 
-    sleep 300 &
-    sleep 300 &
     local current_pid="$CURRENT_PID"
     local sub_pids=$(pgrep -P "$current_pid" 2>/dev/null) || sub_pids=""
     # Check if any child PIDs are found
@@ -2369,35 +2365,10 @@ exit_with_commands() {
             if [[ "$pid" =~ ^[0-9]+$ ]]; then
                 # Safely terminate child PID with a delay
                 eval 'kill -TERM "$pid" &'
+                sleep 0.2
             fi
         done <<<"$sub_pids"
     fi
-}
-
-# Function to clean files when exits, delayed termination for robustness guarantee.
-exit_with_delayed_termination() {
-    local array_name="EXIT_WITH_COMMANDS"
-
-    if ! array_is_available "$array_name"; then
-        error_exit "Invalid array name provided."
-    fi
-
-    array_copy "$array_name" "vals"
-
-    for val in "${vals[@]}"; do
-        val=$(trim "$val")
-        if [[ -n "$val" ]]; then
-            exec_command "$val" &>/dev/null >&2
-        fi
-    done
-
-    if ! is_array "EXIT_PROCESSES_PIDS"; then
-        error_exit "Invalid EXIT_PROCESSES_PIDS array."
-    fi
-
-    for pid in "${EXIT_PROCESSES_PIDS[@]}"; do
-        exec_command "kill -SIGTERM \"$pid\"" "false"
-    done
 }
 
 # Function to acquire a lock to prevent multiple instances
