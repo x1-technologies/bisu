@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.3.0"
+export BISU_VERSION="5.5.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -27,18 +27,20 @@ export DEFAULT_TITLE="-bash"
 export LINE_BREAK_LENGTH=160
 # Required files
 export REQUIRED_SCRIPT_FILES=()
-# Subprocesses pids to cleanup
-export SUBPROCESSES_PIDS=()
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=('getopt' 'awk' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee')
 # Required external commands list
 export REQUIRED_EXTERNAL_COMMANDS=()
 # Exit with commands
 export EXIT_WITH_COMMANDS=()
+# Current Process ID
+export CURRENT_PID=""
+# Processes pids to cleanup
+export EXIT_ROCESSES_PIDS=()
 # Global Variables
 export ROOT_LOCK_FILE_DIR="/var/run"
 export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
-export LOCK_FILE_DIR=""/tmp""
+export LOCK_FILE_DIR="/tmp"
 export LOCK_ID=""
 export LOCK_FILE=""
 export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file location
@@ -56,6 +58,8 @@ export CURRENT_COMMAND=""
 export CURRENT_ARGS=()
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
+# Specify the preservation time limit
+export PRESERVATION_TIME_LIMIT=60
 # Debug Switch
 export DEBUG_MODE="false"
 
@@ -106,7 +110,7 @@ command_exists() {
 
 # Quit the current command with a protocol-based signal
 quit() {
-    eval 'kill -TERM "$$"' &>/dev/null >&2
+    eval 'kill -TERM "$CURRENT_PID" &'
 }
 
 # Dump
@@ -171,35 +175,52 @@ current_log_file() {
     local log_file_dir="$LOG_FILE_DIR"
     local log_file=""
 
-    local filename=$(current_filename) || {
+    local filename
+    filename=$(current_filename) || {
         output "Invalid current file path: $CURRENT_FILE_PATH"
         quit
     }
 
-    # Check if log file directory is valid, otherwise set based on user privileges
-    if ! [[ -n "$log_file_dir" && -e "$log_file_dir" && -d "$log_file_dir" ]]; then
+    if [ -z "$log_file_dir" ]; then
+        log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
+    elif [ ! -d "$log_file_dir" ]; then
         log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
     fi
 
-    # Default to $HOME if no valid directory found
     log_file_dir="${log_file_dir:-$HOME/.local/var/run}"
 
-    # Remove trailing slash if exists
-    [[ "$log_file_dir" =~ /$ ]] && log_file_dir="${log_file_dir%/}"
+    log_file_dir=$(printf '%s\n' "$log_file_dir" | awk '{sub(/\/+$/, "");}1')
 
-    # Construct log file directory with current date, ensuring it's only appended once
-    log_file_dir="$log_file_dir/$filename"
-    log_file_dir="$log_file_dir/$(date +'%Y-%m')"
+    # Robust path construction
+    if [ -z "$filename" ]; then
+        output "Filename is empty"
+        quit
+    fi
+    local date_str
+    date_str=$(date +'%Y-%m') || {
+        output "Failed to get date for log directory"
+        quit
+    }
+    log_file_dir="$log_file_dir/$filename/$date_str"
 
-    # Create directory if it doesn't exist
-    if [[ ! -d "$log_file_dir" ]]; then
+    if [ -z "$log_file_dir" ]; then
+        output "Log file directory path is empty"
+        quit
+    fi
+
+    if [ ! -d "$log_file_dir" ]; then
+        local parent_dir
+        parent_dir=$(dirname "$log_file_dir")
+        if [ ! -w "$parent_dir" ]; then
+            output "Parent directory $parent_dir is not writable"
+            quit
+        fi
         mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
             output "Failed to create or set permissions for $log_file_dir"
             quit
         }
     fi
 
-    # Final checks and log file creation
     LOG_FILE_DIR="$log_file_dir"
     log_file="$log_file_dir/$filename.log"
 
@@ -208,8 +229,7 @@ current_log_file() {
         quit
     }
 
-    # Validate log file creation
-    if ! [[ -f "$log_file" ]]; then
+    if [ ! -f "$log_file" ]; then
         output "Log file $log_file creation failed"
         quit
     fi
@@ -389,12 +409,300 @@ md5_sign() {
     echo $(trim "$1") | md5sum | awk '{print $1}'
 }
 
+# PHP-like function as its naming
+strpos() {
+    local string=$(trim "$1")
+    local phrase=$(trim "$2")
+
+    # Check for encoding failure
+    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
+        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+        echo "false"
+        return 1
+    fi
+
+    # Check if string or phrase is empty
+    if [ -z "$string" ] || [ -z "$phrase" ]; then
+        echo "false"
+        return 1
+    fi
+
+    # Use awk to find position and capture output directly
+    local result
+    result=$(printf '%s' "$string" | awk -v p="$phrase" '
+    {
+        pos = index($0, p);
+        if (pos > 0) print pos - 1;  # 0-based index
+        else print "";
+    }' 2>/dev/null)
+
+    # Immediate return based on result
+    if [ -z "$result" ]; then
+        echo "false"
+        return 1
+    fi
+
+    printf '%s' "$result"
+    return 0
+}
+
+# PHP-like function as its naming
+stripos() {
+    local string=$(trim "$1")
+    local phrase=$(trim "$2")
+
+    # Check for encoding failure
+    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
+        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+        echo "false"
+        return 1
+    fi
+
+    # Check if string or phrase is empty
+    if [ -z "$string" ] || [ -z "$phrase" ]; then
+        echo "false"
+        return 1
+    fi
+
+    # Use awk to find position and capture output directly
+    local result
+    result=$(printf '%s' "$string" | awk -v p="$phrase" '
+    {
+        s = tolower($0);
+        p = tolower(p);
+        pos = index(s, p);
+        if (pos > 0) print pos - 1;  # 0-based index
+        else print "";
+    }' 2>/dev/null)
+
+    # Immediate return based on result
+    if [ -z "$result" ]; then
+        echo "false"
+        return 1
+    fi
+
+    printf '%s' "$result"
+    return 0
+}
+
+# PHP-like function as its naming
+strrpos() {
+    local string phrase result last_pos temp_pos
+    string=$(trim "$1")
+    phrase=$(trim "$2")
+
+    # Encoding failure check
+    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
+        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+        echo "false"
+        return 1
+    fi
+
+    # Check if either string or phrase is empty
+    if [ -z "$string" ] || [ -z "$phrase" ]; then
+        echo "false"
+        return 1
+    fi
+
+    last_pos=-1 # Default to -1 (not found)
+
+    # Use awk with IFS while loop for best efficiency
+    while IFS= read -r -n1 char; do
+        result+="$char"
+        temp_pos=$(printf '%s' "$result" | awk -v p="$phrase" '
+        {
+            pos = index($0, p);
+            if (pos > 0) print pos - 1;
+            else print -1;
+        }' 2>/dev/null)
+
+        if [ "$temp_pos" -ge 0 ]; then
+            last_pos=$temp_pos
+        fi
+    done < <(printf '%s' "$string")
+
+    if [ "$last_pos" -lt 0 ]; then
+        echo "false"
+        return 1
+    fi
+
+    printf '%s' "$last_pos"
+    return 0
+}
+
+# PHP-like function as its naming
+strrippos() {
+    local string phrase result last_pos temp_pos
+    string=$(trim "$1")
+    phrase=$(trim "$2")
+
+    # Encoding failure check
+    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
+        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+        echo "false"
+        return 1
+    fi
+
+    # Check if either string or phrase is empty
+    if [ -z "$string" ] || [ -z "$phrase" ]; then
+        echo "false"
+        return 1
+    fi
+
+    last_pos=-1 # Default to -1 (not found)
+
+    # Use awk with IFS while loop for best efficiency (case-insensitive)
+    while IFS= read -r -n1 char; do
+        result+="$char"
+        temp_pos=$(printf '%s' "$result" | awk -v p="$phrase" '
+        {
+            s = tolower($0);
+            p = tolower(p);
+            pos = index(s, p);
+            if (pos > 0) print pos - 1;
+            else print -1;
+        }' 2>/dev/null)
+
+        if [ "$temp_pos" -ge 0 ]; then
+            last_pos=$temp_pos
+        fi
+    done < <(printf '%s' "$string")
+
+    if [ "$last_pos" -lt 0 ]; then
+        echo "false"
+        return 1
+    fi
+
+    printf '%s' "$last_pos"
+    return 0
+}
+
+# PHP-like function as its naming
+strlen() {
+    local input="$1"
+    local length=""
+
+    # Check if input is provided
+    if [ -z "$input" ]; then
+        # Empty or unset input is valid, return 0 length
+        length=0
+    else
+        # Use parameter expansion to count characters, POSIX-compliant
+        length=${#input}
+    fi
+
+    # Validate length is non-negative (should always be true, but for robustness)
+    if [ "$length" -lt 0 ] 2>/dev/null; then
+        echo "0"
+        return 1
+    fi
+
+    # Output length or empty string on failure
+    echo "$length"
+    return 0
+}
+
+# PHP-like function as its naming
+strstr() {
+    local haystack="$1"
+    local needle="$2"
+    local result=""
+
+    # Check if inputs are provided and valid
+    if [ -z "$needle" ]; then
+        echo "false"
+        return 1
+    fi
+
+    # If haystack is empty and needle is non-empty, no match possible
+    if [ -z "$haystack" ]; then
+        echo "false"
+        return 1
+    fi
+
+    # Use awk to find the substring, POSIX-compliant and robust
+    result=$(printf '%s\n' "$haystack" | awk -v needle="$needle" '
+        {
+            pos = index($0, needle)
+            if (pos > 0) {
+                print substr($0, pos)
+            }
+        }
+    ')
+
+    # If no match found, result will be empty
+    if [ -z "$result" ]; then
+        echo "false"
+        return 1
+    fi
+
+    # Output the result
+    echo "$result"
+    return 0
+}
+
+# PHP-like function as its naming
+stristr() {
+    local haystack="$1"
+    local needle="$2"
+    local result=""
+
+    # Check if inputs are provided and valid
+    if [ -z "$needle" ]; then
+        output "Needle cannot be empty"
+        echo "false"
+        return 1
+    fi
+
+    # If haystack is empty and needle is non-empty, no match possible
+    if [ -z "$haystack" ]; then
+        echo "false"
+        return 1
+    fi
+
+    # Use awk for case-insensitive search, POSIX-compliant and robust
+    result=$(printf '%s\n' "$haystack" | awk -v needle="$needle" '
+        BEGIN {
+            # Convert needle to lowercase for case-insensitive comparison
+            needle_lower = tolower(needle)
+        }
+        {
+            # Convert current line to lowercase for comparison
+            haystack_lower = tolower($0)
+            pos = index(haystack_lower, needle_lower)
+            if (pos > 0) {
+                # Return original string from matched position
+                print substr($0, pos)
+            }
+        }
+    ')
+
+    # If no match found, result will be empty
+    if [ -z "$result" ]; then
+        echo "false"
+        return 1
+    fi
+
+    # Output the result
+    echo "$result"
+    return 0
+}
+
 # Check string start with
 string_starts_with() {
-    local input_string=$1
-    local start_string=$2
+    local string=$1
+    local phrase=$2
+    local ignore_case=$(trim "$3")
+    ignore_case=${ignore_case:-"true"}
+    local pos=""
 
-    if [[ -z "$input_string" || -n "$start_string" && "$input_string" != "$start_string"* ]]; then
+    if [ "$ignore_case" = "true" ]; then
+        pos=$(stripos "$string" "$phrase")
+    else
+        pos=$(strpos "$string" "$phrase")
+    fi
+
+    if [[ "$pos" != "0" ]]; then
         return 1
     fi
 
@@ -412,23 +720,11 @@ string_ends_with() {
     fi
 
     # Use pattern matching like string_starts_with
-    if [[ "$input_string" == *"$end_string" ]]; then
-        return 0
+    if [[ "$input_string" != *"$end_string" ]]; then
+        return 1
     fi
 
-    return 1
-}
-
-# To validate if a phrase is in a string
-string_has_phrase() {
-    local string=$(trim "$1")
-    local phrase=$(trim "$2")
-    local match_whole_word=$(trim "$3")
-    match_whole_word=${match_whole_word:-true}
-
-    [ -n "$string" ] || return 1
-    [ -n "$phrase" ] || return 1
-    return [[ "${match_whole_word}" == "true" ]] && [[ " ${string:-} " =~ " $phrase " ]] || [[ "${string:-}" =~ "$phrase" ]]
+    return 0
 }
 
 # Check if the current user is root (UID 0)
@@ -437,22 +733,6 @@ is_root_user() {
         return 1
     fi
     return 0
-}
-
-# Function: is_valid_date
-# Description: According to its naming
-is_valid_date() {
-    local date_str=$(trim "$1")
-
-    # Check if the date matches any valid format using regular expressions
-    if [[ "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$ ||
-        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})$ ||
-        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ (AM|PM)$ ||
-        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ [APap][Mm]$ ]]; then
-        return 0 # Valid date
-    else
-        return 1 # Invalid date
-    fi
 }
 
 # Execute command
@@ -471,7 +751,7 @@ exec_command() {
     else
         # Execute SSH command
         if [[ "$output" == "true" ]]; then
-            eval "$command" >&2 || {
+            eval "$command" 2>/dev/null || {
                 error_exit "Failed to execute command: $command"
             }
         else
@@ -759,18 +1039,6 @@ move_file() {
     fi
 
     return 0
-}
-
-# Function: move_current_script
-# Description: Moves the current script to a specified target path using the move_file function.
-# Arguments: None
-# Returns: 0 if successful, 1 if failure.
-move_current_script() {
-    local current_script=$(current_file)
-    local target_path=$(trim "$1")
-
-    log_message "Moving current script: $current_script"
-    move_file "$current_script" "$target_path"
 }
 
 # Function to check if a variable is an array
@@ -1282,8 +1550,7 @@ bash_version() {
 # Returns: 0 if Bash version is valid, 1 if not.
 check_bash_version() {
     if ! is_valid_version "$MINIMAL_BASH_VERSION"; then
-        log_message "Illegal version number of required Bash"
-        return 1
+        error_exit "Illegal version number of required Bash"
     fi
 
     local expr=">=$MINIMAL_BASH_VERSION"
@@ -1307,6 +1574,22 @@ check_bisu_version() {
     fi
 }
 
+# Function: is_valid_date
+# Description: According to its naming
+is_valid_date() {
+    local date_str=$(trim "$1")
+
+    # Check if the date matches any valid format using regular expressions
+    if [[ "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$ ||
+        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})$ ||
+        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ (AM|PM)$ ||
+        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ [APap][Mm]$ ]]; then
+        return 0 # Valid date
+    else
+        return 1 # Invalid date
+    fi
+}
+
 # Function to validate a variable name
 is_valid_var_name() {
     local var_name=$(trim "$1")
@@ -1316,23 +1599,52 @@ is_valid_var_name() {
     return 0
 }
 
-# ipv4 validator
-is_valid_ipv4() {
-    local ip=$(trim "$1")
+# Function to check if a filename is valid
+is_valid_filename() {
+    local filename=$(trim "$1")
+    local max_length=255 # Typical POSIX filename length limit
 
-    # Validate the IPv4 address: 4 octets, each between 0 and 255
-    if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    # Check if input is empty
+    if [ -z "$filename" ]; then
         return 1
     fi
 
-    # Validate each octet (between 0 and 255)
-    IFS='.' read -r -a octets <<<"$ip"
-    for octet in "${octets[@]}"; do
-        if [[ "$octet" -lt 0 || "$octet" -gt 255 || ! "$octet" =~ ^[0-9]+$ ]]; then
-            return 1
-        fi
-    done
+    # Check length using awk instead of wc
+    local length
+    length=$(printf '%s' "$filename" | awk '{print length($0)}' 2>/dev/null) || {
+        return 1
+    }
+    [ "$length" -gt "$max_length" ] && {
+        return 1
+    }
 
+    # Check for invalid characters using awk with while IFS
+    local invalid_chars
+    invalid_chars=$(printf '%s\n' "$filename" | awk '
+        BEGIN { FS="" }
+        {
+            while (i++ < NF) {
+                if ($i == "/" || $i == "\0") {
+                    print $i
+                    exit 1
+                }
+            }
+        }' 2>/dev/null) || {
+        return 1
+    }
+
+    if [ -n "$invalid_chars" ]; then
+        return 1
+    fi
+
+    # Check if filename is a reserved name (like . or ..)
+    case "$filename" in
+    . | ..)
+        return 1
+        ;;
+    esac
+
+    # Success
     return 0
 }
 
@@ -2044,6 +2356,48 @@ exit_with_commands() {
             exec_command "$val" &>/dev/null >&2
         fi
     done
+
+    sleep 300 &
+    sleep 300 &
+    local current_pid="$CURRENT_PID"
+    local sub_pids=$(pgrep -P "$current_pid" 2>/dev/null) || sub_pids=""
+    # Check if any child PIDs are found
+    if [ -n "$sub_pids" ]; then
+        # Efficient loop using while IFS for processing each child PID
+        while IFS= read -r pid; do
+            # Ensure the PID is valid (numeric only)
+            if [[ "$pid" =~ ^[0-9]+$ ]]; then
+                # Safely terminate child PID with a delay
+                eval 'kill -TERM "$pid" &'
+            fi
+        done <<<"$sub_pids"
+    fi
+}
+
+# Function to clean files when exits, delayed termination for robustness guarantee.
+exit_with_delayed_termination() {
+    local array_name="EXIT_WITH_COMMANDS"
+
+    if ! array_is_available "$array_name"; then
+        error_exit "Invalid array name provided."
+    fi
+
+    array_copy "$array_name" "vals"
+
+    for val in "${vals[@]}"; do
+        val=$(trim "$val")
+        if [[ -n "$val" ]]; then
+            exec_command "$val" &>/dev/null >&2
+        fi
+    done
+
+    if ! is_array "EXIT_PROCESSES_PIDS"; then
+        error_exit "Invalid EXIT_PROCESSES_PIDS array."
+    fi
+
+    for pid in "${EXIT_PROCESSES_PIDS[@]}"; do
+        exec_command "kill -SIGTERM \"$pid\"" "false"
+    done
 }
 
 # Function to acquire a lock to prevent multiple instances
@@ -2063,14 +2417,6 @@ release_lock() {
 
 # Trap function to handle script termination
 cleanup() {
-    if ! is_array "SUBPROCESSES_PIDS"; then
-        error_exit "Invalid SUBPROCESSES_PIDS array."
-    fi
-
-    for pid in "${SUBPROCESSES_PIDS[@]}"; do
-        exec_command "kill -SIGTERM \"$pid\"" "false"
-    done
-
     exit_with_commands
     release_lock
     exit 0
@@ -2123,33 +2469,6 @@ execute_command() {
     eval "$commandString" || error_exit "Failed to execute command: $commandString"
 }
 
-# Push an element in the array
-add_subprocess_pid() {
-    local new_pid=$(trim "$1")
-    array_unique_push $SUBPROCESSES_PIDS "$new_pid" "INT" || return 1
-    return 0
-}
-
-# Count processes number
-check_processes() {
-    local process_name=$(trim "$1")
-    if [[ $(pgrep -f "$process_name" | wc -l) -ge $WORKERS_NUMBER ]]; then
-        log_message "Maximum clamscan processes reached. Waiting for availability."
-        while [[ $(pgrep -f "$process_name" | wc -l) -ge $WORKERS_NUMBER ]]; do
-            sleep 2
-            # Apply CPU throttling after the process starts
-            (
-                "$CPUTHROTTLE" set $process_name $PROCESS_EXPECTED_USAGE
-            ) &
-            local throttle_pid=$!
-            add_subprocess_pid $throttle_pid
-
-            wait $throttle_pid
-            sleep 2
-        done
-    fi
-}
-
 # Execute a command when quit
 exec_when_quit() {
     local command=$(trim "$1")
@@ -2189,6 +2508,7 @@ separate_command() {
 
 # Register the current command
 register_current_command() {
+    CURRENT_PID="$$"
     local params=($(printf '%s ' "$@"))
     local current_file_path=""
     local current_args=""
