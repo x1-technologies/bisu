@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.5.6"
+export BISU_VERSION="5.5.7"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -108,7 +108,7 @@ command_exists() {
 
 # Quit the current command with a protocol-based signal
 quit() {
-    eval "kill -TERM \"$CURRENT_PID\" &" &>/dev/null
+    eval "kill -TERM \"$CURRENT_PID\" & >/dev/null"
 }
 
 # Quit the specified process with a protocol-based signal
@@ -116,7 +116,7 @@ quit_process() {
     local pid=$(trim "$1")
     [[ -n "$pid" ]] || return 1
     is_posi_int "$pid" || return 1
-    eval "kill -TERM \"$pid\" &" &>/dev/null
+    eval "kill -TERM \"$pid\" & >/dev/null"
 }
 
 # Dump
