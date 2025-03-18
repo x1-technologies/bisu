@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.5.8"
+export BISU_VERSION="5.5.9"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -43,10 +43,10 @@ export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
 export LOCK_FILE_DIR="/tmp"
 export LOCK_ID=""
 export LOCK_FILE=""
-export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file location
-export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file location
-export LOG_FILE=""
-export TARGET_PATH_PREFIX="/usr/local/sbin" # Default target path for moving scripts
+export CURRENT_LOG_FILE_DIR=""                  # Current Log file dir
+export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file dir
+export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file dir
+export TARGET_PATH_PREFIX="/usr/local/sbin"     # Default target path for moving scripts
 export PROMPT_COMMAND="set_title"
 # The current file path
 export CURRENT_FILE_PATH=""
@@ -178,57 +178,50 @@ current_dir() {
 
 # The current log file
 current_log_file() {
-    local log_file_dir="$LOG_FILE_DIR"
+    local log_file_dir=""
     local log_file=""
+    local filename=$(current_filename)
 
-    local filename
-    filename=$(current_filename) || {
-        output "Invalid current file path: $CURRENT_FILE_PATH"
+    [ -n "$filename" ] || {
+        output "Invalid log file path."
         quit
     }
 
-    if [ -z "$log_file_dir" ]; then
-        log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
-    elif [ ! -d "$log_file_dir" ]; then
-        log_file_dir=$(if is_root_user; then echo "$ROOT_LOG_FILE_DIR"; else echo "$USER_LOG_FILE_DIR"; fi)
+    if [[ -z "$CURRENT_LOG_FILE_DIR" ]]; then
+        if is_root_user; then
+            log_file_dir="$ROOT_LOG_FILE_DIR"
+        else
+            log_file_dir="$USER_LOG_FILE_DIR"
+        fi
+
+        [ -n "$log_file_dir" ] || {
+            log_file_dir="$HOME/.local/var/run"
+        }
+
+        CURRENT_LOG_FILE_DIR="$log_file_dir"
     fi
 
-    log_file_dir="${log_file_dir:-$HOME/.local/var/run}"
+    log_file_dir="$CURRENT_LOG_FILE_DIR"
 
-    log_file_dir=$(printf '%s\n' "$log_file_dir" | awk '{sub(/\/+$/, "");}1')
-
-    # Robust path construction
-    if [ -z "$filename" ]; then
-        output "Filename is empty"
-        quit
-    fi
-    local date_str
-    date_str=$(date +'%Y-%m') || {
+    local date_str=$(date +'%Y%m%d')
+    is_valid_date "$date_str" || {
         output "Failed to get date for log directory"
         quit
     }
-    log_file_dir="$log_file_dir/$filename/$date_str"
+    local month_str="$date_str" | awk '{print substr($0, 1, 6)}'
+    log_file_dir="$log_file_dir/$filename/$month_str"
+    log_file="$log_file_dir/$date_str.log"
 
-    if [ -z "$log_file_dir" ]; then
-        output "Log file directory path is empty"
-        quit
-    fi
-
-    if [ ! -d "$log_file_dir" ]; then
-        local parent_dir
-        parent_dir=$(dirname "$log_file_dir")
-        if [ ! -w "$parent_dir" ]; then
-            output "Parent directory $parent_dir is not writable"
+    if [[ ! -d "$log_file_dir" ]]; then
+        mkdir -p "$log_file_dir" &>/dev/null || {
+            output "Failed to create or set permissions for $log_file_dir"
             quit
-        fi
-        mkdir -p "$log_file_dir" && chmod -R 755 "$log_file_dir" || {
+        }
+        chmod -R 755 "$log_file_dir" &>/dev/null || {
             output "Failed to create or set permissions for $log_file_dir"
             quit
         }
     fi
-
-    LOG_FILE_DIR="$log_file_dir"
-    log_file="$log_file_dir/$filename.log"
 
     touch "$log_file" || {
         output "Failed to create log file $log_file"
@@ -236,7 +229,7 @@ current_log_file() {
     }
 
     if [ ! -f "$log_file" ]; then
-        output "Log file $log_file creation failed"
+        output "Failed to create log file $log_file"
         quit
     fi
 
