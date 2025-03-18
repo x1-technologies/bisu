@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.5.9"
+export BISU_VERSION="5.6.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -204,7 +204,7 @@ current_log_file() {
     log_file_dir="$CURRENT_LOG_FILE_DIR"
 
     local date_str=$(date +'%Y%m%d')
-    is_valid_date "$date_str" || {
+    is_valid_datetime "$date_str" "date" || {
         output "Failed to get date for log directory"
         quit
     }
@@ -1687,20 +1687,132 @@ check_bisu_version() {
     fi
 }
 
-# Function: is_valid_date
+# Function: is_valid_datetime
 # Description: According to its naming
-is_valid_date() {
-    local date_str=$(trim "$1")
+is_valid_datetime() {
+    local input=$(trim "$1")
+    local type=$(trim "$2")
+    type=${type:-"datetime"}
+    local year month day hour minute second
 
-    # Check if the date matches any valid format using regular expressions
-    if [[ "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}$ ||
-        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})$ ||
-        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ (AM|PM)$ ||
-        "$date_str" =~ ^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}\ ([0-9]{1,2}):([0-9]{2})\ [APap][Mm]$ ]]; then
-        return 0 # Valid date
-    else
-        return 1 # Invalid date
+    # Extract date or timestamp
+    if [[ "$type" == "date" || "$type" == "datetime" ]]; then
+        # Handle year, month, day parsing
+        if [[ "$input" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})$ ]]; then
+            # Format: YYYYMMDD
+            year="${BASH_REMATCH[1]}"
+            month="${BASH_REMATCH[2]}"
+            day="${BASH_REMATCH[3]}"
+        elif [[ "$input" =~ ^([0-9]{4})([0-9]{2})$ ]]; then
+            # Format: YYYYMM
+            year="${BASH_REMATCH[1]}"
+            month="${BASH_REMATCH[2]}"
+            day="01"
+        elif [[ "$input" =~ ^([0-9]{2})([0-9]{2})$ ]]; then
+            # Format: MMDD
+            year=$(date +"%Y")
+            month="${BASH_REMATCH[1]}"
+            day="${BASH_REMATCH[2]}"
+        elif [[ "$input" =~ ^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})$ ]]; then
+            # Format: YYYY-MM-DD
+            year="${BASH_REMATCH[1]}"
+            month="${BASH_REMATCH[2]}"
+            day="${BASH_REMATCH[3]}"
+        elif [[ "$input" =~ ^([0-9]{1,2})-([0-9]{1,2})$ ]]; then
+            # Format: MM-DD
+            year=$(date +"%Y")
+            month="${BASH_REMATCH[1]}"
+            day="${BASH_REMATCH[2]}"
+        else
+            return 1
+        fi
     fi
+
+    # Validate the date's existence
+    if ! validate_date "$year" "$month" "$day"; then
+        return 1
+    fi
+
+    # Handle time validation if type is time or datetime
+    if [[ "$type" == "time" || "$type" == "datetime" ]]; then
+        if [[ "$input" =~ ^([0-9]{2}):([0-9]{2})$ ]]; then
+            # Format: HH:MM
+            hour="${BASH_REMATCH[1]}"
+            minute="${BASH_REMATCH[2]}"
+            second="00"
+        elif [[ "$input" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
+            # Format: H:MM (single digit hour)
+            hour="${BASH_REMATCH[1]}"
+            minute="${BASH_REMATCH[2]}"
+            second="00"
+        else
+            return 1
+        fi
+    fi
+
+    # Validate time ranges
+    if ! validate_time "$hour" "$minute" "$second"; then
+        return 1
+    fi
+
+    return 0
+}
+
+validate_date() {
+    local year="$1"
+    local month="$2"
+    local day="$3"
+
+    # Check if month and day are valid
+    if ((month < 1 || month > 12)); then
+        return 1
+    fi
+
+    local days_in_month
+    case "$month" in
+    01 | 03 | 05 | 07 | 08 | 10 | 12)
+        days_in_month=31
+        ;;
+    04 | 06 | 09 | 11)
+        days_in_month=30
+        ;;
+    02)
+        # Check for leap year
+        if ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))); then
+            days_in_month=29
+        else
+            days_in_month=28
+        fi
+        ;;
+    *)
+        return 1 # Invalid month
+        ;;
+    esac
+
+    if ((day < 1 || day > days_in_month)); then
+        return 1
+    fi
+
+    return 0 # Valid date
+}
+
+validate_time() {
+    local hour="$1"
+    local minute="$2"
+    local second="$3"
+
+    # Validate hour, minute, second ranges
+    if ((hour < 0 || hour > 23)); then
+        return 1
+    fi
+    if ((minute < 0 || minute > 59)); then
+        return 1
+    fi
+    if ((second < 0 || second > 59)); then
+        return 1
+    fi
+
+    return 0 # Valid time
 }
 
 # Function to validate a variable name
