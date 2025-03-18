@@ -25,7 +25,7 @@ export REQUIRED_EXTERNAL_COMMANDS=('vi')
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.6"
+export ECS_MANAGER_VERSION="2.6.7"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -243,8 +243,9 @@ ssh_handle() {
 
         # Construct SSH command for MOSH connection
         ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
+
         # Execute the SSH command
-        response="$(eval "$ssh_command")"
+        response=$(exec_command "$ssh_command")
 
         if [ $? -ne 0 ]; then
             error_exit "Failed to execute SSH command to retrieve MOSH details."
@@ -254,7 +255,7 @@ ssh_handle() {
         mosh_key=$(echo "$response" | awk '/MOSH CONNECT/{print $4}')
         mosh_server_port=$(echo "$response" | awk '/MOSH CONNECT/{print $3}')
 
-        if [ -z "$mosh_key" ] || [ -z "$mosh_server_port" ]; then
+        if [ -z "$mosh_key" ] || [ -z "$mosh_server_port" ] && [[ "$DEBUG_MODE" == "false" ]]; then
             error_exit "Failed to retrieve MOSH connection details."
         fi
 
@@ -719,7 +720,7 @@ main() {
         set_host_info "$param2"
         ssh_handle "set-hostname"
         ;;
-    "ls")
+    "ls" | "list")
         # Call the SSH/MOSH handler with the parameters
         list_hosts "$param2"
         ;;
@@ -751,7 +752,7 @@ main() {
     "force")
         error_exit "option -f/--force must be used with the action 'install' or 'rm'."
         ;;
-    "help" | "--help" | "h" | "-h" | "usage")
+    "help" | "--help" | "h" | "-h" | "usage" | "")
         usage
         ;;
     *)
