@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.5.2"
+export BISU_VERSION="5.5.3"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -108,7 +108,15 @@ command_exists() {
 
 # Quit the current command with a protocol-based signal
 quit() {
-    eval 'kill -TERM "$CURRENT_PID" &'
+    eval "kill -TERM \"$CURRENT_PID\" &"
+}
+
+# Quit the specified process with a protocol-based signal
+quit_process() {
+    local pid=$(trim "$1")
+    [[ -n "$pid" ]] || return 1
+    is_posi_int "$pid" || return 1
+    eval "kill -TERM \"$pid\" &"
 }
 
 # Dump
@@ -866,7 +874,121 @@ add_env_path() {
 
 # Check if it's numeric
 is_numeric() {
-    [[ "$1" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] && return 0 || return 1
+    local num=$(trim "$1")
+    # Check for no/empty input
+    [ -n "$1" ] || return 1
+
+    # Validate numeric format using awk
+    printf '%s\n' "$num" | awk '
+        BEGIN { status = 1 }
+        # Match: optional minus, digits, optional decimal with digits
+        # No leading zeros unless followed by decimal or zero itself
+        /^-?0$|^-?[1-9][0-9]*$|^-?0\.[0-9]+$|^-?[1-9][0-9]*\.[0-9]+$/ { status = 0 }
+        END { exit status }
+    ' || return 1
+
+    # Success - print the number
+    printf '%s' "$num"
+    return 0
+}
+
+# positive numeric validator
+is_posi_numeric() {
+    local num=$(trim "$1")
+    # Check for no/empty input
+    [ -n "$1" ] || return 1
+
+    # Validate positive numeric format using awk
+    printf '%s' "$num" | awk '
+        BEGIN { status = 1 }
+        # Match: digits, optional decimal with digits
+        # No leading zeros unless followed by decimal or zero itself
+        /^0$|^[1-9][0-9]*$|^0\.[0-9]+$|^[1-9][0-9]*\.[0-9]+$/ { status = 0 }
+        END { exit status }
+    ' || return 1
+
+    # Success - print the number
+    printf '%s' "$num"
+    return 0
+}
+
+# negative numeric validator
+is_nega_numeric() {
+    local num=$(trim "$1")
+    # Check for no/empty input
+    [ -n "$1" ] || return 1
+
+    # Validate negative numeric format using awk
+    printf '%s' "$num" | awk '
+        BEGIN { status = 1 }
+        # Match: minus sign, digits, optional decimal with digits
+        # No leading zeros after minus unless followed by decimal
+        /^-[1-9][0-9]*$|^-[1-9][0-9]*\.[0-9]+$/ { status = 0 }
+        END { exit status }
+    ' || return 1
+
+    # Success - print the number
+    printf '%s' "$num"
+    return 0
+}
+
+# Check if it's int
+is_int() {
+    local num=$(trim "$1")
+    # Check for no/empty input
+    [ -n "$1" ] || return 1
+
+    # Validate integer format using awk
+    printf '%s\n' "$num" | awk '
+        BEGIN { status = 1 }
+        # Match optional minus sign followed by digits, no leading zeros unless zero itself
+        /^-?0$|^-?[1-9][0-9]*$/ { status = 0 }
+        END { exit status }
+    ' || return 1
+
+    return 0
+}
+
+# positive int validator
+is_posi_int() {
+    local num=$(trim "$1")
+    # Check for no/empty input
+    [ -n "$1" ] || return 1
+
+    # Validate unsigned integer format using awk
+    printf '%s' "$num" | awk '
+        BEGIN { status = 1 }
+        # Match digits, no leading zeros unless zero itself
+        /^0$|^[1-9][0-9]*$/ { status = 0 }
+        END { exit status }
+    ' || return 1
+
+    return 0
+}
+
+# negative int validator
+is_nega_int() {
+    local num=$(trim "$1")
+    # Check for no/empty input
+    [ -n "$1" ] || return 1
+
+    # Validate negative integer format using awk
+    printf '%s' "$num" | awk '
+        BEGIN { status = 1 }
+        # Match minus sign followed by digits, no leading zeros
+        /^-[1-9][0-9]*$/ { status = 0 }
+        END { exit status }
+    ' || return 1
+
+    # Success - print the number
+    printf '%s' "$num"
+    return 0
+}
+
+# positive int validator
+is_unsigned_int() {
+    ! is_posi_int "$1" && return 1
+    return 0
 }
 
 # Function: is_file
@@ -2456,7 +2578,7 @@ exit_with_commands() {
             # Ensure the PID is valid (numeric only)
             if [[ "$pid" =~ ^[0-9]+$ ]]; then
                 # Safely terminate child PID with a delay
-                eval 'kill -TERM "$pid" &'
+                quit_process "$pid"
                 sleep 0.2
             fi
         done <<<"$sub_pids"
@@ -2482,6 +2604,7 @@ release_lock() {
 cleanup() {
     exit_with_commands
     release_lock
+    quit
     exit 0
 }
 
