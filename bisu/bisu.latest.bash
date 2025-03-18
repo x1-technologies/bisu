@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.5.1"
+export BISU_VERSION="5.5.2"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -1646,17 +1646,109 @@ is_valid_filename() {
     return 0
 }
 
+# ipv4 validator
+is_valid_ipv4() {
+    local ip=$(trim "$1")
+    # Return empty string if no argument or empty input
+    [ -n "$ip" ] || return 1
+
+    # Local variables for strict scope
+    local num parts i
+    local IFS='.'
+
+    # Split into array using IFS and check basic format
+    read -r -a parts <<<"$ip"
+
+    # Must have exactly 4 octets
+    [ "${#parts[@]}" -ne 4 ] && return 1
+
+    # Process each octet with strict validation
+    i=0
+    while [ $i -lt 4 ]; do
+        num="${parts[$i]}"
+
+        # Check for empty octet, leading zeros, or non-numeric
+        case "$num" in
+        '' | 0[0-9]* | [!0-9]*)
+            return 1
+            ;;
+        esac
+
+        # Use awk for efficient numeric range check
+        if ! printf '%s\n' "$num" | awk '
+            BEGIN { status = 1 }
+            ($1 >= 0 && $1 <= 255) { status = 0 }
+            END { exit status }
+        '; then
+            return 1
+        fi
+
+        i=$((i + 1))
+    done
+
+    return 0
+}
+
 # ipv6 validator
 is_valid_ipv6() {
     local ip=$(trim "$1")
+    # Check for no/empty input
+    [ -n "$ip" ] || return 1
 
-    # Validate the IPv6 address: Standard format or shorthand (allowed "::")
-    if [[ ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}$ && ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,7}:$ &&
-        ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}$ && ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,5}(:[0-9A-Fa-f]{1,4}){1,2}$ &&
-        ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,4}(:[0-9A-Fa-f]{1,4}){1,3}$ && ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,3}(:[0-9A-Fa-f]{1,4}){1,4}$ &&
-        ! "$ip" =~ ^([0-9A-Fa-f]{1,4}:){1,2}(:[0-9A-Fa-f]{1,4}){1,5}$ && ! "$ip" =~ ^[0-9A-Fa-f]{1,4}:([0-9A-Fa-f]{1,4}:){1,6}$ ]]; then
+    local parts count doubleslash i hex
+    local IFS=':'
+
+    # Check for multiple '::'
+    case "$ip" in
+    *::*::*) return 1 ;;
+    esac
+
+    # Split into parts
+    read -r -a parts <<<"$ip"
+    count=${#parts[@]}
+
+    # Basic count validation (2-8 segments)
+    [ "$count" -lt 2 ] || [ "$count" -gt 8 ] && return 1
+
+    # Count empty segments (from ::)
+    doubleslash=0
+    i=0
+    while [ $i -lt "$count" ]; do
+        [ -z "${parts[$i]}" ] && doubleslash=$((doubleslash + 1))
+        i=$((i + 1))
+    done
+
+    # Validate segment count with compression
+    if [ "$doubleslash" -gt 1 ]; then
         return 1
+    elif [ "$doubleslash" -eq 1 ]; then
+        [ $((8 - count + 1)) -lt 0 ] && return 1
+    else
+        [ "$count" -ne 8 ] && return 1
     fi
+
+    # Validate each segment
+    i=0
+    while [ $i -lt "$count" ]; do
+        hex="${parts[$i]}"
+
+        # Skip empty segment from ::
+        [ -z "$hex" ] && {
+            i=$((i + 1))
+            continue
+        }
+
+        # Check length (1-4 chars) and valid hex
+        if ! printf '%s\n' "$hex" | awk '
+            BEGIN { status = 1 }
+            length($1) > 0 && length($1) <= 4 && $1 ~ /^[0-9A-Fa-f]+$/ { status = 0 }
+            END { exit status }
+        '; then
+            return 1
+        fi
+
+        i=$((i + 1))
+    done
 
     return 0
 }
