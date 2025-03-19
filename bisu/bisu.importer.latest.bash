@@ -18,4 +18,10 @@ export BISU_ENV="production"
 ## <required-external-commands>
 export REQUIRED_EXTERNAL_COMMANDS=()
 ## </required-external-commands>
+## <auto-run>
+export AUTORUN=()
+## </auto-run>
+## <exit-with-commands>
+export EXIT_WITH_COMMANDS=()
+## </exit-with-commands>
 ######################################################## BISU Importer End ###########################################################
