@@ -5,19 +5,14 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.6.1"
+export BISU_VERSION="5.6.2"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
 export _ASSOC_VALUES=() # Core array for the common associative array values, no modification
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
-export AUTORUN=(
-    'trap "wait" SIGCHLD'
-    'trap "set_title \"$DEFAULT_TITLE\"" EXIT'
-    'acquire_lock'
-    'trap "cleanup" EXIT INT TERM HUP'
-)
+export AUTORUN=()
 export HOME=$(eval echo ~${SUDO_USER:-$USER})
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
@@ -2819,6 +2814,11 @@ register_current_command() {
     [ -n "$CURRENT_ARGS" ] && {
         CURRENT_COMMAND="$CURRENT_COMMAND $CURRENT_ARGS"
     }
+
+    array_unique_push "AUTORUN" 'trap "wait" SIGCHLD'
+    array_unique_push "AUTORUN" 'trap "set_title \"$DEFAULT_TITLE\"" EXIT'
+    array_unique_push "AUTORUN" 'acquire_lock'
+    array_unique_push "AUTORUN" 'trap "cleanup" EXIT INT TERM HUP'
 }
 
 # Get args and store them in an associative array
