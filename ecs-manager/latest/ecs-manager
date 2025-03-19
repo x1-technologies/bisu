@@ -18,6 +18,12 @@ export BISU_ENV="production"
 ## <required-external-commands>
 export REQUIRED_EXTERNAL_COMMANDS=('vi')
 ## </required-external-commands>
+## <auto-run>
+export AUTORUN=()
+## </auto-run>
+## <exit-with-commands>
+export EXIT_WITH_COMMANDS=()
+## </exit-with-commands>
 ######################################################## BISU Importer End ###########################################################
 
 # An agile tool to easily manage over 1,000 ECS instances
@@ -25,7 +31,7 @@ export REQUIRED_EXTERNAL_COMMANDS=('vi')
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.7"
+export ECS_MANAGER_VERSION="2.6.8"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
