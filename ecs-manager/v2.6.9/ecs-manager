@@ -31,7 +31,7 @@ export EXIT_WITH_COMMANDS=()
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.8"
+export ECS_MANAGER_VERSION="2.6.9"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -294,10 +294,10 @@ ssh_handle() {
             # Validate format: "local:/path" or "remote:/path"
             local valid_regex="^(.+):(.+)$"
             if [[ ! "$dest1" =~ $valid_regex ]]; then
-                error_exit "Invalid format for dest1."
+                error_exit "Invalid format for dest1. Please check for its completeness of format: local:/path/to/dest or \$existing_hostname:/path/to/dest"
             fi
             if [[ ! "$dest2" =~ $valid_regex ]]; then
-                error_exit "Invalid format for dest2."
+                error_exit "Invalid format for dest2. Please check for its completeness of format: local:/path/to/dest or \$existing_hostname:/path/to/dest"
             fi
 
             # Extract actual paths
