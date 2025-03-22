@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="5.6.5"
+export BISU_VERSION="6.0.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -94,11 +94,13 @@ output() {
 command_exists() {
     local command=$(trim "$1")
     if [[ -z "$command" ]]; then
-        return 0
+        return 1
     fi
+
     if ! command -v "$command" &>/dev/null; then
         return 1
     fi
+
     return 0
 }
 
@@ -395,6 +397,73 @@ normalise_string() {
         return 1
     }
 
+    return 0
+}
+
+# Function: normalise_number
+# Description: Normalizes a number string by removing unnecessary leading zeros,
+#              trailing zeros after decimal point, and unnecessary decimal point
+# Usage: normalise_number "number_string"
+# Returns: Normalized number string, or empty string on failure
+# Exit status: 0 on success, 1 on failure
+normalise_number() {
+    # Validate number of arguments
+    if [[ $# -ne 1 ]]; then
+        return 1
+    fi
+
+    local input="$1"
+    local result=""
+
+    # Handle empty input
+    if [[ -z "$input" ]]; then
+        return 1
+    fi
+
+    # Check if input is a valid number
+    if ! [[ "$input" =~ ^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]]; then
+        return 1
+    fi
+
+    # Use awk for precise number formatting
+    result=$(awk -v num="$input" '
+    BEGIN {
+        # Handle special case where input is just a decimal point
+        if (num == ".") {
+            print "0";
+            exit 0;
+        }
+        
+        # Convert input to a number to normalize it
+        numeric_val = num + 0;
+        
+        # Handle integer case specially to avoid decimal point
+        if (int(numeric_val) == numeric_val) {
+            printf "%d", numeric_val;
+        } else {
+            # For decimal numbers, use sprintf to convert to string
+            # and then remove trailing zeros
+            str = sprintf("%.16f", numeric_val);
+            
+            # Remove trailing zeros after decimal point
+            sub(/\.?0+$/, "", str);
+            
+            # Special handling for numbers like .5 to become 0.5
+            if (match(str, /^\./)) {
+                str = "0" str;
+            }
+            
+            print str;
+        }
+    }' 2>/dev/null)
+
+    # Check if awk processing succeeded
+    if [[ $? -ne 0 || -z "$result" ]]; then
+        return 1
+    fi
+
+    # Output the normalized number
+    printf '%s' "$result"
     return 0
 }
 
@@ -732,7 +801,7 @@ is_root_user() {
 
 # Execute command
 exec_command() {
-    local command=$(trim "$1")
+    local command=$(printf '%s ' "$@")
     local output=$(trim "$2")
     output=${output:-true}
 
@@ -746,11 +815,11 @@ exec_command() {
     else
         # Execute SSH command
         if [[ "$output" == "true" ]]; then
-            eval "$command" 2>/dev/null || {
+            eval "$command" || {
                 error_exit "Failed to execute command: $command"
             }
         else
-            eval "$command" &>/dev/null >&2 || {
+            eval "$command" &>/dev/null || {
                 error_exit "Failed to execute command: $command"
             }
         fi
@@ -861,11 +930,10 @@ add_env_path() {
     fi
 }
 
-# Check if it's numeric
+# Check if the input is numeric
 is_numeric() {
     local num=$(trim "$1")
-    # Check for no/empty input
-    [ -n "$1" ] || return 1
+    [[ "$num" != "" ]] || return 1
 
     # Validate numeric format using awk
     printf '%s\n' "$num" | awk '
@@ -876,64 +944,63 @@ is_numeric() {
         END { exit status }
     ' || return 1
 
-    # Success - print the number
-    printf '%s' "$num"
     return 0
 }
 
 # positive numeric validator
 is_posi_numeric() {
     local num=$(trim "$1")
-    # Check for no/empty input
-    [ -n "$1" ] || return 1
-
-    # Validate positive numeric format using awk
-    printf '%s' "$num" | awk '
-        BEGIN { status = 1 }
-        # Match: digits, optional decimal with digits
-        # No leading zeros unless followed by decimal or zero itself
-        /^0$|^[1-9][0-9]*$|^0\.[0-9]+$|^[1-9][0-9]*\.[0-9]+$/ { status = 0 }
-        END { exit status }
-    ' || return 1
-
-    # Success - print the number
-    printf '%s' "$num"
+    is_numeric "$num" || return 1
+    [ "$num" -gt 0 ] || return 1
     return 0
 }
 
 # negative numeric validator
 is_nega_numeric() {
     local num=$(trim "$1")
-    # Check for no/empty input
-    [ -n "$1" ] || return 1
+    is_numeric "$num" || return 1
+    [ "$num" -lt 0 ] || return 1
+    return 0
+}
 
-    # Validate negative numeric format using awk
-    printf '%s' "$num" | awk '
+# get a number's absolute value
+abs() {
+    # Trim input and check for empty value
+    local num=$(trim "$1")
+    [[ "$num" != "" ]] || {
+        echo ""
+        return 1
+    }
+
+    # Validate numeric input
+    printf '%s\n' "$num" | awk '
         BEGIN { status = 1 }
-        # Match: minus sign, digits, optional decimal with digits
-        # No leading zeros after minus unless followed by decimal
-        /^-[1-9][0-9]*$|^-[1-9][0-9]*\.[0-9]+$/ { status = 0 }
+        /^-?0$|^-?[1-9][0-9]*$|^-?0\.[0-9]+$|^-?[1-9][0-9]*\.[0-9]+$/ { status = 0 }
         END { exit status }
-    ' || return 1
+    ' || {
+        echo ""
+        return 1
+    }
 
-    # Success - print the number
-    printf '%s' "$num"
+    # Compute absolute value
+    echo "$num" | awk '{ print ($1 < 0) ? -$1 : $1 }'
     return 0
 }
 
 # Check if it's int
 is_int() {
     local num=$(trim "$1")
-    # Check for no/empty input
-    [ -n "$1" ] || return 1
+    [[ "$num" != "" ]] || {
+        echo ""
+        return 1
+    }
 
-    # Validate integer format using awk
-    printf '%s\n' "$num" | awk '
-        BEGIN { status = 1 }
-        # Match optional minus sign followed by digits, no leading zeros unless zero itself
-        /^-?0$|^-?[1-9][0-9]*$/ { status = 0 }
-        END { exit status }
-    ' || return 1
+    is_numeric "$num" || {
+        echo ""
+        return 1
+    }
+
+    [[ $(abs "$num") == "$num" ]] || return 1
 
     return 0
 }
@@ -941,42 +1008,88 @@ is_int() {
 # positive int validator
 is_posi_int() {
     local num=$(trim "$1")
-    # Check for no/empty input
-    [ -n "$1" ] || return 1
-
-    # Validate unsigned integer format using awk
-    printf '%s' "$num" | awk '
-        BEGIN { status = 1 }
-        # Match digits, no leading zeros unless zero itself
-        /^0$|^[1-9][0-9]*$/ { status = 0 }
-        END { exit status }
-    ' || return 1
-
+    is_int "$num" || return 1
+    [ "$num" -gt 0 ] || return 1
     return 0
 }
 
 # negative int validator
 is_nega_int() {
     local num=$(trim "$1")
-    # Check for no/empty input
-    [ -n "$1" ] || return 1
-
-    # Validate negative integer format using awk
-    printf '%s' "$num" | awk '
-        BEGIN { status = 1 }
-        # Match minus sign followed by digits, no leading zeros
-        /^-[1-9][0-9]*$/ { status = 0 }
-        END { exit status }
-    ' || return 1
-
-    # Success - print the number
-    printf '%s' "$num"
+    is_int "$num" || return 1
+    [ "$num" -lt 0 ] || return 1
     return 0
 }
 
 # positive int validator
 is_unsigned_int() {
-    ! is_posi_int "$1" && return 1
+    is_posi_int "$1" || return 1
+    return 0
+}
+
+# Increase a number to the next integer
+ceil() {
+    # Trim input using awk
+    local input=$(trim "$1")
+    local result
+
+    # Validate input is numeric
+    if ! is_numeric "$input"; then
+        echo ""
+        return 1
+    fi
+
+    # Compute ceiling using awk
+    result=$(printf "%s\n" "$input" | awk '{
+        if ($1 == int($1)) {
+            print $1
+        } else if ($1 > 0) {
+            print int($1) + 1
+        } else {
+            print int($1)
+        }
+    }')
+
+    # Check for empty result
+    if [ -z "$result" ]; then
+        echo ""
+        return 1
+    fi
+
+    printf "%s" "$result"
+    return 0
+}
+
+# Decrease a number to the previous integer
+floor() {
+    # Trim input using awk
+    local input=$(trim "$1")
+    local result
+
+    # Validate input is numeric
+    if ! is_numeric "$input"; then
+        echo ""
+        return 1
+    fi
+
+    # Compute floor using awk
+    result=$(printf "%s\n" "$input" | awk '{
+        if ($1 == int($1)) {
+            print $1
+        } else if ($1 > 0) {
+            print int($1)
+        } else {
+            print int($1) - 1
+        }
+    }')
+
+    # Check for empty result
+    if [ -z "$result" ]; then
+        echo ""
+        return 1
+    fi
+
+    printf "%s" "$result"
     return 0
 }
 
@@ -984,14 +1097,64 @@ is_unsigned_int() {
 # Description: According to its naming
 is_file() {
     local filepath=$(trim "$1")
-    [[ -z "$filepath" || ! -f "$filepath" ]] && return 1 || return 0
+    [[ -n "$filepath" && -f "$filepath" ]] || return 1
+    return 0
 }
 
 # Function: is_dir
 # Description: According to its naming
 is_dir() {
     local dirpath=$(trim "$1")
-    [[ -z "$dirpath" || ! -d "$dirpath" ]] && return 1 || return 0
+    [[ -n "$dirpath" && -d "$dirpath" ]] || return 1
+    return 0
+}
+
+# Check if a directory is empty, excluding '.' and '..', with robust handling
+is_empty_dir() {
+    local dirpath=$(trim "$1")
+    is_dir "$dirpath" || return 1
+
+    # Use find and awk with while IFS to check if directory is empty
+    if ! find "$dirpath" -mindepth 1 -print | while IFS= read -r; do
+        return 1
+    done; then
+        return 0
+    fi
+}
+
+# Check if a folder is a sub-folder of another folder
+is_sub_folder_of() {
+    local sub_folder=$(trim "$1")
+    local parent_folder=$(trim "$2")
+
+    sub_folder=$(file_real_path "$sub_folder" "true")
+    parent_folder=$(file_real_path "$parent_folder" "true")
+
+    # Ensure both parent and sub folder are valid directories
+    if [ -z "$sub_folder" ] || [ -z "$parent_folder" ]; then
+        return 1
+    fi
+
+    # Check if the sub_folder starts with the parent_folder path
+    if [[ "$sub_folder" != "$parent_folder"* ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+# Function to check if a folder is a top-level folder
+is_top_folder() {
+    local dirpath=$(trim "$1")
+    is_dir "$dirpath" || return 1
+
+    dirpath=$(file_real_path "$dirpath" "true")
+    [[ -n "$dirpath" ]] || return 1
+
+    local parent_dir=$(dirname "$dirpath")
+    [[ "$parent_dir" != "/" ]] || return 1
+
+    return 0
 }
 
 # Function: file_exists
@@ -1101,19 +1264,21 @@ mkdir_p() {
     return 0
 }
 
-# Function: move_file
-# Description: Moves any file to the specified target path.
-# Arguments:
-#   $1 - Source to move (source path).
-#   $2 - Target path (destination directory).
-#   $3 - Force override (optional), if set to "true", will overwrite the target file if it exists.
-# Returns: 0 if successful, 1 if failure.
-move_file() {
+# cp_p
+cp_p() {
     local source_path=$(trim "$1")
     local target_path=$(trim "$2")
     local target_dir=""
     local force_override=$(trim "$3")
     force_override=${force_override:-"true"}
+    local keep_origin=$(trim "$4")
+    keep_origin=${keep_origin:-"true"}
+    local source_is_file="false"
+    local source_is_dir="false"
+    local prepare_for_copy="false"
+    local prepare_for_move="false"
+    local command=""
+    local failure_msg=""
 
     # Check if the source_path exists
     if [[ ! -e "$source_path" ]]; then
@@ -1138,14 +1303,93 @@ move_file() {
         return 1
     fi
 
-    mkdir_p "$target_dir"
-    exec_command "mv \"$source_path\" \"$target_path\""
+    if is_file "$source_path"; then
+        source_is_file="true"
+    fi
+
+    if [[ "$keep_origin" == "true" ]]; then
+        if [[ "$source_is_file" == "true" ]]; then
+            command="cp -f \"$source_path\" \"$target_path\""
+        else
+            command="cp -rf \"$source_path\" \"$target_path\""
+        fi
+        failure_msg="Failed to copy file $source_path to $target_path"
+    else
+        command="mv \"$source_path\" \"$target_path\""
+        failure_msg="Failed to move file $source_path to $target_path"
+    fi
+
+    mkdir_p "$target_dir" || return 1
+    exec_command "$command"
 
     # Check if the move was successful
     if [[ $? != 0 ]]; then
-        log_message "Failed to move file $source_path to $target_path"
+        log_message "$failure_msg"
         return 1
     fi
+
+    return 0
+}
+
+# Function: move_file
+# Description: Moves any file to the specified target path.
+# Arguments:
+#   $1 - Source to move (source path).
+#   $2 - Target path (destination directory).
+#   $3 - Force override (optional), if set to "true", will overwrite the target file if it exists.
+# Returns: 0 if successful, 1 if failure.
+move_file() {
+    local source_path=$(trim "$1")
+    local target_path=$(trim "$2")
+    local target_dir=""
+    local force_override=$(trim "$3")
+    force_override=${force_override:-"true"}
+
+    cp_p "$source_path" "$target_path" "$force_override" "false" || return 1
+
+    return 0
+}
+
+# function to remove a target safely
+saferm() {
+    local path=$(trim "$1")
+    local parent_dir=$(trim "$2")
+    parent_dir=${parent_dir:-"/tmp"}
+    local timing=$(trim "$3")
+    timing=${timing:-"immediately"}
+    local rm_command=""
+
+    path=$(file_real_path "$path" "true")
+    parent_dir=$(file_real_path "$parent_dir" "true")
+
+    if [ -z "$path" ] || [ -z "$parent_dir" ]; then
+        return 1
+    fi
+
+    ! is_top_folder "$path" || return 1
+
+    if is_sub_folder_of "$path" "$parent_dir"; then
+        if is_file "$path"; then
+            rm_command="rm -f"
+        else
+            rm_command="rm -rf"
+        fi
+    else
+        return 1
+    fi
+
+    rm_command="$rm_command \"$path\""
+    case "$rm_command" in
+    "immediately")
+        exec_command "$rm_command" "false" || return 1
+        ;;
+    "when_quit")
+        exec_when_quit "$rm_command" || return 1
+        ;;
+    *)
+        return 1
+        ;;
+    esac
 
     return 0
 }
@@ -1207,7 +1451,119 @@ array_copy() {
         return 1
     fi
 
-    eval "$var_name=(\"\${$array_name[@]}\")" || return 1
+    eval "$var_name=(\"\${$array_name[@]}\")"
+    return 0
+}
+
+# Function: array_splice
+# Description: To remove elements from an array similar to PHP's array_splice() function.
+array_splice() {
+    # Validate input parameters
+    if [ $# -lt 3 ]; then
+        eval "$1=()"
+        return 1
+    fi
+
+    local array_name="$1" # Original array variable name
+    local position="$2"   # Start position for removal
+    local quantity="$3"   # Number of elements to remove
+    shift 3               # Shift past first three arguments
+
+    # Validate position and quantity
+    if ! is_posi_int "$position" && [ "$position" != "0" ] || ! is_posi_int "$quantity"; then
+        eval "$array_name=()"
+        return 1
+    fi
+
+    # Retrieve the original array length and elements
+    eval "local len=\${#$array_name[@]}"
+    if [ "$len" -eq 0 ]; then
+        eval "$array_name=()"
+        return 1
+    fi
+
+    eval "local array_str=\"\${$array_name[*]}\""
+    if [ -z "$array_str" ]; then
+        eval "$array_name=()"
+        return 1
+    fi
+
+    # Use awk to splice the array with newline as separator
+    local new_array
+    new_array=$(echo "$array_str" | awk -v pos="$position" -v qty="$quantity" '
+        BEGIN { OFS="\n" }
+        {
+            n = split($0, a, " ");
+            if (pos >= n) exit 1;
+            for (i = 1; i <= n; i++) {
+                if (i < pos + 1 || i >= pos + 1 + qty) {
+                    print a[i]
+                }
+            }
+        }')
+
+    # Check if awk failed or output is empty
+    if [ $? -ne 0 ] || [ -z "$new_array" ]; then
+        eval "$array_name=()"
+        return 1
+    fi
+
+    # Build the array from newline-separated input
+    local temp_array=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines but include last line if not empty
+        [ -z "$line" ] && continue
+        temp_array+=("$line")
+    done <<<"$new_array" || {
+        eval "$array_name=()"
+        return 1
+    }
+
+    # Assign back to original array
+    array_copy "temp_array" "$array_name"
+    return 0
+}
+
+# Get the specified value from an array
+array_access() {
+    # Check argument count
+    [ $# -ne 2 ] && {
+        echo ""
+        return 1
+    }
+
+    # Local variables
+    local array_name="$1" key="$2" len result
+
+    # Verify array existence and type
+    eval "[ -n \"\${$array_name+set}\" ]" || {
+        echo ""
+        return 1
+    }
+    declare -p "$array_name" 2>/dev/null | grep -q '^declare -a' || {
+        echo ""
+        return 1
+    }
+
+    # Validate key is non-negative integer
+    printf '%s\n' "$key" | grep -qE '^[0-9]+$' || {
+        echo ""
+        return 1
+    }
+
+    # Get array length and check bounds
+    eval "len=\${#$array_name[@]}"
+    [ "$key" -lt "$len" ] || {
+        echo ""
+        return 1
+    }
+
+    # Access specific element using eval and awk
+    eval "printf '%s\n' \"\${$array_name[$key]}\"" |
+        { IFS= read -r result && printf '%s' "$result"; } || {
+        echo ""
+        return 1
+    }
 
     return 0
 }
@@ -1754,6 +2110,7 @@ is_valid_datetime() {
     return 0
 }
 
+# Validate date format, related to the function is_valid_datetime()
 validate_date() {
     local year="$1"
     local month="$2"
@@ -1792,6 +2149,7 @@ validate_date() {
     return 0 # Valid date
 }
 
+# Validate time format, related to the function is_valid_datetime()
 validate_time() {
     local hour="$1"
     local minute="$2"
@@ -2546,11 +2904,19 @@ http_post() {
 uuidv4() {
     local uuidv4=""
     # Use /dev/urandom to generate random data and format as hex
-    uuidv4=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | awk '{print tolower($0)}')
+    uuidv4=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | awk '{print tolower($0)}') || {
+        echo ""
+        return 1
+    }
     if [[ -z $(trim "$uuidv4") ]]; then
-        uuidv4=$(uuidgen | tr -d '-' | awk '{print tolower($0)}')
+        uuidv4=$(uuidgen | tr -d '-' | awk '{print tolower($0)}') || {
+            echo ""
+            return 1
+        }
     fi
+
     echo "$uuidv4"
+    return 0
 }
 
 # Function to convert hex to string
@@ -2565,64 +2931,222 @@ str2hex() {
     local having_space=${2:-true} # Having space as separator for standard hex
     local result=""
 
-    result=$(echo -n "$input_string" | xxd -p | tr -d '[:space:]' || echo "")
+    result=$(echo -n "$input_string" | xxd -p | tr -d '[:space:]' || echo "") || {
+        echo ""
+        return 1
+    }
     if $having_space && [[ -n "$result" ]]; then
-        result=$(echo -n "$result" | awk '{ gsub(/(..)/, "& "); print }')
+        result=$(echo -n "$result" | awk '{ gsub(/(..)/, "& "); print }') || {
+            echo ""
+            return 1
+        }
     fi
+
     echo "$result"
+    return 0
+}
+
+# Encode a string to Base10
+base10_encode() {
+    local input=$(trim "$1")
+    local result=""
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+    while IFS= read -r -n1 char; do
+        ascii=$(printf "%d" "'$char")
+        result+="$ascii"
+    done <<<"$input" || {
+        echo ""
+        return 1
+    }
+    echo "$result"
+    return 0
+}
+
+# Decode from base10 to original string
+base10_decode() {
+    local input=$(trim "$1")
+    local result=""
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+
+    # Loop through the input string and decode in chunks (ASCII values)
+    while [[ -n "$input" ]]; do
+        # Extract the next 3 digits (ASCII value length)
+        ascii_value="${input:0:3}"
+        input="${input:3}"
+
+        # Convert ASCII value to character
+        char=$(printf "\\$(printf '%03o' "$ascii_value")")
+        result+="$char"
+    done || {
+        echo ""
+        return 1
+    }
+
+    echo "$result"
+    return 0
+}
+
+# Encode a string to Base26
+base26_encode() {
+    local input=$(trim "$1")
+    local result=""
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+    while IFS= read -r -n1 char; do
+        ascii=$(printf "%d" "'$char")
+        base26=$(((ascii - 65 + 26) % 26 + 65))
+        result+=$(printf "\\$(printf '%03o' "$base26")")
+        result=$(strtolower "$result")
+    done <<<"$input" || {
+        echo ""
+        return 1
+    }
+    echo "$result"
+    return 0
+}
+
+# Decode from base26 to original string
+base26_decode() {
+    local input=$(trim "$1")
+    local result=""
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+    while IFS= read -r -n1 char; do
+        ascii=$(printf "%d" "'$char")
+        # Reverse the base26 encoding
+        original_ascii=$(((ascii - 65 - 26) % 26 + 65))
+        result+=$(printf "\\$(printf '%03o' "$original_ascii")")
+        result=$(strtolower "$result")
+    done <<<"$input" || {
+        echo ""
+        return 1
+    }
+    echo "$result"
+    return 0
+}
+
+# Encode a string to Base36
+base36_encode() {
+    local input=$(trim "$1")
+    local result=""
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+    result=$(echo -n "$input" | base64 | od -An -t u8 | awk '{ print $1 }' | awk '{ printf "%x", $1 }') || {
+        echo ""
+        return 1
+    }
+    echo $result
+    return 0
+}
+
+# Decode from base36 to original string
+base36_decode() {
+    local input=$(trim "$1")
+    local result=""
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+    result=$(echo "$input" | xxd -r -p | base64 --decode) || {
+        echo ""
+        return 1
+    }
+    echo "$result"
+    return 0
+}
+
+# Encode a string to Base64
+base64_encode() {
+    local input=$(trim "$1")
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+    echo -n "$input" | base64 || {
+        echo ""
+        return 1
+    }
+    return 0
+}
+
+# Decode from base64 to original string
+base64_decode() {
+    local input=$(trim "$1")
+    [[ -n "$input" ]] || {
+        echo ""
+        return 1
+    }
+    echo "$input" | base64 --decode || {
+        echo ""
+        return 1
+    }
+    return 0
 }
 
 # Generate random string based on uuidv4
 random_string() {
-    local length="${1:-32}"
-    local type="${2:-MIXED}"
-    local max_length=1024
+    local byte_length=$(trim "$1")
+    byte_length=${byte_length:-60}
+    local type=$(trim "$2")
+    type=${type:-"mixed"}
+    local needle=""
+    local uuid=""
+    local result=""
 
-    # Validate length
-    if ! [[ "$length" =~ ^[0-9]+$ ]] || ((length < 1)); then
+    # Validate byte_length
+    if ! is_posi_int "$byte_length"; then
         echo ""
-        return
+        return 1
     fi
 
-    # Ensure length does not exceed max_length
-    if ((length > max_length)); then
-        length=$max_length
-    fi
+    local uuid_rounds=$(echo "$byte_length / 32" | bc -l)
+    uuid_rounds=$(normalise_number "$uuid_rounds")
+    uuid_rounds=$(ceil "$uuid_rounds")
+    is_posi_int "$uuid_rounds" || return 1
 
-    # Define character sets
-    local charset_letters="abcdefghijklmnopqrstuvwxyz"
-    local charset_numbers="0123456789"
+    for ((i = 0; i < uuid_rounds; i++)); do
+        uuid=$(uuidv4)
+        needle="$needle$uuid"
+    done
 
-    # Determine the character set based on type
-    local charset
+    # Enforce limits based on type
     case "$type" in
-    LETTERS)
-        charset="$charset_letters"
+    "base10")
+        result=$(base10_encode "$needle")
+        result=$(substr "$result" 0 "$byte_length")
         ;;
-    NUMBERS)
-        charset="$charset_numbers"
+    "base26")
+        result=$(base26_encode "$needle")
+        result=$(substr "$result" 0 "$byte_length")
         ;;
-    MIXED)
-        charset="$charset_letters$charset_numbers"
+    "base36")
+        result=$(base36_encode "$needle")
+        result=$(substr "$result" 0 "$byte_length")
+        ;;
+    "base64")
+        result=$(base64_encode "$needle")
+        result=$(substr "$result" 0 "$byte_length")
         ;;
     *)
         echo ""
-        return
+        return 1
         ;;
     esac
 
-    # Ensure the charset is large enough
-    if ((${#charset} < length)); then
-        echo ""
-        return
-    fi
-
-    # Shuffle the charset to randomize character order
-    local shuffled_charset
-    shuffled_charset=$(echo "$charset" | fold -w1 | shuf | tr -d '\n')
-
-    # Generate the random string without repeated characters
-    echo "$shuffled_charset" | head -c "$length" || echo ""
+    echo "$result"
+    return 0
 }
 
 # Function to check existence of external commands
@@ -2698,7 +3222,7 @@ acquire_lock() {
 release_lock() {
     local lock_file=$(current_lock_file)
     ! is_file "$lock_file" && return 1
-    flock -u 200 && revert_title && rm -f "$lock_file"
+    flock -u 200 && revert_title && saferm "$lock_file"
 }
 
 # Trap function to handle script termination
@@ -2920,6 +3444,36 @@ initialise() {
     load_required_scripts
     # Integrated installation
     confirm_to_install
+    callfunc $(printf '%s ' "$@")
+}
+
+# Execute a command when quit
+callfunc() {
+    get_args
+    local action=$(arr_get_val 1)
+    [[ "$action" == "callfunc" ]] || {
+        return 0
+    }
+
+    [ $# -ge 1 ] || {
+        echo ""
+        return 1
+    }
+
+    local current_args=("$(current_args)")
+    array_splice "current_args" 0 1
+    local func=$(array_access "current_args" 0)
+    func=$(normalise_string "$func")
+    array_splice "current_args" 0 1
+    local params="${current_args[@]}"
+
+    command_exists "$func" || {
+        log_message "Function '$func' does not exist."
+        return 1
+    }
+
+    exec_command "$func $params"
+    return 0
 }
 
 # Function to check if BISU is installed
