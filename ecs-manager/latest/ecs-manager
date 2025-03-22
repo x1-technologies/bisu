@@ -31,7 +31,7 @@ export EXIT_WITH_COMMANDS=()
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.6.9"
+export ECS_MANAGER_VERSION="2.7.0"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # The below to set the default values for the environment
@@ -474,14 +474,14 @@ EOF
 
 #shortcut for vi
 edit() {
-    local host_path=$(trim "$1")
+    local hostname=$(trim "$1")
     local host_config_dir="$HOSTS_INFO_DIR"
 
-    if [ -z "$host_path" ]; then
+    if [ -z "$hostname" ]; then
         error_exit "There is no specified host."
     fi
 
-    local host_config_path="$host_config_dir/$host_path"
+    local host_config_path="$host_config_dir/$hostname"
     host_config_path=$(file_real_path "$host_config_path")
 
     if [ -z "$host_config_path" ]; then
@@ -498,6 +498,46 @@ edit() {
     fi
 
     exec_command "vi \"$host_config_path\""
+}
+
+rename() {
+    local hostname=$(trim "$1")
+    local new_hostname=$(trim "$2")
+    local host_config_dir="$HOSTS_INFO_DIR"
+
+    if [ -z "$hostname" ]; then
+        error_exit "There is no specified host."
+    fi
+
+    local host_config_path="$host_config_dir/$hostname"
+    host_config_path=$(file_real_path "$host_config_path")
+    if [ -z "$host_config_path" ]; then
+        error_exit "There is no specified host."
+    fi
+    host_config_path="$host_config_path.yml"
+    if string_ends_with "$host_config_path" ".yml.yml"; then
+        host_config_path=$(substr "$host_config_path" 0 -4)
+    fi
+    if ! is_file "$host_config_path"; then
+        error_exit "There is no specified host."
+    fi
+
+    local new_host_config_path="$host_config_dir/$new_hostname"
+    new_host_config_path=$(file_real_path "$new_host_config_path")
+    if [ -z "$new_host_config_path" ]; then
+        error_exit "Invalid hostname or path. Please check the new hostname and path."
+    fi
+    new_host_config_path="$new_host_config_path.yml"
+    if string_ends_with "$new_host_config_path" ".yml.yml"; then
+        new_host_config_path=$(substr "$new_host_config_path" 0 -4)
+    fi
+    if is_file "$new_host_config_path"; then
+        error_exit "There is a duplicate host in the path, please check the new hostname and path."
+    fi
+
+    move_file "$host_config_path" "$new_host_config_path" || error_exit "Failed to rename the specified host."
+    saferm "$host_config_path" "$HOSTS_INFO_DIR"
+    log_message "The specified host has been renamed as '$new_hostname'"
 }
 
 #shortcut for remove
@@ -558,14 +598,8 @@ remove() {
         error_exit "There is no specified host."
     fi
 
-    if [[ "$is_dir" == "true" ]]; then
-        command="rm -r \"$host_config_path\""
-    else
-        command="rm \"$host_config_path\""
-    fi
-
     if confirm "Please act this carefully, recheck and press 'y' or 'n' to continue." "n"; then
-        exec_command "$command"
+        saferm "$host_config_path" "$HOSTS_INFO_DIR"
     else
         error_exit "Aborted."
     fi
@@ -631,7 +665,7 @@ gen_ed25519_key() {
 
     move_file "$temp_pem" "$pem"
     move_file "$temp_pem_pub" "$pem_pub"
-    exec_when_quit "rm -r \"$temp_dir\""
+    saferm "$temp_dir" "/tmp" "when_quit"
 
     local rsa_equivalent=""
     case "$key_length" in
@@ -668,6 +702,7 @@ usage() {
     log_message "       $(basename "$current_file_path") ls [specified_folder]"
     log_message "       $(basename "$current_file_path") create <specified_host>"
     log_message "       $(basename "$current_file_path") edit <specified_host>"
+    log_message "       $(basename "$current_file_path") rename <specified_host>"
     log_message "       $(basename "$current_file_path") rm <specified_host>"
     log_message "       $(basename "$current_file_path") rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
     log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
@@ -738,9 +773,13 @@ main() {
         # Call the SSH/MOSH handler with the parameters
         edit "$param2"
         ;;
+    "rename")
+        # Call the SSH/MOSH handler with the parameters
+        rename "$param2" "$param3"
+        ;;
     "rm")
         # Call the SSH/MOSH handler with the parameters
-        remove "$param2" "$param3"
+        remove
         ;;
     "rsync")
         # Call the SSH/MOSH handler with the parameters
