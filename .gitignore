@@ -1,4 +1,151 @@
+# Universal .gitignore
+#-----------------------------------------------------------------------------
+# Temporary and Backup Files
+*~
+*.swp
+*.swo
+*.tmp
+*.bak
+*.old
 *.lock
-.idea
 .DS_Store
-.git
+Thumbs.db
+._*
+
+# Logs and Runtime Data
+*.log
+logs/
+*.pid
+*.seed
+runtime/
+
+# Build and Output Directories
+build/
+dist/
+out/
+target/
+bin/
+obj/
+
+# Dependency Directories
+node_modules/
+vendor/
+bower_components/
+deps/
+lib/
+libs/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment and Configuration
+.env
+*.env.*
+!.env.example
+*.local
+config/local/
+secrets/
+*.key
+*.pem
+*.crt
+*.cert
+
+# Editor and IDE Files
+*.idea/
+.vscode/
+*.sublime-*
+*.code-workspace
+.netbeans/
+*.project
+*.settings/
+*.classpath
+
+# Version Control
+.git/
+.gitignore~
+.svn/
+.hg/
+.bzr/
+
+# OS-Specific Files
+*.DS_Store
+Icon?
+ehthumbs.db
+desktop.ini
+
+# Common Language-Specific Files
+# Python
+*.whl
+*.egg
+*.so
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+mvnw
+mvnw.cmd
+.gradle/
+.m2/
+
+# C/C++
+*.o
+*.a
+*.la
+*.lo
+*.obj
+*.exe
+*.dll
+*.lib
+*.out
+
+# Rust
+*.rlib
+
+# Go
+*.test
+*.prof
+
+# JavaScript/TypeScript
+*.min.js
+*.map
+tsconfig.tsbuildinfo
+
+# PHP
+*.phar
+
+# Ruby
+*.gem
+.bundle/
+
+# Databases
+*.db
+*.sqlite3
+*.sql
+*.dump
+
+# Archives and Compressed Files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Documentation Build Outputs
+_site/
+docs/_build/
+doc/_build/
+
+# Miscellaneous
+*.cache
+*.coverage
+coverage/
+test-output/
+*.profraw
+
+# Allow specific exceptions (optional overrides)
+!.keep
+!.gitkeep
