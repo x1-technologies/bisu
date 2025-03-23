@@ -26,9 +26,7 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 ######################################################## BISU Importer End ###########################################################
 
-alias ls="ls -l"
-alias ll="ls -l"
-alias la="ls -la"
+alias ll="ls -la"
 alias uuid="bisu.bash callfunc uuidv4"
 alias uuidv4="bisu.bash callfunc uuidv4"
 alias random_string="bisu.bash callfunc random_string"
