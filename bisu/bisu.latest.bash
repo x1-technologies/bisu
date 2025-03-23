@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="6.0.0"
+export BISU_VERSION="6.0.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -1170,7 +1170,7 @@ file_exists() {
 # Get file's extension
 fileext() {
     # Ensure the input is a valid filename
-    local filename="$1"
+    local filename=$(trim "$1")
 
     # Check if the filename is empty
     if [ -z "$filename" ]; then
@@ -1464,10 +1464,10 @@ array_splice() {
         return 1
     fi
 
-    local array_name="$1" # Original array variable name
-    local position="$2"   # Start position for removal
-    local quantity="$3"   # Number of elements to remove
-    shift 3               # Shift past first three arguments
+    local array_name=$(trim "$1") # Original array variable name
+    local position=$(trim "$2")   # Start position for removal
+    local quantity=$(trim "$3")   # Number of elements to remove
+    shift 3                       # Shift past first three arguments
 
     # Validate position and quantity
     if ! is_posi_int "$position" && [ "$position" != "0" ] || ! is_posi_int "$quantity"; then
@@ -1533,7 +1533,10 @@ array_access() {
     }
 
     # Local variables
-    local array_name="$1" key="$2" len result
+    local array_name=$(trim "$1")
+    local key=$(trim "$2")
+    local len
+    local result
 
     # Verify array existence and type
     eval "[ -n \"\${$array_name+set}\" ]" || {
@@ -1570,29 +1573,30 @@ array_access() {
 
 # Function to add an element to a specified global array
 array_unique_push() {
-    local array_name=$1
+    local array_name=$(trim "$1")
     local new_value=$2
-    local value_type=${3:-STRING} # Default to STRING if not provided
+    local value_type=$(trim "$3")
+    value_type=${value_type:-"string"}
 
     # Validate the type parameter and input value
     case "$value_type" in
-    INT)
+    int)
         if ! [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
             log_message "Value must be an integer."
             return 1
         fi
         ;;
-    FLOAT)
+    float)
         if ! [[ "$new_value" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
             log_message "Value must be a float."
             return 1
         fi
         ;;
-    STRING)
+    string)
         # No specific validation for STRING
         ;;
     *)
-        log_message "Invalid type specified. Use STRING, INT, or FLOAT."
+        log_message "Invalid type specified. Use string, int, or float."
         return 1
         ;;
     esac
@@ -1655,7 +1659,7 @@ array_merge() {
 # Function: array_unique
 # Description: To remove duplicates from a global array
 array_unique() {
-    local array_name="$1"
+    local array_name=$(trim "$1")
     if [[ $# -ne 1 ]] || ! is_array "$array_name"; then
         log_message "Requires exactly one argument (array name)."
         return 1
@@ -1665,10 +1669,9 @@ array_unique() {
 
 # Function to dynamically set or update a key-value pair for the common array
 arr_set_val() {
-    local key value found=0
-
-    key=$(echo "$1" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
-    value=$(echo "$2" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+    local key=$(trim "$1")
+    local value=$(trim "$2")
+    local found=0
 
     # Validate input
     [ -z "$key" ] && return # Ignore empty keys
@@ -1733,8 +1736,8 @@ arr_reset() {
     fi
 
     # Clear the keys and values arrays
-    _ASSOC_KEYS=() || return 1
-    _ASSOC_VALUES=() || return 1
+    export _ASSOC_KEYS=() || return 1
+    export _ASSOC_VALUES=() || return 1
 
     return 0
 }
@@ -3100,7 +3103,7 @@ random_string() {
     local byte_length=$(trim "$1")
     byte_length=${byte_length:-60}
     local type=$(trim "$2")
-    type=${type:-"mixed"}
+    type=${type:-"base10"}
     local needle=""
     local uuid=""
     local result=""
