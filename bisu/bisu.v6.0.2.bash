@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="6.0.1"
+export BISU_VERSION="6.0.2"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -339,8 +339,14 @@ strtoupper() {
 # Description: According to its naming
 substr() {
     local string="$1"
-    local offset="$2"
-    local length="${3:-${#string}}"
+    local offset=$(trim "$2")
+    local length=$(trim "$3")
+    length="${length:-${#string}}"
+
+    if ! is_nn_int "$offset" || ! is_posi_int "$length"; then
+        echo ""
+        return 1
+    fi
 
     if ((offset < 0)); then
         offset=$((${#string} + offset))
@@ -348,7 +354,7 @@ substr() {
 
     if ((offset < 0 || offset >= ${#string})); then
         echo ""
-        return
+        return 1
     fi
 
     if ((length < 0)); then
@@ -356,15 +362,16 @@ substr() {
     fi
 
     echo "${string:offset:length}"
+    return 0
 }
 
 # Description: Normalise a string
 normalise_string() {
-    # Ensure input is not empty
-    if [ -z "$1" ]; then
+    local input=$(trim "$1")
+    [ -n "$input" ] || {
         echo ""
-        return 1
-    fi
+        return 0
+    }
 
     # Process input using `while IFS` and `awk` for robustness
     while IFS= read -r input_string; do
@@ -392,7 +399,7 @@ normalise_string() {
 
         # Output the normalised string
         echo "$normalised"
-    done <<<"$1" || {
+    done <<<"$input" || {
         echo ""
         return 1
     }
@@ -409,19 +416,22 @@ normalise_string() {
 normalise_number() {
     # Validate number of arguments
     if [[ $# -ne 1 ]]; then
+        echo ""
         return 1
     fi
 
-    local input="$1"
+    local input=$(trim "$1")
     local result=""
 
     # Handle empty input
     if [[ -z "$input" ]]; then
+        echo ""
         return 1
     fi
 
     # Check if input is a valid number
     if ! [[ "$input" =~ ^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]]; then
+        echo ""
         return 1
     fi
 
@@ -459,6 +469,7 @@ normalise_number() {
 
     # Check if awk processing succeeded
     if [[ $? -ne 0 || -z "$result" ]]; then
+        echo ""
         return 1
     fi
 
@@ -955,6 +966,14 @@ is_posi_numeric() {
     return 0
 }
 
+# natural number validator
+is_nn() {
+    local num=$(trim "$1")
+    is_numeric "$num" || return 1
+    [ "$num" -ge 0 ] || return 1
+    return 0
+}
+
 # negative numeric validator
 is_nega_numeric() {
     local num=$(trim "$1")
@@ -1010,6 +1029,14 @@ is_posi_int() {
     local num=$(trim "$1")
     is_int "$num" || return 1
     [ "$num" -gt 0 ] || return 1
+    return 0
+}
+
+# natural int validator
+is_nn_int() {
+    local num=$(trim "$1")
+    is_int "$num" || return 1
+    [ "$num" -ge 0 ] || return 1
     return 0
 }
 
@@ -3101,7 +3128,7 @@ base64_decode() {
 # Generate random string based on uuidv4
 random_string() {
     local byte_length=$(trim "$1")
-    byte_length=${byte_length:-60}
+    byte_length=${byte_length:-20}
     local type=$(trim "$2")
     type=${type:-"base10"}
     local needle=""
