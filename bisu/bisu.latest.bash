@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="6.0.2"
+export BISU_VERSION="6.0.3"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -812,7 +812,7 @@ is_root_user() {
 
 # Execute command
 exec_command() {
-    local command=$(printf '%s ' "$@")
+    local command=$(trim "$1")
     local output=$(trim "$2")
     output=${output:-true}
 
@@ -900,13 +900,13 @@ file_real_path() {
     }')
 
     # Ensure the root path is handled correctly, i.e., "/" should not be turned into ""
-    if [ "$file" = "/" ]; then
+    if [[ "$file" == "/" ]]; then
         file="/"
     fi
 
     # If `check_base_existence` is true, verify the file or directory exists
-    if [ "$check_base_existence" = "true" ]; then
-        [ -e "$file" ] && echo "$file" || echo ""
+    if [[ "$check_base_existence" == "true" ]]; then
+        [[ -e "$file" ]] && echo "$file" || echo ""
     else
         echo "$file"
     fi
