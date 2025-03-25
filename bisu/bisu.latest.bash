@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="6.0.3"
+export BISU_VERSION="6.0.4"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -22,7 +22,7 @@ export LINE_BREAK_LENGTH=160
 # Required files
 export REQUIRED_SCRIPT_FILES=()
 # Required external commands list
-export BISU_REQUIRED_EXTERNAL_COMMANDS=('getopt' 'awk' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee')
+export BISU_REQUIRED_EXTERNAL_COMMANDS=('getopt' 'awk' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee')
 # Required external commands list
 export REQUIRED_EXTERNAL_COMMANDS=()
 # Auto run commands
@@ -487,168 +487,138 @@ md5_sign() {
 # PHP-like function as its naming
 strpos() {
     local string=$(trim "$1")
-    local phrase=$(trim "$2")
+    local needle="$2"
+    local offset="${3:-0}"
 
-    # Check for encoding failure
-    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
-        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+    # Check if needle is empty
+    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
         echo "false"
         return 1
     fi
 
-    # Check if string or phrase is empty
-    if [ -z "$string" ] || [ -z "$phrase" ]; then
+    # Handle the case where offset is provided
+    if [ "$offset" -gt 0 ]; then
+        string="${string:$offset}"
+    fi
+
+    # Use grep to find the position and return the result
+    local position
+    position=$(echo "$string" | grep -b -o "$needle" | head -n 1 | cut -d: -f1)
+
+    # Check if a position was found
+    if [ -z "$position" ]; then
         echo "false"
         return 1
     fi
 
-    # Use awk to find position and capture output directly
-    local result
-    result=$(printf '%s' "$string" | awk -v p="$phrase" '
-    {
-        pos = index($0, p);
-        if (pos > 0) print pos - 1;  # 0-based index
-        else print "";
-    }' 2>/dev/null)
-
-    # Immediate return based on result
-    if [ -z "$result" ]; then
-        echo "false"
-        return 1
-    fi
-
-    printf '%s' "$result"
+    echo "$position"
     return 0
 }
 
 # PHP-like function as its naming
 stripos() {
-    local string=$(trim "$1")
-    local phrase=$(trim "$2")
+    local string="$1"
+    local needle="$2"
+    local offset="${3:-0}"
 
-    # Check for encoding failure
-    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
-        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+    # Check if needle is empty
+    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
         echo "false"
         return 1
     fi
 
-    # Check if string or phrase is empty
-    if [ -z "$string" ] || [ -z "$phrase" ]; then
+    # Handle the case where offset is provided
+    if [ "$offset" -gt 0 ]; then
+        string="${string:$offset}"
+    fi
+
+    # Use grep to find the position and return the result
+    local position
+    position=$(echo "$string" | grep -ib -o "$needle" | head -n 1 | cut -d: -f1)
+
+    # Check if a position was found
+    if [ -z "$position" ]; then
         echo "false"
         return 1
     fi
 
-    # Use awk to find position and capture output directly
-    local result
-    result=$(printf '%s' "$string" | awk -v p="$phrase" '
-    {
-        s = tolower($0);
-        p = tolower(p);
-        pos = index(s, p);
-        if (pos > 0) print pos - 1;  # 0-based index
-        else print "";
-    }' 2>/dev/null)
-
-    # Immediate return based on result
-    if [ -z "$result" ]; then
-        echo "false"
-        return 1
-    fi
-
-    printf '%s' "$result"
+    echo "$position"
     return 0
 }
 
 # PHP-like function as its naming
 strrpos() {
-    local string phrase result last_pos temp_pos
-    string=$(trim "$1")
-    phrase=$(trim "$2")
+    local string="$1"
+    local needle="$2"
+    local offset="${3:-0}"
 
-    # Encoding failure check
-    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
-        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+    # Check if needle is empty
+    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
         echo "false"
         return 1
     fi
 
-    # Check if either string or phrase is empty
-    if [ -z "$string" ] || [ -z "$phrase" ]; then
+    # Handle the case where offset is provided
+    if [ "$offset" -gt 0 ]; then
+        string="${string:$offset}"
+    fi
+
+    # Reverse the string to find the last occurrence
+    local reversed_string
+    reversed_string=$(echo "$string" | rev)
+
+    # Use grep to find the position and return the result (search in the reversed string)
+    local position
+    position=$(echo "$reversed_string" | grep -ib -o "$needle" | head -n 1 | cut -d: -f1)
+
+    # Check if a position was found
+    if [ -z "$position" ]; then
         echo "false"
         return 1
     fi
 
-    last_pos=-1 # Default to -1 (not found)
+    # Adjust the position to account for the reversed string
+    local adjusted_position=$((${#string} - $position - ${#needle}))
 
-    # Use awk with IFS while loop for best efficiency
-    while IFS= read -r -n1 char; do
-        result+="$char"
-        temp_pos=$(printf '%s' "$result" | awk -v p="$phrase" '
-        {
-            pos = index($0, p);
-            if (pos > 0) print pos - 1;
-            else print -1;
-        }' 2>/dev/null)
-
-        if [ "$temp_pos" -ge 0 ]; then
-            last_pos=$temp_pos
-        fi
-    done < <(printf '%s' "$string")
-
-    if [ "$last_pos" -lt 0 ]; then
-        echo "false"
-        return 1
-    fi
-
-    printf '%s' "$last_pos"
+    echo "$adjusted_position"
     return 0
 }
 
 # PHP-like function as its naming
-strrippos() {
-    local string phrase result last_pos temp_pos
-    string=$(trim "$1")
-    phrase=$(trim "$2")
+strripos() {
+    local string="$1"
+    local needle="$2"
+    local offset="${3:-0}"
 
-    # Encoding failure check
-    if ! printf '%s' "$string" | awk '1' >/dev/null 2>&1 ||
-        ! printf '%s' "$phrase" | awk '1' >/dev/null 2>&1; then
+    # Check if needle is empty
+    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
         echo "false"
         return 1
     fi
 
-    # Check if either string or phrase is empty
-    if [ -z "$string" ] || [ -z "$phrase" ]; then
+    # Handle the case where offset is provided
+    if [ "$offset" -gt 0 ]; then
+        string="${string:$offset}"
+    fi
+
+    # Reverse the string to find the last occurrence (case-insensitive search)
+    local reversed_string
+    reversed_string=$(echo "$string" | rev)
+
+    # Use grep to find the position (case-insensitive search in reversed string)
+    local position
+    position=$(echo "$reversed_string" | grep -iob -o "$needle" | head -n 1 | cut -d: -f1)
+
+    # Check if a position was found
+    if [ -z "$position" ]; then
         echo "false"
         return 1
     fi
 
-    last_pos=-1 # Default to -1 (not found)
+    # Adjust the position to account for the reversed string
+    local adjusted_position=$((${#string} - $position - ${#needle}))
 
-    # Use awk with IFS while loop for best efficiency (case-insensitive)
-    while IFS= read -r -n1 char; do
-        result+="$char"
-        temp_pos=$(printf '%s' "$result" | awk -v p="$phrase" '
-        {
-            s = tolower($0);
-            p = tolower(p);
-            pos = index(s, p);
-            if (pos > 0) print pos - 1;
-            else print -1;
-        }' 2>/dev/null)
-
-        if [ "$temp_pos" -ge 0 ]; then
-            last_pos=$temp_pos
-        fi
-    done < <(printf '%s' "$string")
-
-    if [ "$last_pos" -lt 0 ]; then
-        echo "false"
-        return 1
-    fi
-
-    printf '%s' "$last_pos"
+    echo "$adjusted_position"
     return 0
 }
 
@@ -802,6 +772,49 @@ string_ends_with() {
     return 0
 }
 
+# compare 2 files, if they have identical contents then return 0
+compare_files() {
+    local file1=$(trim "$1")
+    local file2=$(trim "$2")
+
+    is_file "$file1" || return 1
+    is_file "$file2" || return 1
+    exec_command "cmp -s \"$file1\" \"$file2\"" "false" || return 1
+
+    return 0
+}
+
+# Remove lines matching a pattern from a specified file (robust and efficient)
+remove_matched_lines() {
+    local file=$(trim "$1") # The file to modify
+    local pattern="$2"      # The pattern to match and remove
+    local tmp_file          # Temporary file for processing
+
+    # Ensure file and pattern are provided
+    [ -n "$file" ] && [ -n "$pattern" ] || return 1
+
+    # Ensure file exists
+    is_file "$file" || return 1
+
+    # Create a temporary file for output
+    tmp_file=$(mktemp) || return 1
+
+    # Remove matched lines using a while loop with awk to process each line
+    while IFS= read -r line; do
+        # Using awk to check if the line matches the pattern
+        echo "$line" | awk -v pat="$pattern" '{if ($0 !~ pat) print $0}' >>"$tmp_file"
+    done <"$file" || return 1
+
+    # Check if any changes were made, and compare the files
+    if compare_files "$file" "$tmp_file"; then
+        saferm "$tmp_file" || return 1
+    else
+        move_file "$tmp_file" "$file" || return 1
+    fi
+
+    return 0
+}
+
 # Check if the current user is root (UID 0)
 is_root_user() {
     if [[ "$(id -u)" != 0 ]]; then
@@ -827,11 +840,11 @@ exec_command() {
         # Execute SSH command
         if [[ "$output" == "true" ]]; then
             eval "$command" || {
-                error_exit "Failed to execute command: $command"
+                return 1
             }
         else
             eval "$command" &>/dev/null || {
-                error_exit "Failed to execute command: $command"
+                return 1
             }
         fi
     fi
@@ -1393,7 +1406,7 @@ saferm() {
         return 1
     fi
 
-    ! is_top_folder "$path" || return 1
+    ! is_top_folder "$path" && [[ "$parent_dir" != "/tmp" ]] || return 1
 
     if is_sub_folder_of "$path" "$parent_dir"; then
         if is_file "$path"; then
