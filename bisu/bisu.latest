@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.0.0"
+export BISU_VERSION="7.0.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -20,17 +20,17 @@ export DEFAULT_TITLE="-bash"
 # Auto line-break length
 export LINE_BREAK_LENGTH=160
 # Required files
-export REQUIRED_SCRIPT_FILES=()
+REQUIRED_SCRIPT_FILES=(${REQUIRED_SCRIPT_FILES[@]:-})
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
     'getopt' 'awk' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq'
 )
 # Required external commands list
-export REQUIRED_EXTERNAL_COMMANDS=()
+REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
 # Auto run commands
-export AUTORUN=()
+AUTORUN=(${AUTORUN[@]:-})
 # Exit with commands
-export EXIT_WITH_COMMANDS=()
+EXIT_WITH_COMMANDS=(${EXIT_WITH_COMMANDS[@]:-})
 # Current Process ID
 export CURRENT_PID=""
 # Processes pids to cleanup
