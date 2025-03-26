@@ -3,27 +3,32 @@
 ## Official Web Site: https://bisu.x-1.tech
 ## Recommended BISU PATH: /usr/local/sbin/bisu.bash
 ## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION=">=5.2.0"
-export BISU_PRODUCTION="/usr/local/sbin/bisu.bash"
-export BISU_TESTING="$HOME/Documents/Projects/bisu/bisu/bisu.latest.bash"
-## Decide the reference BISU file by enviroment of production or testing
-export BISU_ENV="production"
-## Import BISU file
-[ "$BISU_ENV" == "production" ] && source "$BISU_PRODUCTION" || [ "$BISU_ENV" == "testing" ] && source "$BISU_TESTING" || {
-    echo -e "Error: Unable to load BISU" >&2
-    exit 1
-}
+export THIS_REQUIRED_BISU_VERSION=">=7.0.0"
+export BISU_PATH="/usr/local/sbin/bisu"
+
+## <required-script-files>
+export REQUIRED_SCRIPT_FILES=()
+## </required-script-files>
+
 ## <required-external-commands>
-export REQUIRED_EXTERNAL_COMMANDS=('vi')
+export REQUIRED_EXTERNAL_COMMANDS=('vi' 'ssh' 'nc')
 ## </required-external-commands>
+
 ## <auto-run>
 export AUTORUN=()
 ## </auto-run>
+
 ## <exit-with-commands>
 export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
+
+## Import BISU file
+source "$BISU_PATH" || {
+    printf "Error: Unable to load BISU\n" >&2
+    exit 1
+}
 ######################################################## BISU Importer End ###########################################################
 
 # An agile tool to easily manage over 1,000 ECS instances
@@ -31,9 +36,11 @@ export EXIT_WITH_COMMANDS=()
 # Or personal hosts easy handling
 
 # Set the expected version of the parent file
-export ECS_MANAGER_VERSION="2.7.0"
+export ECS_MANAGER_VERSION="3.0.0"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
+# ssh known hosts file path
+export KNOWN_HOSTS_FILE="$HOME/.ssh/known_hosts"
 # The below to set the default values for the environment
 export HOST_NAME=""
 export USE_PROXY=false
@@ -137,29 +144,36 @@ set_host_info() {
 prep_ssh_command() {
     local set_account=$(trim "${1:-true}")
     local use_proxy=$(trim "${2:-auto}")
+    local use_prefix=$(trim "${3:-true}")
+    local ssh_command=""
 
     if [[ "$use_proxy" == "auto" ]]; then
         use_proxy="$USE_PROXY"
     fi
 
-    # If MOSH is not used, connect via SSH
-    ssh_command="ssh -p$HOST_PORT"
+    if [[ "$use_prefix" == "true" ]]; then
+        [[ -z "$ssh_command" ]] || ssh_command+=" "
+        ssh_command+="ssh -p$HOST_PORT"
+    fi
 
     if [[ "$set_account" == "true" ]]; then
-        ssh_command="$ssh_command $USERNAME@$HOST_ADDR"
+        [[ -z "$ssh_command" ]] || ssh_command+=" "
+        ssh_command+="$USERNAME@$HOST_ADDR"
     fi
 
     # Apply PEM file if preferred
     if [[ "$PREFER_PEM" == "true" ]]; then
         log_message "Connecting to [$HOST_NAME] via SSH with PEM..."
-        ssh_command="$ssh_command -i '$PEM_FILE'"
+        [[ -z "$ssh_command" ]] || ssh_command+=" "
+        ssh_command+="-i '$PEM_FILE'"
     else
         log_message "Connecting to [$HOST_NAME] via SSH..."
     fi
 
     if [[ "$use_proxy" == "true" ]]; then
         local proxy_command=$(generate_proxy_param)
-        ssh_command="$ssh_command $proxy_command"
+        [[ -z "$ssh_command" ]] || ssh_command+=" "
+        ssh_command+="$proxy_command"
     fi
 
     echo "$ssh_command"
@@ -204,9 +218,8 @@ get_pem_file() {
 # Prepare command for the remote via ssh protocol
 ssh_remote_command() {
     local command=$(trim "$1")
-    local conn_str=$(prep_ssh_command)
-    local ssh_command="$conn_str"
-    [[ -n "$command" ]] && ssh_command="$ssh_command $command"
+    local ssh_command=$(prep_ssh_command)
+    [[ -n "$command" ]] && ssh_command="$ssh_command bash -c \"$command\""
     echo "$ssh_command"
 }
 
@@ -214,7 +227,8 @@ ssh_remote_command() {
 remote_exec_command() {
     local command=$(trim "$1")
     local ssh_command=$(ssh_remote_command "$command")
-    exec_command "$ssh_command"
+    exec_command "$ssh_command" "false" || return 1
+    return 0
 }
 
 # Unified function for SSH and MOSH command execution
@@ -536,7 +550,6 @@ rename() {
     fi
 
     move_file "$host_config_path" "$new_host_config_path" || error_exit "Failed to rename the specified host."
-    saferm "$host_config_path" "$HOSTS_INFO_DIR"
     log_message "The specified host has been renamed as '$new_hostname'"
 }
 
@@ -605,12 +618,33 @@ remove() {
     fi
 }
 
+# remove hosts fingerprints
+remove_known_host() {
+    local param1=$(trim "$1")
+    local ip_addr=""
+    if is_valid_ip "$param1"; then
+        ip_addr="$param1"
+    else
+        set_host_info "$param1"
+        ip_addr="$HOST_ADDR"
+        is_valid_ip "$ip_addr" || error_exit "Invalid IP Adress."
+    fi
+
+    local known_hosts_file="$KNOWN_HOSTS_FILE"
+    is_file "$known_hosts_file" && [ -w "$known_hosts_file" ] || error_exit "Failed to remove the specified fingerprint."
+    [[ $(strpos "$(cat "$known_hosts_file")" "$ip_addr") != "false" ]] || error_exit "No fingerprint has been assigned to the specified host."
+    remove_matched_lines "$known_hosts_file" "$ip_addr" || error_exit "Failed to remove the specified fingerprint."
+    [[ $(strpos "$(cat "$known_hosts_file")" "$ip_addr") == "false" ]] || error_exit "Failed to remove the specified fingerprint."
+    log_message "Successfully removed $ip_addr from $known_hosts_file"
+}
+
 # ED25519 key generation
 gen_ed25519_key() {
     local key_path=$(trim "$1")
     local comment=$(trim "$2")
     comment=${comment:-"$(whoami)@$(hostname)"}
-    local strength=$(trim "$3")
+    local password=$(trim "$3")
+    local strength=$(trim "$4")
     strength=${strength:-"high"}
     local default_filename="id_ed25519"
     local key_dir=""
@@ -659,9 +693,9 @@ gen_ed25519_key() {
     local temp_pem="$temp_dir/ed25519.pem"
     local temp_pem_pub="$temp_pem.pub"
 
-    exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$comment\" -N \"\"" "false"
-    exec_command "chmod 600 \"$temp_pem\""
-    exec_command "chmod 600 \"$temp_pem_pub\""
+    exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$comment\" -N \"$password\"" "false" || error_exit "Failed to generate ssh key."
+    exec_command "chmod 600 \"$temp_pem\"" || error_exit "Failed to generate ssh key."
+    exec_command "chmod 600 \"$temp_pem_pub\"" || error_exit "Failed to generate ssh key."
 
     move_file "$temp_pem" "$pem"
     move_file "$temp_pem_pub" "$pem_pub"
@@ -692,6 +726,20 @@ gen_ed25519_key() {
     log_message "🔑 Private key file: $pem"
     log_message "🔑 Public  key file: $pem_pub"
     log_message "📝 ed25519 key comment: $comment"
+    log_message "🔑 Password (Phrase) is: '$password' $([ -n "$password" ] && echo "(Please save it carefully)" || echo "(none)")"
+}
+
+# Reg ssh pubkey remotely
+reg_pubkey_remotely() {
+    local pubkey_file=$(trim "$1")
+    local temp_file="/tmp/authorized_keys_$(uuidv4)"
+    is_file "$pubkey_file" || error_exit "Specified pubkey file: $pubkey_file not found."
+    touch "$temp_file"
+    local pubkey=$(trim "$(cat $pubkey_file)")
+    local remote_command="mkdir -p /root/.ssh && chmod 700 /root/.ssh; touch /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys && \
+        echo '$pubkey' >>/root/.ssh/authorized_keys && cat /root/.ssh/authorized_keys | uniq | tee $temp_file && mv $temp_file /root/.ssh/authorized_keys"
+    remote_exec_command "$remote_command" || error_exit "Failed to reg pubkey: $pubkey_file for [$HOST_NAME]."
+    log_message "Done."
 }
 
 # Usage information
@@ -704,10 +752,12 @@ usage() {
     log_message "       $(basename "$current_file_path") edit <specified_host>"
     log_message "       $(basename "$current_file_path") rename <specified_host>"
     log_message "       $(basename "$current_file_path") rm <specified_host>"
+    log_message "       $(basename "$current_file_path") rm-fp <specified_host|specified_ip>"
     log_message "       $(basename "$current_file_path") rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
     log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
     log_message "       $(basename "$current_file_path") remote-command <host_name> <remote_command>"
-    log_message "       $(basename "$current_file_path") genkey [specified_file_path] [comment] [strength=low|moderate|*high|extreme]"
+    log_message "       $(basename "$current_file_path") genkey [specified_file_path] [comment] [password] [strength=low|moderate|*high|extreme]"
+    log_message "       $(basename "$current_file_path") reg-pubkey <host_name> <public_key_file>"
     log_message "       $(basename "$current_file_path") install"
     exit 0
 }
@@ -730,6 +780,7 @@ main() {
     local param1=$(arr_get_val 1)
     local param2=$(arr_get_val 2)
     local param3=$(arr_get_val 3)
+    local param4=$(arr_get_val 4)
     local option_force=$(arr_get_val "f" "force")
     local option_help=$(arr_get_val "h" "help")
     local action="$param1"
@@ -781,6 +832,10 @@ main() {
         # Call the SSH/MOSH handler with the parameters
         remove
         ;;
+    "rm-fp")
+        # Call the SSH/MOSH handler with the parameters
+        remove_known_host "$param2"
+        ;;
     "rsync")
         # Call the SSH/MOSH handler with the parameters
         ssh_handle "rsync" "$param2" "$param3"
@@ -792,7 +847,11 @@ main() {
         ;;
     "genkey")
         # Generate a pair of regular ed25519 keys
-        gen_ed25519_key "$param2" "$param3"
+        gen_ed25519_key "$param2" "$param3" "$param4"
+        ;;
+    "reg-pubkey")
+        set_host_info "$param2"
+        reg_pubkey_remotely "$param3"
         ;;
     "force")
         error_exit "option -f/--force must be used with the action 'install' or 'rm'."
