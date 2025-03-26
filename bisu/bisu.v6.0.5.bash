@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
 # Define BISU VERSION
-export BISU_VERSION="6.0.4"
+export BISU_VERSION="6.0.5"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -22,7 +22,9 @@ export LINE_BREAK_LENGTH=160
 # Required files
 export REQUIRED_SCRIPT_FILES=()
 # Required external commands list
-export BISU_REQUIRED_EXTERNAL_COMMANDS=('getopt' 'awk' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee')
+export BISU_REQUIRED_EXTERNAL_COMMANDS=(
+    'getopt' 'awk' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq'
+)
 # Required external commands list
 export REQUIRED_EXTERNAL_COMMANDS=()
 # Auto run commands
@@ -48,6 +50,8 @@ export PROMPT_COMMAND="set_title"
 export CURRENT_FILE_PATH=""
 # The current file name
 export CURRENT_FILE_NAME=""
+# The user's config dir
+export USER_CONF_DIR=""
 # The current command by the actual script
 export CURRENT_COMMAND=""
 # The current args by the actual script
@@ -165,13 +169,26 @@ current_filename() {
     echo "$CURRENT_FILE_NAME"
 }
 
+# Function: user_conf_dir
+# Description: According to its naming
+user_conf_dir() {
+    if [[ -z $USER_CONF_DIR ]]; then
+        output "Invalid user conf dir"
+        quit
+    fi
+    echo "$USER_CONF_DIR"
+}
+
+# Function: user_backup_dir
+# Description: According to its naming
+user_backup_dir() {
+    echo "$(user_conf_dir)/backup"
+}
+
 # Function: current_dir
 # Description: According to its naming
 current_dir() {
-    echo $(dirname $(current_file)) || {
-        output "Invalid current file path: $CURRENT_FILE_PATH"
-        quit
-    }
+    echo $(dirname $(current_file))
 }
 
 # The current log file
@@ -1360,7 +1377,7 @@ cp_p() {
     fi
 
     mkdir_p "$target_dir" || return 1
-    exec_command "$command"
+    exec_command "$command" || return 1
 
     # Check if the move was successful
     if [[ $? != 0 ]]; then
@@ -2875,10 +2892,10 @@ reliable_curl() {
     while [ "$retries" -gt 0 ]; do
         case "$method" in
         GET)
-            exec_command "curl $info_option -X GET '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false"
+            exec_command "curl $info_option -X GET '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false" || return 1
             ;;
         POST)
-            exec_command "curl $info_option -X POST '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false"
+            exec_command "curl $info_option -X POST '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false" || return 1
             ;;
         *)
             output "Unsupported method '$method'."
@@ -3377,10 +3394,12 @@ register_current_command() {
     CURRENT_FILE_PATH=$(normalise_string "$current_file_path")
     CURRENT_COMMAND="$CURRENT_FILE_PATH"
     CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
-
     CURRENT_ARGS=$(trim "$current_args")
     [ -n "$CURRENT_ARGS" ] && {
         CURRENT_COMMAND="$CURRENT_COMMAND $CURRENT_ARGS"
+    }
+    [ -n "$CURRENT_FILE_NAME" ] && {
+        USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
 
     array_unique_push "AUTORUN" 'trap \"wait\" SIGCHLD'
@@ -3515,7 +3534,7 @@ callfunc() {
         return 1
     }
 
-    exec_command "$func $params"
+    exec_command "$func $params" || return 1
     return 0
 }
 
@@ -3531,8 +3550,10 @@ confirm_to_install() {
     get_args
     local param1=$(arr_get_val 1)
     local option_force=$(arr_get_val "f" "force")
+    local option_yes=$(arr_get_val "y" "yes")
     local action="$param1"
     local force="false"
+    local confirmed="false"
     local choice="y"
     local current_file=$(current_file)
     local current_filename=$(current_filename)
@@ -3544,6 +3565,7 @@ confirm_to_install() {
 
     if [[ "$action" == "install" ]]; then
         in_array "$option_force" "install" "$EMPTY_EXPR" && force="true"
+        in_array "$option_yes" "install" "$EMPTY_EXPR" && confirmed="true"
 
         if is_installed; then
             choice="n"
@@ -3555,7 +3577,7 @@ confirm_to_install() {
             fi
         fi
 
-        if ! confirm "$confirm_msg" "$choice"; then
+        if [[ "$confirmed" == "false" ]] && ! confirm "$confirm_msg" "$choice"; then
             error_exit "Aborted."
         fi
 
@@ -3565,12 +3587,18 @@ confirm_to_install() {
 
 # Function: install_script
 install_script() {
-    local current_script=$(current_file)
-    local current_script_name=$(current_filename)
-    local target_path=$(target_path)
+    if is_installed; then
+        log_message "Detected existing installation, backup will be created."
+        local backup_dir="$(user_backup_dir)/$(date +%Y%m%d)"
+        local backup_path="$backup_dir/$(current_filename)_$(uuidv4)"
+        log_message "Moving $(target_path) to the path: $backup_path"
+        mkdir_p "$backup_dir"
+        move_file "$(target_path)" "$backup_path"
+        log_message "Your previous installation has been backed up to: $backup_path"
+    fi
 
-    log_message "Moving $current_script_name to path: $target_path"
-    exec_command "cp \"$current_script\" \"$target_path\""
+    log_message "Moving $(current_filename) to the path: $(target_path)"
+    exec_command "cp \"$(current_file)\" \"$(target_path)\"" || error_exit "Failed to install $(current_filename)"
     log_message "Done."
 }
 
