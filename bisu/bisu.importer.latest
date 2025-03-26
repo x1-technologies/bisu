@@ -24,6 +24,9 @@ export AUTORUN=()
 export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
+## <user-customised-variables>
+## </user-customised-variables>
+
 ## Import BISU file
 source "$BISU_PATH" || {
     printf "Error: Unable to load BISU\n" >&2
