@@ -3,9 +3,9 @@
 ## Official Web Site: https://bisu.x-1.tech
 ## Recommended BISU PATH: /usr/local/sbin/bisu.bash
 ## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu.bash && sudo chmod 755 ./bisu.bash && sudo ./bisu.bash -f install
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="6.0.5"
+export BISU_VERSION="7.0.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -60,6 +60,15 @@ export CURRENT_ARGS=()
 export EMPTY_EXPR="0x00"
 # Debug Switch
 export DEBUG_MODE="false"
+
+# isset function
+isset() {
+    while [ $# -gt 0 ]; do
+        eval '[ "${'"$1"'+set}" ] && [ -n "${'"$1"'}" ]' || return 1
+        shift
+    done
+    return 0
+}
 
 # Universal function to trim whitespace
 trim() {
@@ -324,6 +333,16 @@ current_lock_file() {
     fi
 
     echo "$LOCK_FILE"
+}
+
+# Get the current version of the script.
+current_script_version() {
+    local version_var_name=$(strtoupper "$(current_filename)")
+    version_var_name+="_VERSION"
+    version_var_name=$(str_replace "$version_var_name" "-" "_")
+    isset "$version_var_name" || error_exit "Undefined core variable. Please define the legal version var in the naming of the script as: $version_var_name."
+    is_valid_version "${!version_var_name}" || error_exit "Invalid version number definition: '${!version_var_name}'"
+    echo "${!version_var_name}"
 }
 
 # Function: target_path
@@ -786,6 +805,62 @@ string_ends_with() {
         return 1
     fi
 
+    return 0
+}
+
+# str_replace
+# Replace all occurrences of a string with another string.
+# Usage:
+#   str_replace <string> <search> <replace>
+# Returns:
+#   0 if successful, 1 if an error occurs.
+str_replace() {
+    # Fail safely if missing arguments
+    [ "$#" -lt 3 ] && return 1
+
+    local haystack="$1"
+    shift
+
+    while [ "$#" -gt 1 ]; do
+        local needle="$1" replace="$2"
+        shift 2
+        [ -z "$needle" ] && continue # Skip empty search terms
+
+        # Perform replacement using awk (safe handling of special characters)
+        haystack=$(awk -v n="$needle" -v r="$replace" 'BEGIN { ORS=""; } { gsub(n, r); print }' <<<"$haystack")
+    done
+
+    echo "$haystack"
+    return 0
+}
+
+# str_ireplace
+# Replace all occurrences of a string with another string, case-insensitively.
+# Usage:
+#   str_ireplace <string> <search> <replace>
+# Returns:
+#   0 if successful, 1 if an error occurs.
+str_ireplace() {
+    # Fail safely if missing arguments
+    [ "$#" -lt 3 ] && return 1
+
+    local haystack="$1"
+    shift
+
+    while [ "$#" -gt 1 ]; do
+        local needle="$1" replace="$2"
+        shift 2
+        [ -z "$needle" ] && continue # Skip empty search terms
+
+        # Perform case-insensitive replacement using awk (safe handling of special characters)
+        haystack=$(awk -v n="$needle" -v r="$replace" 'BEGIN { ORS=""; } { 
+            IGNORECASE=1; 
+            gsub(n, r); 
+            print 
+        }' <<<"$haystack")
+    done
+
+    echo "$haystack"
     return 0
 }
 
