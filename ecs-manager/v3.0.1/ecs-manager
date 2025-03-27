@@ -7,7 +7,6 @@
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=7.0.0"
 export BISU_PATH="/usr/local/sbin/bisu"
-
 ## <required-script-files>
 export REQUIRED_SCRIPT_FILES=()
 ## </required-script-files>
@@ -24,7 +23,12 @@ export AUTORUN=()
 export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
-## Import BISU file
+## <user-customised-variables>
+export ECS_MANAGER_VERSION="3.0.1"
+export ECS_MANAGER_DOC_URI="https://go2.vip/ecs-manager-doc"
+## </user-customised-variables>
+
+## Import BISU file, need to set at the last
 source "$BISU_PATH" || {
     printf "Error: Unable to load BISU\n" >&2
     exit 1
@@ -35,8 +39,6 @@ source "$BISU_PATH" || {
 # As an extra method for manually operating hosts if needed
 # Or personal hosts easy handling
 
-# Set the expected version of the parent file
-export ECS_MANAGER_VERSION="3.0.0"
 # Set the ecs hosts configs directory path
 export HOSTS_INFO_DIR="$HOME/.local/ecs-manager/ecs-instances"
 # ssh known hosts file path
@@ -744,21 +746,21 @@ reg_pubkey_remotely() {
 
 # Usage information
 usage() {
-    local current_file_path=$(current_file)
-    log_message "Usage: $(basename "$current_file_path") connect <host_name>"
-    log_message "       $(basename "$current_file_path") set-hostname <host_name>"
-    log_message "       $(basename "$current_file_path") ls [specified_folder]"
-    log_message "       $(basename "$current_file_path") create <specified_host>"
-    log_message "       $(basename "$current_file_path") edit <specified_host>"
-    log_message "       $(basename "$current_file_path") rename <specified_host>"
-    log_message "       $(basename "$current_file_path") rm <specified_host>"
-    log_message "       $(basename "$current_file_path") rm-fp <specified_host|specified_ip>"
-    log_message "       $(basename "$current_file_path") rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
-    log_message "       $(basename "$current_file_path") rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
-    log_message "       $(basename "$current_file_path") remote-command <host_name> <remote_command>"
-    log_message "       $(basename "$current_file_path") genkey [specified_file_path] [comment] [password] [strength=low|moderate|*high|extreme]"
-    log_message "       $(basename "$current_file_path") reg-pubkey <host_name> <public_key_file>"
-    log_message "       $(basename "$current_file_path") install"
+    log_message "Usage: $(current_filename) connect <host_name>"
+    log_message "       $(current_filename) set-hostname <host_name>"
+    log_message "       $(current_filename) ls [specified_folder]"
+    log_message "       $(current_filename) create <specified_host>"
+    log_message "       $(current_filename) edit <specified_host>"
+    log_message "       $(current_filename) rename <specified_host>"
+    log_message "       $(current_filename) rm <specified_host>"
+    log_message "       $(current_filename) rm-fp <specified_host|specified_ip>"
+    log_message "       $(current_filename) rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
+    log_message "       $(current_filename) rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
+    log_message "       $(current_filename) remote-command <host_name> <remote_command>"
+    log_message "       $(current_filename) genkey [specified_file_path] [comment] [password] [strength=low|moderate|*high|extreme]"
+    log_message "       $(current_filename) reg-pubkey <host_name> <public_key_file>"
+    log_message "       $(current_filename) doc"
+    log_message "       $(current_filename) install"
     exit 0
 }
 
