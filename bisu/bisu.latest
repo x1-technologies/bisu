@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.0.2"
+export BISU_VERSION="7.0.3"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -19,6 +19,8 @@ export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
 export LINE_BREAK_LENGTH=160
+# BISU Doc URI
+export BISU_DOC_URI="https://go2.vip/bisu-doc"
 # Required files
 REQUIRED_SCRIPT_FILES=(${REQUIRED_SCRIPT_FILES[@]:-})
 # Required external commands list
@@ -63,9 +65,10 @@ export DEBUG_MODE="false"
 
 # isset function
 isset() {
-    while [ $# -gt 0 ]; do
-        eval '[ "${'"$1"'+set}" ] && [ -n "${'"$1"'}" ]' || return 1
-        shift
+    for var in "$@"; do
+        if [[ -z "${!var+x}" ]]; then
+            return 1
+        fi
     done
     return 0
 }
@@ -119,7 +122,20 @@ command_exists() {
 
 # Quit the current command with a protocol-based signal
 quit() {
-    eval "kill -TERM \"$CURRENT_PID\" &" &>/dev/null &
+    local original_sigterm=$(trap -p SIGTERM)
+    local pid=$(trim "$1")
+    pid=${pid:-"$CURRENT_PID"}
+    local exit_code=$(trim "$2")
+    exit_code=${exit_code:-0}
+    [[ "$exit_code" == 1 ]] || exit_code=0
+
+    if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+        trap '' SIGTERM
+        eval "kill -TERM \"$pid\" &>/dev/null" &>/dev/null
+        trap "$original_sigterm" SIGTERM
+    fi
+
+    exit $exit_code
 }
 
 # Quit the specified process with a protocol-based signal
@@ -127,7 +143,7 @@ quit_process() {
     local pid=$(trim "$1")
     [[ -n "$pid" ]] || return 1
     is_posi_int "$pid" || return 1
-    eval "kill -TERM \"$pid\" &" &>/dev/null &
+    quit "$pid"
 }
 
 # Dump
@@ -293,7 +309,7 @@ error_exit() {
     log_only=${log_only:-"false"}
 
     log_message "Error:( $msg" "$use_newline" "$log_only"
-    quit
+    quit 0 1
 }
 
 # The current file's run lock by signed md5 of full path
@@ -335,14 +351,11 @@ current_lock_file() {
     echo "$LOCK_FILE"
 }
 
-# Get the current version of the script.
-current_script_version() {
-    local version_var_name=$(strtoupper "$(current_filename)")
-    version_var_name+="_VERSION"
-    version_var_name=$(str_replace "$version_var_name" "-" "_")
-    isset "$version_var_name" || error_exit "Undefined core variable. Please define the legal version var in the naming of the script as: $version_var_name."
-    is_valid_version "${!version_var_name}" || error_exit "Invalid version number definition: '${!version_var_name}'"
-    echo "${!version_var_name}"
+# Get the variable for requirements if it is set.
+get_importer_var() {
+    local var_name=$(str_replace $(strtoupper $(trim "$1")) "-" "_")
+    isset "$var_name" || error_exit "Undefined importer variable: $var_name; Please define it in the importer block <user-customised-variables>."
+    echo "${!var_name}"
 }
 
 # Function: target_path
@@ -2172,6 +2185,8 @@ check_bisu_version() {
     if [[ $result == 0 ]] && [[ $(current_filename) != $(bisu_filename) ]]; then
         error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($THIS_REQUIRED_BISU_VERSION)."
     fi
+
+    current_script_version >/dev/null
 }
 
 # Function: is_valid_datetime
@@ -3579,8 +3594,8 @@ initialise() {
     check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
     check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
     load_required_scripts
-    # Integrated installation
-    confirm_to_install
+    # Integrated operations
+    integrated_ops
     callfunc $(printf '%s ' "$@")
 }
 
@@ -3613,15 +3628,20 @@ callfunc() {
     return 0
 }
 
-# Function to check if BISU is installed
-is_installed() {
-    local target_path=$(target_path)
-    is_file "$target_path" || return 1
-    return 0
+# Get the current version of the script.
+current_script_version() {
+    local version=$(get_importer_var "$(current_filename)_VERSION")
+    is_valid_version "$version" || error_exit "Invalid version number definition for $(current_filename)_VERSION: '$version'"
+    echo "$version"
 }
 
-# Confirm to install
-confirm_to_install() {
+# Get the current document URI of the script.
+current_script_doc_uri() {
+    echo $(get_importer_var "$(current_filename)_DOC_URI")
+}
+
+# Integrated operations
+integrated_ops() {
     get_args
     local param1=$(arr_get_val 1)
     local option_force=$(arr_get_val "f" "force")
@@ -3634,11 +3654,16 @@ confirm_to_install() {
     local current_filename=$(current_filename)
     local target_path=$(target_path)
     local confirm_msg="Are you sure to install $current_filename?"
+    local is_matched_action="true"
 
     [[ -z "$action" ]] && action="$option_force"
     [[ "$action" == "$EMPTY_EXPR" ]] && action=""
 
-    if [[ "$action" == "install" ]]; then
+    case "$action" in
+    "doc" | "document")
+        log_message "Please visit [ $(current_script_doc_uri) ] for the document."
+        ;;
+    "install" | "installation")
         in_array "$option_force" "install" "$EMPTY_EXPR" && force="true"
         in_array "$option_yes" "install" "$EMPTY_EXPR" && confirmed="true"
 
@@ -3657,7 +3682,20 @@ confirm_to_install() {
         fi
 
         install_script
-    fi
+        ;;
+    *)
+        is_matched_action="false"
+        ;;
+    esac
+
+    [[ "$is_matched_action" == "false" ]] || quit
+}
+
+# Function to check if BISU is installed
+is_installed() {
+    local target_path=$(target_path)
+    is_file "$target_path" || return 1
+    return 0
 }
 
 # Function: install_script
