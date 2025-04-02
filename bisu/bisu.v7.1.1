@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.1.0"
+export BISU_VERSION="7.1.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3528,6 +3528,7 @@ register_current_command() {
 }
 
 # Get args and store them in an associative array
+# Get args and store them in an associative array
 get_args() {
     local key value param pos_index=1
     local emptyExpr="$EMPTY_EXPR" # Assign with 0x00
@@ -3545,16 +3546,16 @@ get_args() {
         if [ "${param#-}" != "$param" ] && [ "$param" != "-" ]; then
             key="${param#-}"
 
-            # Handle multiple short flags (e.g., -abc)
+            # Handle multiple short flags (e.g., -abc or -yf)
             if [ ${#key} -gt 1 ]; then
-                printf '%s\n' "$key" | while IFS= read -r opt; do
-                    # Split into individual characters using awk (POSIX compliant)
-                    echo "$opt" | awk '{for(i=1;i<=length($0);i++)print substr($0,i,1)}' | while IFS= read -r single_opt; do
-                        [ -n "$single_opt" ] && arr_set_val "$single_opt" "$emptyExpr"
-                    done
+                i=1
+                while [ $i -le ${#key} ]; do
+                    single_opt=$(printf "%s" "$key" | cut -c"$i")
+                    arr_set_val "$single_opt" "$emptyExpr"
+                    i=$((i + 1))
                 done
             else
-                # Single short flag (e.g., -f)
+                # Single short flag (e.g., -f value)
                 if [ -n "$2" ] && [ "${2#-}" == "$2" ]; then
                     value="$2"
                     arr_set_val "$key" "$value"
@@ -3565,7 +3566,7 @@ get_args() {
             fi
 
         # Explicit separator '--' - POSIX compliant
-        elif [ "$param" == "--" ]; then
+        elif [ "$param" = "--" ]; then
             shift
             break
 
