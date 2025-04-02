@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.0.8"
+export BISU_VERSION="7.0.9"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3531,51 +3531,45 @@ register_current_command() {
 get_args() {
     local key value param pos_index=1
     local emptyExpr="$EMPTY_EXPR" # Assign with 0x00
-    local args=$(current_args)
+    local args
+    args=$(current_args) || return 1
 
-    eval "set -- $(printf '%s ' "$args")" 2>/dev/null || return 1
-
-    # Check if there are arguments; reset array or fail
+    eval "set -- $args" 2>/dev/null || return 1
     [ $# -gt 0 ] && arr_reset || return 1
 
     while [ $# -gt 0 ]; do
         param="$1"
 
-        # Long options (e.g., --key=value)
-        if [ "${param#--}" != "$param" ]; then
+        case "$param" in
+        --*) # Handle long options (--key=value)
             key="${param#--}"
-
-            # Check if param contains '='
-            case "$param" in
+            case "$key" in
             *=*)
-                value="${param#*=}" # Extract value after '='
+                value="${key#*=}"
+                key="${key%%=*}"
                 ;;
             *)
                 if [ -n "$2" ] && [ "${2#-}" = "$2" ]; then
-                    value="$2" # Next arg is value if not an option
+                    value="$2"
                     shift
                 else
-                    value="$emptyExpr" # Standalone flag gets EMPTY_EXPR
+                    value="$emptyExpr"
                 fi
                 ;;
             esac
             arr_set_val "$key" "$value"
+            ;;
 
-        # Short options (e.g., -f, -abc)
-        elif [ "${param#-}" != "$param" ] && [ "$param" != "-" ]; then
+        -?*) # Handle short options (-abc)
             key="${param#-}"
-
-            # Handle multiple short flags (e.g., -abc)
             if [ ${#key} -gt 1 ]; then
-                printf '%s\n' "$key" | while IFS= read -r opt; do
-                    # Split into individual characters using awk
-                    echo "$opt" | awk '{for(i=1;i<=length($0);i++)print substr($0,i,1)}' | while IFS= read -r single_opt; do
-                        [ -n "$single_opt" ] && arr_set_val "$single_opt" "$emptyExpr"
-                    done
+                # Extract each flag separately
+                echo "$key" | awk '{for(i=1;i<=length($0);i++) print substr($0,i,1)}' | while IFS= read -r single_opt; do
+                    [ -n "$single_opt" ] && arr_set_val "$single_opt" "$emptyExpr"
                 done
             else
-                # Single short flag (e.g., -f value)
-                if [ -n "$2" ] && [ "${2#-}" == "$2" ]; then
+                # Single short flag with a value (-a value)
+                if [ -n "$2" ] && [ "${2#-}" = "$2" ]; then
                     value="$2"
                     arr_set_val "$key" "$value"
                     shift
@@ -3583,17 +3577,18 @@ get_args() {
                     arr_set_val "$key" "$emptyExpr"
                 fi
             fi
+            ;;
 
-        # Explicit separator '--'
-        elif [ "$param" == "--" ]; then
+        --) # Explicit separator, stop processing flags
             shift
             break
+            ;;
 
-        # Positional arguments
-        else
+        *) # Positional arguments
             arr_set_val "$pos_index" "$param"
             pos_index=$((pos_index + 1))
-        fi
+            ;;
+        esac
 
         shift
     done
