@@ -24,7 +24,7 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## <user-customised-variables>
-export ECS_MANAGER_VERSION="3.0.1"
+export ECS_MANAGER_VERSION="3.0.2"
 export ECS_MANAGER_DOC_URI="https://go2.vip/ecs-manager-doc"
 ## </user-customised-variables>
 
@@ -746,21 +746,23 @@ reg_pubkey_remotely() {
 
 # Usage information
 usage() {
-    log_message "Usage: $(current_filename) connect <host_name>"
-    log_message "       $(current_filename) set-hostname <host_name>"
-    log_message "       $(current_filename) ls [specified_folder]"
-    log_message "       $(current_filename) create <specified_host>"
-    log_message "       $(current_filename) edit <specified_host>"
-    log_message "       $(current_filename) rename <specified_host>"
-    log_message "       $(current_filename) rm <specified_host>"
-    log_message "       $(current_filename) rm-fp <specified_host|specified_ip>"
-    log_message "       $(current_filename) rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
-    log_message "       $(current_filename) rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
-    log_message "       $(current_filename) remote-command <host_name> <remote_command>"
-    log_message "       $(current_filename) genkey [specified_file_path] [comment] [password] [strength=low|moderate|*high|extreme]"
-    log_message "       $(current_filename) reg-pubkey <host_name> <public_key_file>"
-    log_message "       $(current_filename) doc"
-    log_message "       $(current_filename) install"
+    log_add "Usage: $(current_filename) connect <host_name>"
+    log_add "       $(current_filename) set-hostname <host_name>"
+    log_add "       $(current_filename) ls [specified_folder]"
+    log_add "       $(current_filename) create <specified_host>"
+    log_add "       $(current_filename) edit <specified_host>"
+    log_add "       $(current_filename) rename <specified_host>"
+    log_add "       $(current_filename) rm <specified_host>"
+    log_add "       $(current_filename) rm-fp <specified_host|specified_ip>"
+    log_add "       $(current_filename) rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
+    log_add "       $(current_filename) rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
+    log_add "       $(current_filename) remote-command <host_name> <remote_command>"
+    log_add "       $(current_filename) genkey [specified_file_path] [comment] [password] [strength=low|moderate|*high|extreme]"
+    log_add "       $(current_filename) reg-pubkey <host_name> <public_key_file>"
+    log_add "       $(current_filename) doc"
+    log_add "       $(current_filename) install"
+
+    log_flush
     exit 0
 }
 
