@@ -5,11 +5,12 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.0.3"
+export BISU_VERSION="7.0.5"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
 export _ASSOC_VALUES=() # Core array for the common associative array values, no modification
+export _LOG_BUFFER=()
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export HOME=$(eval echo ~${SUDO_USER:-$USER})
@@ -93,14 +94,18 @@ output() {
     local message="$1"
     local use_newline=$(trim "$2")
     use_newline=${use_newline:-"true"}
-    local redirect_stdout=$(trim "$3")
-    redirect_stdout=${redirect_stdout:-"true"}
+    local log_only=$(trim "$3")
+    log_only=${log_only:-"false"}
+    local log_file=$(current_log_file)
 
-    use_newline=${use_newline:-"true"}
     if [[ "$use_newline" == "true" ]]; then
-        echo -e "$message" | fold -s -w $LINE_BREAK_LENGTH >&2 || return 1
+        message+="\n"
+    fi
+
+    if [[ "$log_only" == "true" ]]; then
+        printf "$message" | fold -s -w $LINE_BREAK_LENGTH | tee -a "$log_file" &>/dev/null || return 1
     else
-        echo -en "$message" | fold -s -w $LINE_BREAK_LENGTH >&2 || return 1
+        printf "$message" | fold -s -w $LINE_BREAK_LENGTH | tee -a "$log_file" >&2 || return 1
     fi
 
     return 0
@@ -248,9 +253,10 @@ current_log_file() {
         output "Failed to get date for log directory"
         quit
     }
-    local month_str="$date_str" | awk '{print substr($0, 1, 6)}'
+    local month_str=$(substr "$date_str" 0 6)
+    local day_str=$(substr "$date_str" 6 2)
     log_file_dir="$log_file_dir/$filename/$month_str"
-    log_file="$log_file_dir/$date_str.log"
+    log_file="$log_file_dir/$day_str.log"
 
     if [[ ! -d "$log_file_dir" ]]; then
         mkdir -p "$log_file_dir" &>/dev/null || {
@@ -276,6 +282,39 @@ current_log_file() {
     echo "$log_file"
 }
 
+# Add a log record to buffer
+log_add() {
+    local msg="$1"
+    array_unique_push "_LOG_BUFFER" "$(echo -en "$(date +'%Y-%m-%d %H:%M:%S') - $msg")"
+    return 0
+}
+
+# Flush the log buffer to the log file
+log_flush() {
+    local output_buffer=$(trim "$1")
+    output_buffer=${output_buffer:-"true"}
+    local log_only=$(trim "$2")
+    log_only=${log_only:-"false"}
+    local log_file=$(current_log_file)
+
+    is_array "_LOG_BUFFER" || {
+        output "Error: Illegal log buffer array."
+        quit
+    }
+
+    if [[ "$output_buffer" == "true" ]]; then
+        local content=""
+        for log_record in "${_LOG_BUFFER[@]}"; do
+            content+="$log_record\n"
+        done
+
+        output "$content" "false" "$log_only"
+    fi
+
+    _LOG_BUFFER=()
+    return 0
+}
+
 # Function: log_message
 # Description: Logs messages with timestamps to a specified log file, with fallback options.
 log_message() {
@@ -284,19 +323,9 @@ log_message() {
     use_newline=${use_newline:-"true"}
     local log_only=$(trim "$3")
     log_only=${log_only:-"false"}
-
     local log_file=$(current_log_file)
-    local log_dir=$(dirname "$log_file")
 
-    # Log the message with a timestamp to the log file and optionally to stderr
-    if [[ "$log_only" == "true" ]]; then
-        # Log to both log file and stderr
-        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" &>/dev/null || return 1
-    else
-        # Log to the log file only
-        output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "false" | tee -a "$log_file" >&2 || return 1
-    fi
-
+    output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "$log_only"
     return 0
 }
 
@@ -349,6 +378,7 @@ current_lock_file() {
     fi
 
     echo "$LOCK_FILE"
+    return 0
 }
 
 # Get the variable for requirements if it is set.
@@ -1511,7 +1541,7 @@ saferm() {
         return 1
     fi
 
-    ! is_top_folder "$path" && [[ "$parent_dir" != "/tmp" ]] || return 1
+    ! is_top_folder "$path" || return 1
 
     if is_sub_folder_of "$path" "$parent_dir"; then
         if is_file "$path"; then
@@ -1770,7 +1800,6 @@ array_unique_push() {
 
     # Check if the value is already in the array
     if item_exists "$new_value" "${array[@]}"; then
-        log_message "Item already exists in array."
         return 1
     fi
 
@@ -3379,6 +3408,7 @@ release_lock() {
 cleanup() {
     exit_with_commands
     release_lock
+    output "Cleaned."
     exit 0
 }
 
@@ -3492,10 +3522,10 @@ register_current_command() {
         USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
 
-    array_unique_push "AUTORUN" 'trap \"wait\" SIGCHLD'
+    array_unique_push "AUTORUN" 'trap wait SIGCHLD'
     array_unique_push "AUTORUN" 'trap \"set_title '$DEFAULT_TITLE'\" EXIT'
     array_unique_push "AUTORUN" 'acquire_lock'
-    array_unique_push "AUTORUN" 'trap \"cleanup\" EXIT INT TERM HUP'
+    array_unique_push "AUTORUN" 'trap cleanup EXIT INT TERM HUP'
 }
 
 # Get args and store them in an associative array
