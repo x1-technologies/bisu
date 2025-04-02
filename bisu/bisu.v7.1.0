@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.0.9"
+export BISU_VERSION="7.1.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3531,45 +3531,31 @@ register_current_command() {
 get_args() {
     local key value param pos_index=1
     local emptyExpr="$EMPTY_EXPR" # Assign with 0x00
-    local args
-    args=$(current_args) || return 1
+    local args=$(current_args)
 
-    eval "set -- $args" 2>/dev/null || return 1
+    eval "set -- $(printf '%s ' "$args")" 2>/dev/null || return 1
+
+    # Check if there are arguments; reset array or fail
     [ $# -gt 0 ] && arr_reset || return 1
 
     while [ $# -gt 0 ]; do
         param="$1"
 
-        case "$param" in
-        --*) # Handle long options (--key=value)
-            key="${param#--}"
-            case "$key" in
-            *=*)
-                value="${key#*=}"
-                key="${key%%=*}"
-                ;;
-            *)
-                if [ -n "$2" ] && [ "${2#-}" = "$2" ]; then
-                    value="$2"
-                    shift
-                else
-                    value="$emptyExpr"
-                fi
-                ;;
-            esac
-            arr_set_val "$key" "$value"
-            ;;
-
-        -?*) # Handle short options (-abc)
+        # Short options (e.g., -f, -abc, -yf, etc.)
+        if [ "${param#-}" != "$param" ] && [ "$param" != "-" ]; then
             key="${param#-}"
+
+            # Handle multiple short flags (e.g., -abc)
             if [ ${#key} -gt 1 ]; then
-                # Extract each flag separately
-                echo "$key" | awk '{for(i=1;i<=length($0);i++) print substr($0,i,1)}' | while IFS= read -r single_opt; do
-                    [ -n "$single_opt" ] && arr_set_val "$single_opt" "$emptyExpr"
+                printf '%s\n' "$key" | while IFS= read -r opt; do
+                    # Split into individual characters using awk (POSIX compliant)
+                    echo "$opt" | awk '{for(i=1;i<=length($0);i++)print substr($0,i,1)}' | while IFS= read -r single_opt; do
+                        [ -n "$single_opt" ] && arr_set_val "$single_opt" "$emptyExpr"
+                    done
                 done
             else
-                # Single short flag with a value (-a value)
-                if [ -n "$2" ] && [ "${2#-}" = "$2" ]; then
+                # Single short flag (e.g., -f)
+                if [ -n "$2" ] && [ "${2#-}" == "$2" ]; then
                     value="$2"
                     arr_set_val "$key" "$value"
                     shift
@@ -3577,18 +3563,17 @@ get_args() {
                     arr_set_val "$key" "$emptyExpr"
                 fi
             fi
-            ;;
 
-        --) # Explicit separator, stop processing flags
+        # Explicit separator '--' - POSIX compliant
+        elif [ "$param" == "--" ]; then
             shift
             break
-            ;;
 
-        *) # Positional arguments
+        # Positional arguments - POSIX compliant
+        else
             arr_set_val "$pos_index" "$param"
             pos_index=$((pos_index + 1))
-            ;;
-        esac
+        fi
 
         shift
     done
