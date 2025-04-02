@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.0.7"
+export BISU_VERSION="7.0.8"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3400,8 +3400,10 @@ acquire_lock() {
 # Function to release the lock
 release_lock() {
     local lock_file=$(current_lock_file)
-    ! is_file "$lock_file" && return 1
-    flock -u 200 && revert_title && saferm "$lock_file"
+    is_file "$lock_file" || return 1
+    revert_title
+    flock -u 200 && saferm "$lock_file" || return 1
+    return 0
 }
 
 # Trap function to handle script termination
@@ -3521,10 +3523,8 @@ register_current_command() {
         USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
 
-    array_unique_push "AUTORUN" 'trap \"wait\" SIGCHLD'
-    array_unique_push "AUTORUN" 'trap \"set_title '$DEFAULT_TITLE'\" EXIT'
+    array_unique_push "AUTORUN" '\"set_signals\"'
     array_unique_push "AUTORUN" '\"acquire_lock\"'
-    array_unique_push "AUTORUN" 'trap \"cleanup\" EXIT INT TERM HUP'
 }
 
 # Get args and store them in an associative array
@@ -3599,6 +3599,13 @@ get_args() {
     done
 
     return 0
+}
+
+# Set bash signals
+set_signals() {
+    trap "wait" SIGCHLD
+    trap "set_title '$DEFAULT_TITLE'" EXIT
+    trap "cleanup" EXIT INT TERM HUP
 }
 
 # Start autorun list
