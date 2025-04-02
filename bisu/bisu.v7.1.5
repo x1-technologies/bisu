@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.1.4"
+export BISU_VERSION="7.1.5"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3083,11 +3083,10 @@ http_post() {
 uuidv4() {
     local uuidv4=""
     # Use /dev/urandom to generate random data and format as hex
-    uuidv4=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | awk '{print tolower($0)}') || {
-        echo ""
-        return 1
-    }
-    if [[ -z $(trim "$uuidv4") ]]; then
+    uuidv4=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | awk '{print tolower($0)}')
+    uuidv4=$(trim "$uuidv4")
+
+    if [[ -z "$uuidv4" ]]; then
         uuidv4=$(uuidgen | tr -d '-' | awk '{print tolower($0)}') || {
             echo ""
             return 1
