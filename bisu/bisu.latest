@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.0.5"
+export BISU_VERSION="7.0.6"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3408,7 +3408,6 @@ release_lock() {
 cleanup() {
     exit_with_commands
     release_lock
-    output "Cleaned."
     exit 0
 }
 
@@ -3522,10 +3521,10 @@ register_current_command() {
         USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
 
-    array_unique_push "AUTORUN" 'trap wait SIGCHLD'
+    array_unique_push "AUTORUN" 'trap \"wait\" SIGCHLD'
     array_unique_push "AUTORUN" 'trap \"set_title '$DEFAULT_TITLE'\" EXIT'
-    array_unique_push "AUTORUN" 'acquire_lock'
-    array_unique_push "AUTORUN" 'trap cleanup EXIT INT TERM HUP'
+    array_unique_push "AUTORUN" '\"acquire_lock\"'
+    array_unique_push "AUTORUN" 'trap \"cleanup\" EXIT INT TERM HUP'
 }
 
 # Get args and store them in an associative array
