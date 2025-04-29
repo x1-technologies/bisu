@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.2.2"
+export BISU_VERSION="7.2.3"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3721,7 +3721,7 @@ install_script() {
         local current_file=$(current_file)
         local current_filename=$(current_filename)
         local backup_dir="$(user_backup_dir)/$date_str"
-        local current_script_version=$("$target_path" "callfunc current_script_version")
+        local current_script_version=$("/bin/bash $target_path callfunc current_script_version")
         current_script_version=$(strtolower "$current_script_version")
         string_starts_with "$current_script_version" "v" || current_script_version="v$current_script_version"
         local backup_path="${backup_dir}/${current_filename}.${current_script_version}_${uuid}"
