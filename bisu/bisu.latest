@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.1.9"
+export BISU_VERSION="7.2.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -132,7 +132,9 @@ quit() {
     pid=${pid:-"$CURRENT_PID"}
     local exit_code=$(trim "$2")
     exit_code=${exit_code:-0}
-    [[ "$exit_code" == 1 ]] || exit_code=0
+    if [[ "$exit_code" != 0 ]]; then
+        exit_code=1
+    fi
 
     if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
         trap '' SIGTERM
@@ -227,10 +229,7 @@ current_log_file() {
     local log_file=""
     local filename=$(current_filename)
 
-    [ -n "$filename" ] || {
-        output "Invalid log file path."
-        quit
-    }
+    [ -n "$filename" ] || quit
 
     if [[ -z "$CURRENT_LOG_FILE_DIR" ]]; then
         if is_root_user; then
@@ -245,39 +244,23 @@ current_log_file() {
 
         CURRENT_LOG_FILE_DIR="$log_file_dir"
     fi
-
     log_file_dir="$CURRENT_LOG_FILE_DIR"
 
     local date_str=$(date +'%Y%m%d')
-    is_valid_datetime "$date_str" "date" || {
-        output "Failed to get date for log directory"
-        quit
-    }
+    is_valid_datetime "$date_str" || quit
+
     local month_str=$(substr "$date_str" 0 6)
     local day_str=$(substr "$date_str" 6 2)
     log_file_dir="$log_file_dir/$filename/$month_str"
     log_file="$log_file_dir/$day_str.log"
 
-    if [[ ! -d "$log_file_dir" ]]; then
-        mkdir -p "$log_file_dir" &>/dev/null || {
-            output "Failed to create or set permissions for $log_file_dir"
-            quit
-        }
-        chmod -R 755 "$log_file_dir" &>/dev/null || {
-            output "Failed to create or set permissions for $log_file_dir"
-            quit
-        }
-    fi
-
-    touch "$log_file" || {
-        output "Failed to create log file $log_file"
-        quit
+    is_dir "$log_file_dir" || {
+        mkdir -p "$log_file_dir" &>/dev/null || quit
+        chmod -R 755 "$log_file_dir" &>/dev/null || quit
     }
 
-    if [ ! -f "$log_file" ]; then
-        output "Failed to create log file $log_file"
-        quit
-    fi
+    touch "$log_file" || quit
+    is_file "$log_file" || quit
 
     echo "$log_file"
 }
@@ -2218,134 +2201,118 @@ check_bisu_version() {
     current_script_version >/dev/null
 }
 
-# Function: is_valid_datetime
-# Description: According to its naming
-is_valid_datetime() {
+# Function: normalise_iso_datetime
+normalise_iso_datetime() {
     local input=$(trim "$1")
-    local type=$(trim "$2")
-    type=${type:-"datetime"}
-    local year month day hour minute second
+    local raw="$(echo "$input" | tr -cd '[:alnum:]: T/.\-')" # only valid chars
 
-    # Extract date or timestamp
-    if [[ "$type" == "date" || "$type" == "datetime" ]]; then
-        # Handle year, month, day parsing
-        if [[ "$input" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})$ ]]; then
-            # Format: YYYYMMDD
-            year="${BASH_REMATCH[1]}"
-            month="${BASH_REMATCH[2]}"
-            day="${BASH_REMATCH[3]}"
-        elif [[ "$input" =~ ^([0-9]{4})([0-9]{2})$ ]]; then
-            # Format: YYYYMM
-            year="${BASH_REMATCH[1]}"
-            month="${BASH_REMATCH[2]}"
-            day="01"
-        elif [[ "$input" =~ ^([0-9]{2})([0-9]{2})$ ]]; then
-            # Format: MMDD
-            year=$(date +"%Y")
-            month="${BASH_REMATCH[1]}"
-            day="${BASH_REMATCH[2]}"
-        elif [[ "$input" =~ ^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})$ ]]; then
-            # Format: YYYY-MM-DD
-            year="${BASH_REMATCH[1]}"
-            month="${BASH_REMATCH[2]}"
-            day="${BASH_REMATCH[3]}"
-        elif [[ "$input" =~ ^([0-9]{1,2})-([0-9]{1,2})$ ]]; then
-            # Format: MM-DD
-            year=$(date +"%Y")
-            month="${BASH_REMATCH[1]}"
-            day="${BASH_REMATCH[2]}"
-        else
-            return 1
-        fi
+    local digits_only="$(echo "$raw" | tr -cd '[:digit:]')"
+    local time_part="$(echo "$raw" | grep -oE '[0-9]{2}:[0-9]{2}(:[0-9]{2})?' | head -n1)"
+
+    # Time normalisation
+    if [ -n "$time_part" ]; then
+        case "$time_part" in
+        [0-9][0-9]:[0-9][0-9]) time_part="$time_part:00" ;;
+        [0-9][0-9][0-9][0-9][0-9][0-9]) # e.g. 143000
+            h=$(echo "$time_part" | cut -c1-2)
+            m=$(echo "$time_part" | cut -c3-4)
+            s=$(echo "$time_part" | cut -c5-6)
+            time_part="$h:$m:$s"
+            ;;
+        esac
     fi
 
-    # Validate the date's existence
-    if ! validate_date "$year" "$month" "$day"; then
+    # Format detection
+    case "$raw" in
+    # YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+    20[0-9][0-9][-/\.][0-1][0-9][-/\.][0-3][0-9]*)
+        y=$(echo "$raw" | cut -c1-4)
+        m=$(echo "$raw" | cut -c6-7)
+        d=$(echo "$raw" | cut -c9-10)
+        ;;
+    # YYYYMMDD
+    20[0-9][0-9][0-1][0-9][0-3][0-9]*)
+        y=$(echo "$digits_only" | cut -c1-4)
+        m=$(echo "$digits_only" | cut -c5-6)
+        d=$(echo "$digits_only" | cut -c7-8)
+        ;;
+    # DD.MM.YYYY
+    [0-3][0-9].[0-1][0-9].20[0-9][0-9]*)
+        d=$(echo "$raw" | cut -d'.' -f1)
+        m=$(echo "$raw" | cut -d'.' -f2)
+        y=$(echo "$raw" | cut -d'.' -f3)
+        ;;
+    # MM-DD (assumes current year)
+    [0-1][0-9][-/.][0-3][0-9]*)
+        y=$(date +%Y)
+        m=$(echo "$raw" | cut -c1-2)
+        d=$(echo "$raw" | cut -c4-5)
+        ;;
+    *)
+        echo "INVALID"
         return 1
-    fi
+        ;;
+    esac
 
-    # Handle time validation if type is time or datetime
-    if [[ "$type" == "time" || "$type" == "datetime" ]]; then
-        if [[ "$input" =~ ^([0-9]{2}):([0-9]{2})$ ]]; then
-            # Format: HH:MM
-            hour="${BASH_REMATCH[1]}"
-            minute="${BASH_REMATCH[2]}"
-            second="00"
-        elif [[ "$input" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
-            # Format: H:MM (single digit hour)
-            hour="${BASH_REMATCH[1]}"
-            minute="${BASH_REMATCH[2]}"
-            second="00"
-        else
-            return 1
-        fi
-    fi
-
-    # Validate time ranges
-    if ! validate_time "$hour" "$minute" "$second"; then
-        return 1
+    if [ -z "$time_part" ]; then
+        echo "$y-$m-$d 0:00:00"
+    else
+        echo "$y-$m-$d $time_part"
     fi
 
     return 0
 }
 
-# Validate date format, related to the function is_valid_datetime()
-validate_date() {
-    local year="$1"
-    local month="$2"
-    local day="$3"
+# Function: is_valid_datetime
+# Description: Check if the given string is a valid adaptive datetime
+is_valid_datetime() {
+    local datetime=$(normalise_iso_datetime "$1")
 
-    # Check if month and day are valid
-    if ((month < 1 || month > 12)); then
+    [[ "$datetime" == "INVALID" ]] && return 1
+
+    local y=$(echo "$datetime" | cut -d'-' -f1)
+    local m=$(echo "$datetime" | cut -d'-' -f2)
+    local rest=$(echo "$datetime" | cut -d'-' -f3)
+    local d=$(echo "$rest" | cut -d' ' -f1)
+    local h=$(echo "$rest" | cut -d' ' -f2 | cut -d':' -f1)
+    local min=$(echo "$rest" | cut -d' ' -f2 | cut -d':' -f2)
+    local s=$(echo "$rest" | cut -d' ' -f2 | cut -d':' -f3)
+
+    # Range checks
+    if [ "$y" -lt 1000 ] || [ "$y" -gt 9999 ]; then
+        return 1
+    fi
+    if [ "$m" -lt 1 ] || [ "$m" -gt 12 ]; then
+        return 1
+    fi
+    if [ "$d" -lt 1 ] || [ "$d" -gt 31 ]; then
+        return 1
+    fi
+    if [ "$h" -lt 0 ] || [ "$h" -gt 23 ]; then
+        return 1
+    fi
+    if [ "$min" -lt 0 ] || [ "$min" -gt 59 ]; then
+        return 1
+    fi
+    if [ "$s" -lt 0 ] || [ "$s" -gt 59 ]; then
         return 1
     fi
 
-    local days_in_month
-    case "$month" in
-    01 | 03 | 05 | 07 | 08 | 10 | 12)
-        days_in_month=31
-        ;;
+    # Month-specific day checks
+    case "$m" in
     04 | 06 | 09 | 11)
-        days_in_month=30
+        [ "$d" -gt 30 ] && return 1
         ;;
     02)
-        # Check for leap year
-        if ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))); then
-            days_in_month=29
+        if ([ $((y % 4)) -eq 0 ] && [ $((y % 100)) -ne 0 ]) || [ $((y % 400)) -eq 0 ]; then
+            [ "$d" -gt 29 ] && return 1
         else
-            days_in_month=28
+            [ "$d" -gt 28 ] && return 1
         fi
-        ;;
-    *)
-        return 1 # Invalid month
         ;;
     esac
 
-    if ((day < 1 || day > days_in_month)); then
-        return 1
-    fi
-
-    return 0 # Valid date
-}
-
-# Validate time format, related to the function is_valid_datetime()
-validate_time() {
-    local hour="$1"
-    local minute="$2"
-    local second="$3"
-
-    # Validate hour, minute, second ranges
-    if ((hour < 0 || hour > 23)); then
-        return 1
-    fi
-    if ((minute < 0 || minute > 59)); then
-        return 1
-    fi
-    if ((second < 0 || second > 59)); then
-        return 1
-    fi
-
-    return 0 # Valid time
+    return 0
 }
 
 # Function to validate a variable name
@@ -3412,16 +3379,41 @@ cleanup() {
     exit 0
 }
 
-# Function to set the terminal title
+# Function: set_title
+# Purpose: Sets the terminal title safely and robustly
+# Arguments: $1 - Title string
+# Returns: 0 on success, 1 on invalid input, 2 on unsupported terminal
 set_title() {
     local title=$(trim "$1")
 
-    # Check if the title is valid (only alphanumeric and spaces for simplicity)
-    if [ -n "$title" ] && echo "$title" | awk '!/[^a-zA-Z0-9 ]/' &>/dev/null; then
-        # Set terminal title (in a POSIX-compliant way)
-        echo -ne "\033]0;${title}\007" 2>/dev/null
+    # Validate non-empty
+    if [ -z "$title" ]; then
+        return 1
     fi
-    return 0
+
+    # Validate allowed characters: alphanum, space, dot, colon, underscore, hyphen
+    if ! printf '%s' "$title" | grep -Eq '^[[:alnum:] .:_[\-]]*$'; then
+        return 1
+    fi
+
+    # Check for control characters (0x00–0x1F and 0x7F)
+    if printf '%s' "$title" | grep -q '[[:cntrl:]]'; then
+        return 1
+    fi
+
+    # Truncate safely
+    title=$(substr "$title" 0 256)
+
+    # Terminal support detection
+    case "$TERM" in
+    xterm* | rxvt* | screen* | tmux* | ansi)
+        printf '\033]0;%s\007' "$title" 2>/dev/null
+        return 0
+        ;;
+    *)
+        return 1
+        ;;
+    esac
 }
 
 # Function to revert the terminal title
