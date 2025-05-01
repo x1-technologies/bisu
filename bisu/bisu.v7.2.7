@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.2.6"
+export BISU_VERSION="7.2.7"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -151,6 +151,7 @@ quit_process() {
     [[ -n "$pid" ]] || return 1
     is_posi_int "$pid" || return 1
     quit "$pid"
+    return 0
 }
 
 # Dump
@@ -944,8 +945,8 @@ is_root_user() {
 # Execute command
 exec_command() {
     local command=$(trim "$1")
-    local output=$(trim "$2")
-    output=${output:-true}
+    local foreground=$(trim "$2")
+    foreground=${foreground:-true}
 
     if [[ -z "$command" ]]; then
         return 1
@@ -956,12 +957,13 @@ exec_command() {
         log_message "* Raw Command: $command"
     else
         # Execute SSH command
-        if [[ "$output" == "true" ]]; then
+        if [[ "$foreground" == "true" ]]; then
             eval "$command" || {
                 return 1
             }
         else
-            eval "$command" &>/dev/null || {
+            eval "$command" &
+            &>/dev/null || {
                 return 1
             }
         fi
@@ -3349,10 +3351,58 @@ exit_with_commands() {
             if [[ "$pid" =~ ^[0-9]+$ ]]; then
                 # Safely terminate child PID with a delay
                 quit_process "$pid"
-                sleep 0.2
+                sleep 0.1
             fi
         done <<<"$sub_pids"
     fi
+}
+
+# Function: retry_exec
+retry_exec() {
+    local line=$(trim "$1")
+    local timeout=$(trim "$2")
+    local max_retries=$(trim "$3")
+    local count=0
+    shift 3
+
+    # POSIX-safe word splitting
+    set -- $line
+    local func="$1"
+    shift
+    local args="$@"
+
+    is_posi_int "$timeout" || timeout=15
+    is_posi_int "$max_retries" || max_retries=2
+    max_retries=$((max_retries + 1))
+
+    while [ "$count" -lt "$max_retries" ]; do
+        count=$((count + 1))
+        exec_command "$func $args" "false"
+        pid=$!
+        local start_time=$(date +%s)
+
+        while kill -0 "$pid" 2>/dev/null; do
+            now=$(date +%s)
+            elapsed=$((now - start_time))
+            elapsed=$(normalise_number "$elapsed")
+            is_posi_int "$elapsed" || elapsed=0
+            if [ "$elapsed" -ge "$timeout" ]; then
+                kill -9 "$pid" 2>/dev/null
+                wait "$pid" 2>/dev/null
+                break
+            fi
+            sleep 0.1
+        done
+
+        wait "$pid" 2>/dev/null
+        status=$?
+
+        if [[ "$status" != 0 ]]; then
+            return 1
+        fi
+    done
+
+    return 0
 }
 
 # Function to acquire a lock to prevent multiple instances
@@ -3375,7 +3425,7 @@ release_lock() {
 # Trap function to handle script termination
 cleanup() {
     exit_with_commands
-    release_lock
+    retry_exec "release_lock" 15 2
     exit 0
 }
 
