@@ -24,7 +24,7 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## <user-customised-variables>
-export ECS_MANAGER_VERSION="3.0.2"
+export ECS_MANAGER_VERSION="3.0.3"
 export ECS_MANAGER_DOC_URI="https://go2.vip/ecs-manager-doc"
 ## </user-customised-variables>
 
@@ -267,7 +267,7 @@ ssh_handle() {
         ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
 
         # Execute the SSH command
-        response=$(exec_command "$ssh_command")
+        response=$(exec_command "$ssh_command" 2>/dev/null)
 
         if [ $? -ne 0 ]; then
             error_exit "Failed to execute SSH command to retrieve MOSH details."
@@ -809,7 +809,7 @@ main() {
     "connect")
         # Call the SSH/MOSH handler with the parameters
         set_host_info "$param2"
-        ssh_handle "connect"
+        retry_exec "ssh_handle connect" 30 2
         ;;
     "set-hostname")
         # Call the SSH/MOSH handler with the parameters
