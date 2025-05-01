@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.2.7"
+export BISU_VERSION="7.2.8"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -122,6 +122,14 @@ command_exists() {
         return 1
     fi
 
+    return 0
+}
+
+# Function to check if the process is running
+process_is_running() {
+    local pid=$(trim "$1")
+    is_nn_int "$pid" || return 1
+    kill -0 "$pid" &>/dev/null || return 1
     return 0
 }
 
@@ -3327,6 +3335,7 @@ check_commands_list() {
 # Function to clean files when exit
 exit_with_commands() {
     local array_name="EXIT_WITH_COMMANDS"
+    local sleep_time=0.1
 
     if ! array_is_available "$array_name"; then
         error_exit "Invalid array name provided."
@@ -3351,18 +3360,19 @@ exit_with_commands() {
             if [[ "$pid" =~ ^[0-9]+$ ]]; then
                 # Safely terminate child PID with a delay
                 quit_process "$pid"
-                sleep 0.1
+                sleep $sleep_time
             fi
         done <<<"$sub_pids"
     fi
 }
 
-# Function: retry_exec
-retry_exec() {
+# Function: continous_exec
+continous_exec() {
     local line=$(trim "$1")
     local timeout=$(trim "$2")
     local max_retries=$(trim "$3")
     local count=0
+    local sleep_time=2
     shift 3
 
     # POSIX-safe word splitting
@@ -3371,38 +3381,75 @@ retry_exec() {
     shift
     local args="$@"
 
-    is_posi_int "$timeout" || timeout=15
-    is_posi_int "$max_retries" || max_retries=2
-    max_retries=$((max_retries + 1))
+    if [[ "$timeout" != "-1" ]] && ! is_posi_int "$timeout"; then
+        timeout=15
+    fi
 
-    while [ "$count" -lt "$max_retries" ]; do
-        count=$((count + 1))
+    if [[ "$max_retries" != "-1" ]] && ! is_posi_int "$max_retries"; then
+        max_retries=2
+    fi
+
+    # while preparation
+    local now
+    local elapsed
+    local check_over_retry_needed="true"
+    local over_retry="false"
+    if [ "$timeout" -eq -1 ] && [ "$timeout" -eq -1 ]; then
+        check_over_retry_needed="false"
+    fi
+    # while start
+    while [ 0 ]; do
+        local start_time=$(date +%s)
         exec_command "$func $args" "false"
         pid=$!
-        local start_time=$(date +%s)
+        count=$((count + 1))
 
-        while kill -0 "$pid" 2>/dev/null; do
-            now=$(date +%s)
-            elapsed=$((now - start_time))
-            elapsed=$(normalise_number "$elapsed")
-            is_posi_int "$elapsed" || elapsed=0
-            if [ "$elapsed" -ge "$timeout" ]; then
+        while process_is_running "$pid"; do
+            sleep $sleep_time
+
+            if [[ "$check_over_retry_needed" == "false" ]]; then
+                break
+            fi
+
+            if [[ "$over_retry" == "true" ]]; then
                 kill -9 "$pid" 2>/dev/null
                 wait "$pid" 2>/dev/null
                 break
             fi
-            sleep 0.1
+
+            if [ "$count" -gt "$max_retries" ]; then
+                over_retry="true"
+                continue
+            fi
+
+            if [ "$timeout" -gt -1 ]; then
+                if [ "$timeout" -eq 0 ]; then
+                    over_retry="true"
+                    continue
+                fi
+
+                now=$(date +%s)
+                elapsed=$((now - start_time))
+                elapsed=$(normalise_number "$elapsed")
+                is_posi_int "$elapsed" || elapsed=0
+
+                if [ "$elapsed" -ge "$timeout" ]; then
+                    over_retry="true"
+                    continue
+                fi
+            fi
         done
 
         wait "$pid" 2>/dev/null
         status=$?
 
-        if [[ "$status" != 0 ]]; then
-            return 1
+        if [[ "$status" == 0 ]]; then
+            return 0
         fi
     done
+    # while end
 
-    return 0
+    return 1
 }
 
 # Function to acquire a lock to prevent multiple instances
@@ -3425,7 +3472,7 @@ release_lock() {
 # Trap function to handle script termination
 cleanup() {
     exit_with_commands
-    retry_exec "release_lock" 15 2
+    continous_exec "release_lock" 15 2
     exit 0
 }
 
