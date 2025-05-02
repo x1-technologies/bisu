@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.3.2"
+export BISU_VERSION="7.3.3"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -139,16 +139,40 @@ process_is_running() {
 quit() {
     local original_sigterm=$(trap -p SIGTERM)
     local pid=$(trim "$1")
-    pid=${pid:-"$CURRENT_PID"}
     local exit_code=$(trim "$2")
+    local quit_group=$(trim "$3")
+    local force=$(trim "$4")
+    local command=""
+    local signal="TERM"
+
+    pid=${pid:-"$CURRENT_PID"}
     exit_code=${exit_code:-0}
+    quit_group=${quit_group:-"true"}
+    force=${force:-"false"}
+    if [[ "$quit_group" != "true" ]] && [[ "$quit_group" != "false" ]]; then
+        quit_group="true"
+    fi
+    if [[ "$force" != "true" ]] && [[ "$force" != "false" ]]; then
+        force="false"
+    fi
+    if [[ "$force" == "true" ]]; then
+        signal="9"
+    fi
+
     if [[ "$exit_code" != 0 ]]; then
         exit_code=1
     fi
 
     if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
         trap '' SIGTERM
-        eval "kill -TERM \"$pid\" &>/dev/null" &>/dev/null
+
+        if [[ "$quit_group" == "true" ]]; then
+            command="kill -${signal} -- \"$pid\" &>/dev/null"
+        else
+            command="kill -${signal} \"$pid\" &>/dev/null"
+        fi
+
+        eval "$command" &>/dev/null
         trap "$original_sigterm" SIGTERM
     fi
 
@@ -3449,8 +3473,7 @@ continous_exec() {
         fi
 
         if [[ "$over_retry" == "true" ]]; then
-            kill -9 "$pid" 2>/dev/null
-            wait "$pid" 2>/dev/null
+            quit "$pid" 1 "true" "true"
             break
         fi
 
@@ -3706,10 +3729,12 @@ get_args() {
 # Set bash signals
 set_signals() {
     trap "wait" SIGCHLD
-    trap "set_title '$DEFAULT_TITLE'" EXIT
-    trap "cleanup" EXIT INT TERM HUP
-    trap 'exit 0' 1
-    trap 'kill -TERM -- -$$ 2>/dev/null; exit 0' 1 2
+    trap "set_title '$DEFAULT_TITLE'" EXIT INT TERM QUIT
+    trap "cleanup" EXIT INT TERM QUIT HUP KILL
+    trap 'exit 1' 1
+    trap 'exit 2' 2
+    trap 'exit 3' 3
+    trap 'exit 15' 15
 }
 
 # Start autorun list
