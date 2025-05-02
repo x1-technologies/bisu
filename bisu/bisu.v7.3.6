@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.3.5"
+export BISU_VERSION="7.3.6"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3109,14 +3109,14 @@ hex2str() {
 # Function to convert string to hex
 str2hex() {
     local input_string=$(trim "$1")
-    local having_space=${2:-true} # Having space as separator for standard hex
+    local having_space=$(trim "${2:-"true"}") # Having space as separator for standard hex
     local result=""
 
     result=$(echo -n "$input_string" | xxd -p | tr -d '[:space:]' || echo "") || {
         echo ""
         return 1
     }
-    if $having_space && [[ -n "$result" ]]; then
+    if [[ "$having_space" == "true" ]] && [[ -n "$result" ]]; then
         result=$(echo -n "$result" | awk '{ gsub(/(..)/, "& "); print }') || {
             echo ""
             return 1
@@ -3494,7 +3494,10 @@ atomic_mutex_lock() {
     if [[ "$atomic_mutex_lock" != "true" ]] && [[ "$atomic_mutex_lock" != "false" ]]; then
         atomic_mutex_lock="true"
     fi
-    echo "$atomic_mutex_lock"
+    if [[ "$atomic_mutex_lock" != "true" ]]; then
+        return 1
+    fi
+    return 0
 }
 
 # Function to acquire a lock to prevent multiple instances
@@ -3518,9 +3521,9 @@ release_lock() {
 cleanup() {
     exit_with_commands
 
-    [[ "$(atomic_mutex_lock)" == "true" ]] && {
+    if atomic_mutex_lock; then
         continous_exec "release_lock" 15 2
-    }
+    fi
 
     exit 0
 }
@@ -3661,9 +3664,10 @@ register_current_command() {
     }
 
     array_unique_push "AUTORUN" '\"set_signals\"'
-    [[ "$(atomic_mutex_lock)" == "true" ]] && {
+
+    if atomic_mutex_lock; then
         array_unique_push "AUTORUN" '\"acquire_lock\"'
-    }
+    fi
 }
 
 # Get args and store them in an associative array
