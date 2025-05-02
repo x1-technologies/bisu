@@ -1,7 +1,8 @@
 #!/bin/bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.x-1.tech
-## Recommended BISU PATH: /usr/local/sbin/bisu.bash
+## Updated Date: 2025-05-02Z
+## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 ## Set the required version of BISU
