@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.3.10"
+export BISU_VERSION="7.3.11"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -1129,7 +1129,7 @@ is_numeric() {
 is_posi_numeric() {
     local num=$(trim "$1")
     is_numeric "$num" || return 1
-    [ "$num" -gt 0 ] || return 1
+    [[ "$num" > 0 ]] || return 1
     return 0
 }
 
@@ -1137,7 +1137,7 @@ is_posi_numeric() {
 is_nn() {
     local num=$(trim "$1")
     is_numeric "$num" || return 1
-    [ "$num" -ge 0 ] || return 1
+    [[ "$num" > 0 || "$num" == 0 ]] || return 1
     return 0
 }
 
@@ -1145,7 +1145,7 @@ is_nn() {
 is_nega_numeric() {
     local num=$(trim "$1")
     is_numeric "$num" || return 1
-    [ "$num" -lt 0 ] || return 1
+    [[ "$num" < 0 ]] || return 1
     return 0
 }
 
@@ -3361,7 +3361,6 @@ check_commands_list() {
 # Function to clean files when exit
 exit_with_commands() {
     local array_name="EXIT_WITH_COMMANDS"
-    local sleep_time=0.1
 
     if ! array_is_available "$array_name"; then
         error_exit "Invalid array name provided."
@@ -3383,28 +3382,28 @@ exit_with_commands() {
 # Function: continous_exec
 continous_exec() {
     local line=$(trim "$1")
-    local timeout=$(trim "$2")
-    local max_retries=$(trim "$3")
-    local ops_name=$(trim "$4")
-    local count=0
-    local sleep_time=3.1
-    shift 3
+    local sleep_time=$(trim "$2")
+    local timeout=$(trim "$3")
+    local max_retries=$(trim "$4")
+    local ops_name=$(trim "$5")
+    shift 5
 
     # POSIX-safe word splitting
     set -- $line
-    local func="$1"
+    local func=$(trim "$1")
     shift
     local args="$@"
+
+    # while preparation
+    is_posi_numeric "$sleep_time" || sleep_time=3.1
 
     if [[ "$timeout" != "-1" ]] && ! is_posi_int "$timeout"; then
         timeout=15
     fi
-
     if [[ "$max_retries" != "-1" ]] && ! is_posi_int "$max_retries"; then
         max_retries=2
     fi
-
-    # while preparation
+    local count=0
     local now
     local elapsed
     local check_over_retry_needed="true"
@@ -3413,15 +3412,16 @@ continous_exec() {
         check_over_retry_needed="false"
     fi
     # while start
-    while true; do
+    while [ 0 ]; do
         local start_time=$(date +%s)
+        [ -n "$ops_name" ] && [ "$count" -gt 0 ] && {
+            log_message "The operation [$ops_name] failed. Attempting retry $count..."
+        }
         exec_command "$func $args" "false"
         pid=$!
         count=$((count + 1))
 
         while process_is_running "$pid"; do
-            sleep $sleep_time
-
             if [[ "$check_over_retry_needed" == "false" ]]; then
                 break
             fi
@@ -3432,13 +3432,13 @@ continous_exec() {
 
             if [ "$count" -gt "$max_retries" ]; then
                 over_retry="true"
-                continue
+                break
             fi
 
             if [ "$timeout" -gt -1 ]; then
                 if [ "$timeout" -eq 0 ]; then
                     over_retry="true"
-                    continue
+                    break
                 fi
 
                 now=$(date +%s)
@@ -3448,9 +3448,11 @@ continous_exec() {
 
                 if [ "$elapsed" -ge "$timeout" ]; then
                     over_retry="true"
-                    continue
+                    break
                 fi
             fi
+
+            sleep $sleep_time
         done
 
         wait "$pid" 2>/dev/null
@@ -3464,12 +3466,6 @@ continous_exec() {
             quit "$pid" 1 "true" "true"
             break
         fi
-
-        [ -n "$ops_name" ] && {
-            log_message "The operation [$ops_name] failed. Attempting retry $count..."
-        }
-
-        sleep $sleep_time
     done
     # while end
 
@@ -3508,7 +3504,7 @@ release_lock() {
 # Trap function to handle script termination
 cleanup() {
     if atomic_mutex_lock; then
-        continous_exec "release_lock" 15 2
+        continous_exec "release_lock" 0.1 15 2
     fi
     exit_with_commands
     exit 0
