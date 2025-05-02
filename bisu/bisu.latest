@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.3.8"
+export BISU_VERSION="7.3.9"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3399,7 +3399,7 @@ continous_exec() {
     local max_retries=$(trim "$3")
     local ops_name=$(trim "$4")
     local count=0
-    local sleep_time=1.1
+    local sleep_time=3.1
     shift 3
 
     # POSIX-safe word splitting
@@ -3734,7 +3734,8 @@ get_args() {
 set_signals() {
     trap 'wait' SIGCHLD
     trap "set_title '$DEFAULT_TITLE'" EXIT INT TERM QUIT
-    trap 'status=$?; cleanup; exit $status' EXIT
+    trap 'cleanup' EXIT INT TERM QUIT HUP KILL
+    trap 'exit $?' $?
 }
 
 # Start autorun list
