@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.2.9"
+export BISU_VERSION="7.2.10"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3371,8 +3371,9 @@ continous_exec() {
     local line=$(trim "$1")
     local timeout=$(trim "$2")
     local max_retries=$(trim "$3")
+    local ops_name=$(trim "$4")
     local count=0
-    local sleep_time=2
+    local sleep_time=1.1
     shift 3
 
     # POSIX-safe word splitting
@@ -3394,7 +3395,7 @@ continous_exec() {
     local elapsed
     local check_over_retry_needed="true"
     local over_retry="false"
-    if [ "$timeout" -eq -1 ] && [ "$timeout" -eq -1 ]; then
+    if [ "$timeout" -eq -1 ] && [ "$max_retries" -eq -1 ]; then
         check_over_retry_needed="false"
     fi
     # while start
@@ -3412,8 +3413,6 @@ continous_exec() {
             fi
 
             if [[ "$over_retry" == "true" ]]; then
-                kill -9 "$pid" 2>/dev/null
-                wait "$pid" 2>/dev/null
                 break
             fi
 
@@ -3443,13 +3442,25 @@ continous_exec() {
         wait "$pid" 2>/dev/null
         status=$?
 
-        if [[ "$status" != 0 ]]; then
-            return 1
+        if [ "$status" -eq 0 ]; then
+            return 0
         fi
+
+        if [[ "$over_retry" == "true" ]]; then
+            kill -9 "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            break
+        fi
+
+        [ -n "$ops_name" ] && {
+            log_message "The operation [$ops_name] failed. Attempting retry $count..."
+        }
+
+        sleep $sleep_time
     done
     # while end
 
-    return 0
+    return 1
 }
 
 # Function to acquire a lock to prevent multiple instances
@@ -3680,6 +3691,8 @@ set_signals() {
     trap "wait" SIGCHLD
     trap "set_title '$DEFAULT_TITLE'" EXIT
     trap "cleanup" EXIT INT TERM HUP
+    trap 'exit 0' 1
+    trap 'kill -TERM -- -$$ 2>/dev/null; exit 0' 1 2
 }
 
 # Start autorun list
