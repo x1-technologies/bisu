@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.2.10"
+export BISU_VERSION="7.3.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -61,6 +61,8 @@ export CURRENT_COMMAND=""
 export CURRENT_ARGS=()
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
+# Atomic mutex lock switch for single-threaded utilities
+ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Debug Switch
 export DEBUG_MODE="false"
 
@@ -3463,6 +3465,15 @@ continous_exec() {
     return 1
 }
 
+# Function for atomic mutex lock fast check
+atomic_mutex_lock() {
+    local atomic_mutex_lock=$(trim "${ATOMIC_MUTEX_LOCK:-"true"}")
+    if [[ "$atomic_mutex_lock" != "true" ]] && [[ "$atomic_mutex_lock" != "false" ]]; then
+        atomic_mutex_lock="true"
+    fi
+    echo "$atomic_mutex_lock"
+}
+
 # Function to acquire a lock to prevent multiple instances
 acquire_lock() {
     local lock_file=$(current_lock_file)
@@ -3483,7 +3494,11 @@ release_lock() {
 # Trap function to handle script termination
 cleanup() {
     exit_with_commands
-    continous_exec "release_lock" 15 2
+
+    [[ "$(atomic_mutex_lock)" == "true" ]] && {
+        continous_exec "release_lock" 15 2
+    }
+
     exit 0
 }
 
@@ -3623,7 +3638,9 @@ register_current_command() {
     }
 
     array_unique_push "AUTORUN" '\"set_signals\"'
-    array_unique_push "AUTORUN" '\"acquire_lock\"'
+    [[ "$(atomic_mutex_lock)" == "true" ]] && {
+        array_unique_push "AUTORUN" '\"acquire_lock\"'
+    }
 }
 
 # Get args and store them in an associative array
