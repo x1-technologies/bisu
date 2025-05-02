@@ -1,11 +1,11 @@
 #!/bin/bash
 ############################################### BISU_START: Bash Internal Simple Utils ###############################################
 ## Official Web Site: https://bisu.x-1.tech
-## Recommended BISU PATH: /usr/local/sbin/bisu.bash
+## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.3.0"
+export BISU_VERSION="7.3.2"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -2267,9 +2267,9 @@ normalise_iso_datetime() {
     esac
 
     if [ -z "$time_part" ]; then
-        echo "$y-$m-$d 0:00:00"
+        echo "${y}-${m}-${d}T0:00:00"
     else
-        echo "$y-$m-$d $time_part"
+        echo "${y}-${m}-${d}T${time_part}"
     fi
 
     return 0
@@ -2285,10 +2285,10 @@ is_valid_datetime() {
     local y=$(echo "$datetime" | cut -d'-' -f1)
     local m=$(echo "$datetime" | cut -d'-' -f2)
     local rest=$(echo "$datetime" | cut -d'-' -f3)
-    local d=$(echo "$rest" | cut -d' ' -f1)
-    local h=$(echo "$rest" | cut -d' ' -f2 | cut -d':' -f1)
-    local min=$(echo "$rest" | cut -d' ' -f2 | cut -d':' -f2)
-    local s=$(echo "$rest" | cut -d' ' -f2 | cut -d':' -f3)
+    local d=$(echo "$rest" | cut -d'T' -f1)
+    local h=$(echo "$rest" | cut -d'T' -f2 | cut -d':' -f1)
+    local min=$(echo "$rest" | cut -d'T' -f2 | cut -d':' -f2)
+    local s=$(echo "$rest" | cut -d'T' -f2 | cut -d':' -f3)
 
     # Range checks
     if [ "$y" -lt 1000 ] || [ "$y" -gt 9999 ]; then
