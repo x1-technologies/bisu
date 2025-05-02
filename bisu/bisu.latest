@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.3.17"
+export BISU_VERSION="7.3.18"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3405,6 +3405,7 @@ continous_exec() {
     fi
     local count=0
     local pid
+    local status
     local now
     local elapsed
     local check_over_retry_needed="true"
@@ -3504,9 +3505,6 @@ release_lock() {
 
 # Trap function to handle script termination
 cleanup() {
-    if atomic_mutex_lock; then
-        continous_exec "release_lock" 0.1 15 2
-    fi
     exit_with_commands
     exit 0
 }
@@ -3650,6 +3648,7 @@ register_current_command() {
 
     if atomic_mutex_lock; then
         array_unique_push "AUTORUN" '\"acquire_lock\"'
+        array_unique_push "EXIT_WITH_COMMANDS" '\"release_lock\"'
     fi
 }
 
@@ -3716,9 +3715,8 @@ get_args() {
 # Set bash signals
 set_signals() {
     trap 'wait' SIGCHLD
-    trap "set_title '$DEFAULT_TITLE'" EXIT INT TERM QUIT
-    trap 'cleanup; exit $?' EXIT INT TERM QUIT HUP KILL
-    trap 'exit 0' EXIT INT TERM HUP
+    trap "set_title '$DEFAULT_TITLE'" EXIT SIGINT SIGTERM SIGQUIT
+    trap 'cleanup;exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT SIGKILL
 }
 
 # Start autorun list
