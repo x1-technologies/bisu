@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="7.3.9"
+export BISU_VERSION="7.3.10"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -3372,24 +3372,12 @@ exit_with_commands() {
     for val in "${vals[@]}"; do
         val=$(trim "$val")
         if [[ -n "$val" ]]; then
-            exec_command "$val" &>/dev/null >&2
+            exec_command "$val" "false"
         fi
     done
 
     local current_pid="$CURRENT_PID"
-    local sub_pids=$(pgrep -P "$current_pid" 2>/dev/null) || sub_pids=""
-    # Check if any child PIDs are found
-    if [ -n "$sub_pids" ]; then
-        # Efficient loop using while IFS for processing each child PID
-        while IFS= read -r pid; do
-            # Ensure the PID is valid (numeric only)
-            if [[ "$pid" =~ ^[0-9]+$ ]]; then
-                # Safely terminate child PID with a delay
-                quit_process "$pid"
-                sleep $sleep_time
-            fi
-        done <<<"$sub_pids"
-    fi
+    quit "$current_pid"
 }
 
 # Function: continous_exec
@@ -3519,12 +3507,10 @@ release_lock() {
 
 # Trap function to handle script termination
 cleanup() {
-    exit_with_commands
-
     if atomic_mutex_lock; then
         continous_exec "release_lock" 15 2
     fi
-
+    exit_with_commands
     exit 0
 }
 
