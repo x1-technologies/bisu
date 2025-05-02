@@ -25,6 +25,12 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## <user-customised-variables>
+# Set this script's version number
+# {SCRIPT_NAME}_VERSION=""
+# Set this script's doc URI
+# {SCRIPT_NAME}_DOC_URI=""
+# Atomic mutex lock switch for single-threaded utilities
+ATOMIC_MUTEX_LOCK="true"
 ## </user-customised-variables>
 
 ## Import BISU file
