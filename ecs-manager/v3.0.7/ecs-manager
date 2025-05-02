@@ -24,8 +24,12 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## <user-customised-variables>
-export ECS_MANAGER_VERSION="3.0.6"
+# Set this script's version number
+export ECS_MANAGER_VERSION="3.0.7"
+# Set this script's doc URI
 export ECS_MANAGER_DOC_URI="https://go2.vip/ecs-manager-doc"
+# Atomic mutex lock switch for single-threaded utilities
+ATOMIC_MUTEX_LOCK="true"
 ## </user-customised-variables>
 
 ## Import BISU file, need to set at the last
