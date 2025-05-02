@@ -1,7 +1,8 @@
 #!/bin/bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.x-1.tech
-## Recommended BISU PATH: /usr/local/sbin/bisu.bash
+## Version: 20250502z1
+## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
 ## Set the required version of BISU
@@ -25,7 +26,7 @@ export EXIT_WITH_COMMANDS=()
 
 ## <user-customised-variables>
 # Set this script's version number
-export ECS_MANAGER_VERSION="3.0.7"
+export ECS_MANAGER_VERSION="3.0.8"
 # Set this script's doc URI
 export ECS_MANAGER_DOC_URI="https://go2.vip/ecs-manager-doc"
 # Atomic mutex lock switch for single-threaded utilities
