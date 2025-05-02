@@ -26,7 +26,7 @@ export EXIT_WITH_COMMANDS=()
 
 ## <user-customised-variables>
 # Set this script's version number
-export ECS_MANAGER_VERSION="3.0.8"
+export ECS_MANAGER_VERSION="3.0.9"
 # Set this script's doc URI
 export ECS_MANAGER_DOC_URI="https://go2.vip/ecs-manager-doc"
 # Atomic mutex lock switch for single-threaded utilities
@@ -814,7 +814,7 @@ main() {
     "connect")
         # Call the SSH/MOSH handler with the parameters
         set_host_info "$param2"
-        continous_exec "ssh_handle connect" -1 5 "ecs-connection"
+        continous_exec "ssh_handle connect" 3.1 -1 5 "ecs-connection"
         ;;
     "set-hostname")
         # Call the SSH/MOSH handler with the parameters
