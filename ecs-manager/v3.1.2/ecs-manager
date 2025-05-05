@@ -1,7 +1,7 @@
 #!/bin/bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.x-1.tech
-## Version: 20250505Z1
+## Version: 20250505Z2
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
@@ -28,7 +28,7 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.1.1"
+export UTILITY_VERSION="3.1.2"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://go2.vip/ecs-manager"
 # Set this utility's last release date
@@ -41,6 +41,8 @@ export EXIT_COMMAND_INTERVAL=0.1
 export EXIT_COMMAND_TIMEOUT=30
 # Execution retry times of per exit command
 export EXIT_COMMAND_RETRY=2
+# Debug Switch
+export DEBUG_MODE=false
 ## </user-customised-variables>
 
 ## Import BISU file, need to set at the last
@@ -77,8 +79,6 @@ export PEM_FILE=""
 export PEM_FILE_DIRS=("$HOME/.ssh")
 # Cache for hostname modification
 export HOSTNAME_BACKUP_FILE="/etc/hostname.backup.default"
-# Debug Switch
-export DEBUG_MODE=false
 
 # Universal function to generate proxy command
 generate_proxy_param() {
@@ -285,7 +285,7 @@ ssh_handle() {
         ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
 
         # Execute the SSH command
-        response=$(exec_command "$ssh_command" 2>/dev/null)
+        response=$(exec_command "$ssh_command")
 
         if [ $? -ne 0 ]; then
             error_exit "Failed to execute SSH command to retrieve MOSH details."
@@ -304,7 +304,7 @@ ssh_handle() {
             mosh_server_addr="$HOST_ADDR" &&
 
             # Run MOSH client
-            mosh-client "$mosh_server_addr" "$mosh_server_port"
+            exec_command "mosh-client '$mosh_server_addr' '$mosh_server_port'"
 
         exec_command "$ssh_command"
     else
@@ -844,6 +844,7 @@ main() {
         ;;
     "edit")
         # Call the SSH/MOSH handler with the parameters
+        set_title "$param2"
         edit "$param2"
         ;;
     "rename")
