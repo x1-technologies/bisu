@@ -28,7 +28,7 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.1.0"
+export UTILITY_VERSION="3.1.1"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://go2.vip/ecs-manager"
 # Set this utility's last release date
@@ -827,7 +827,7 @@ main() {
     "connect")
         # Call the SSH/MOSH handler with the parameters
         set_host_info "$param2"
-        continous_exec "ssh_handle connect" 3.1 -1 5 "ecs-connection"
+        continuous_exec "ssh_handle connect" 3.1 -1 5 "ecs-connection"
         ;;
     "set-hostname")
         # Call the SSH/MOSH handler with the parameters
