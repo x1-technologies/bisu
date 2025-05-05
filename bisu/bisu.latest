@@ -3,9 +3,9 @@
 ## Official Web Site: https://bisu.x-1.tech
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.3.18"
+export BISU_VERSION="7.5.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -13,15 +13,13 @@ export _ASSOC_VALUES=() # Core array for the common associative array values, no
 export _LOG_BUFFER=()
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
-export HOME=$(eval echo ~${SUDO_USER:-$USER})
+export HOME="$(eval echo "~${SUDO_USER:-$USER}")"
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # Default title
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
 export LINE_BREAK_LENGTH=160
-# BISU Doc URI
-export BISU_DOC_URI="https://go2.vip/bisu-doc"
 # Required files
 REQUIRED_SCRIPT_FILES=(${REQUIRED_SCRIPT_FILES[@]:-})
 # Required external commands list
@@ -61,8 +59,22 @@ export CURRENT_COMMAND=""
 export CURRENT_ARGS=()
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
+# Set this utility's name
+UTILITY_NAME=${UTILITY_NAME:-"bisu"}
+# Set this utility's version number
+UTILITY_VERSION=${UTILITY_VERSION:-"$BISU_VERSION"}
+# Set this utility's doc URI
+UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.x-1.tech"}
+# Set this utility's last release date
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-05Z"}
 # Atomic mutex lock switch for single-threaded utilities
 ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
+# Execution interval of per exit command
+EXIT_COMMAND_INTERVAL=${EXIT_COMMAND_INTERVAL:-0.1}
+# Execution time limit of per exit command
+EXIT_COMMAND_TIMEOUT=${EXIT_COMMAND_TIMEOUT:-30}
+# Execution retry times of per exit command
+EXIT_COMMAND_RETRY=${EXIT_COMMAND_RETRY:-2}
 # Debug Switch
 export DEBUG_MODE="false"
 
@@ -95,9 +107,9 @@ bisu_filename() {
 output() {
     local message="$1"
     local use_newline=$(trim "$2")
-    use_newline=${use_newline:-"true"}
+    in_array "$use_newline" "true" "false" || use_newline="true"
     local log_only=$(trim "$3")
-    log_only=${log_only:-"false"}
+    in_array "${log_only}" "true" "false" || log_only="false"
     local log_file=$(current_log_file)
 
     if [[ "$use_newline" == "true" ]]; then
@@ -147,8 +159,8 @@ quit() {
 
     pid=${pid:-"$CURRENT_PID"}
     exit_code=${exit_code:-0}
-    quit_group=${quit_group:-"true"}
-    force=${force:-"false"}
+    in_array "${quit_group}" "true" "false" || quit_group="true"
+    in_array "${force}" "true" "false" || force="false"
     if [[ "$quit_group" != "true" ]] && [[ "$quit_group" != "false" ]]; then
         quit_group="true"
     fi
@@ -192,10 +204,21 @@ quit_process() {
 dump() {
     local msg=$(trim "$1")
     local use_newline=$(trim "$2")
-    use_newline=${use_newline:-"true"}
+    in_array "${use_newline}" "true" "false" || use_newline="true"
 
     output "$msg" "$use_newline" "true"
     quit
+}
+
+# Function: current_pid
+# Description: According to its naming
+current_pid() {
+    if [[ -z "$CURRENT_PID" ]]; then
+        output "Invalid current pid"
+        quit
+    fi
+
+    echo "$CURRENT_PID"
 }
 
 # Function: current_command
@@ -310,13 +333,13 @@ log_add() {
 # Flush the log buffer to the log file
 log_flush() {
     local output_buffer=$(trim "$1")
-    output_buffer=${output_buffer:-"true"}
+    in_array "${output_buffer}" "true" "false" || output_buffer="true"
     local log_only=$(trim "$2")
-    log_only=${log_only:-"false"}
+    in_array "${log_only}" "true" "false" || log_only="false"
     local log_file=$(current_log_file)
 
     is_array "_LOG_BUFFER" || {
-        output "Error: Illegal log buffer array."
+        output "Error:-( Illegal log buffer array."
         quit
     }
 
@@ -338,9 +361,9 @@ log_flush() {
 log_message() {
     local msg="$1"
     local use_newline=$(trim "$2")
-    use_newline=${use_newline:-"true"}
+    in_array "${use_newline}" "true" "false" || use_newline="true"
     local log_only=$(trim "$3")
-    log_only=${log_only:-"false"}
+    in_array "${log_only}" "true" "false" || log_only="false"
     local log_file=$(current_log_file)
 
     output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "$log_only"
@@ -351,11 +374,11 @@ log_message() {
 error_exit() {
     local msg=$(trim "$1")
     local use_newline=$(trim "$2")
-    use_newline=${use_newline:-"true"}
+    in_array "${use_newline}" "true" "false" || use_newline="true"
     local log_only=$(trim "$3")
-    log_only=${log_only:-"false"}
+    in_array "${log_only}" "true" "false" || log_only="false"
 
-    log_message "Error:( $msg" "$use_newline" "$log_only"
+    log_message "Error:-( $msg" "$use_newline" "$log_only"
     quit 0 1
 }
 
@@ -835,7 +858,7 @@ string_starts_with() {
     local string=$1
     local phrase=$2
     local ignore_case=$(trim "$3")
-    ignore_case=${ignore_case:-"true"}
+    in_array "${ignore_case}" "true" "false" || ignore_case="true"
     local pos=""
 
     if [ "$ignore_case" = "true" ]; then
@@ -932,7 +955,7 @@ compare_files() {
 
     is_file "$file1" || return 1
     is_file "$file2" || return 1
-    exec_command "cmp -s \"$file1\" \"$file2\"" "false" || return 1
+    exec_command "cmp -s \"$file1\" \"$file2\"" || return 1
 
     return 0
 }
@@ -979,8 +1002,8 @@ is_root_user() {
 # Execute command
 exec_command() {
     local command=$(trim "$1")
-    local foreground=$(trim "$2")
-    foreground=${foreground:-true}
+    local run_in_bg=$(trim "$2")
+    in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
 
     if [[ -z "$command" ]]; then
         return 1
@@ -991,7 +1014,7 @@ exec_command() {
         log_message "* Raw Command: $command"
     else
         # Execute SSH command
-        if [[ "$foreground" == "true" ]]; then
+        if [[ "$run_in_bg" == "false" ]]; then
             eval "$command" || {
                 return 1
             }
@@ -1040,7 +1063,7 @@ file_real_path() {
     # Trim spaces and handle parameters
     local file=$(trim "$1")
     local check_base_existence=$(trim "$2")
-    check_base_existence=${check_base_existence:-false}
+    in_array "${check_base_existence}" "true" "false" || check_base_existence="false"
 
     # Expand shell variables and tilde (~) safely
     file=$(eval echo "$file")
@@ -1464,9 +1487,9 @@ cp_p() {
     local target_path=$(trim "$2")
     local target_dir=""
     local force_override=$(trim "$3")
-    force_override=${force_override:-"true"}
+    in_array "${force_override}" "true" "false" || force_override="true"
     local keep_origin=$(trim "$4")
-    keep_origin=${keep_origin:-"true"}
+    in_array "${keep_origin}" "true" "false" || keep_origin="true"
     local source_is_file="false"
     local source_is_dir="false"
     local prepare_for_copy="false"
@@ -1537,7 +1560,7 @@ move_file() {
     local target_path=$(trim "$2")
     local target_dir=""
     local force_override=$(trim "$3")
-    force_override=${force_override:-"true"}
+    in_array "${force_override}" "true" "false" || force_override="true"
 
     cp_p "$source_path" "$target_path" "$force_override" "false" || return 1
 
@@ -1575,7 +1598,7 @@ saferm() {
 
     case "$timing" in
     "immediately")
-        exec_command "$rm_command" "false" || return 1
+        exec_command "$rm_command" || return 1
         ;;
     "when_quit")
         exec_when_quit "$rm_command" || return 1
@@ -1939,7 +1962,7 @@ arr_reset() {
 array_to_json() {
     local array_data=$(trim "$1")
     local use_private_array=$(trim "$2")
-    use_private_array=${use_private_array:-"false"}
+    in_array "${use_private_array}" "true" "false" || use_private_array="false"
     local array_name=$(trim "$3")
 
     # If use_private_array is true, we don't need a specific array name or array_data
@@ -2234,14 +2257,25 @@ check_bisu_version() {
         error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($THIS_REQUIRED_BISU_VERSION)."
     fi
 
-    current_script_version >/dev/null
+    current_utility_version >/dev/null
 }
 
 # Function: normalise_iso_datetime
 normalise_iso_datetime() {
     local input=$(trim "$1")
-    local raw="$(echo "$input" | tr -cd '[:alnum:]: T/.\-')" # only valid chars
+    if [ -z "$input" ]; then
+        echo "INVALID"
+        return 1
+    fi
 
+    local formatted_time is_utc_time
+    if string_ends_with "$input" "Z"; then
+        is_utc_time="true"
+    else
+        is_utc_time="false"
+    fi
+
+    local raw="$(echo "$input" | tr -cd '[:alnum:]: T/.\-')" # only valid chars
     local digits_only="$(echo "$raw" | tr -cd '[:digit:]')"
     local time_part="$(echo "$raw" | grep -oE '[0-9]{2}:[0-9]{2}(:[0-9]{2})?' | head -n1)"
 
@@ -2291,11 +2325,16 @@ normalise_iso_datetime() {
     esac
 
     if [ -z "$time_part" ]; then
-        echo "${y}-${m}-${d}T0:00:00"
+        formatted_time="${y}-${m}-${d}T0:00:00"
     else
-        echo "${y}-${m}-${d}T${time_part}"
+        formatted_time="${y}-${m}-${d}T${time_part}"
     fi
 
+    if [[ "$is_utc_time" == "true" ]]; then
+        formatted_time+="Z"
+    fi
+
+    echo "$formatted_time"
     return 0
 }
 
@@ -2348,6 +2387,63 @@ is_valid_datetime() {
         ;;
     esac
 
+    return 0
+}
+
+# Function: gdate
+# Description: function for converting ISO8601 time format to natural language format
+gdate() {
+    local input=$(normalise_iso_datetime "$1")
+    [ -n "$input" ] || {
+        echo ""
+        return 1
+    }
+
+    local fmt=$(trim "$2")
+    fmt="${fmt:-+%a %b %-e %H:%M:%S %Z %Y}"
+    local compact=$(trim "$3")
+    in_array "$compact" "true" "false" || compact="true"
+
+    # Process date components
+    clean=$(printf "%s\n" "$input" | awk -v C="$compact" '
+        BEGIN{FS="[T ]"}
+        {
+            split($1,d,"-")
+            if (length(d[1])!=4 || length(d[2])!=2 || length(d[3])!=2) exit
+            t = (NF>1 ? $2 : "")
+            sub(/[+-].*|Z$/, "", t)
+            split(t,tokens,":")
+            h = (tokens[1]=="" ? "00" : tokens[1])
+            m = (tokens[2]=="" ? "00" : tokens[2])
+            s = (tokens[3]=="" ? "00" : tokens[3])
+            if (C=="true" && h=="00" && m=="00" && s=="00") {
+                printf "%04d-%02d-%02d\n", d[1], d[2], d[3]
+            } else {
+                printf "%04d-%02d-%02d %02d:%02d:%02d\n", d[1], d[2], d[3], h, m, s
+            }
+        }')
+
+    [ -z "$clean" ] && {
+        echo ""
+        return 1
+    }
+
+    # Convert date to timestamp
+    ts=$(date -j -u -f "%Y-%m-%d %H:%M:%S" "$clean 00:00:00" "+%s" 2>/dev/null || date -u -d "$clean" "+%s" 2>/dev/null)
+    [ $? -ne 0 ] || [ -z "$ts" ] && {
+        echo ""
+        return 1
+    }
+
+    # Format the output
+    out=$(date -u -r "$ts" "$fmt" 2>/dev/null || date -u -d "@$ts" "$fmt" 2>/dev/null)
+    [ $? -ne 0 ] || [ -z "$out" ] && {
+        echo ""
+        return 1
+    }
+
+    # Remove extra parts
+    printf "%s\n" "$out" | awk -v C="$compact" '{ if (C=="true") gsub("00:00:00", ""); print }' | tr -s ' '
     return 0
 }
 
@@ -3014,10 +3110,10 @@ reliable_curl() {
     while [ "$retries" -gt 0 ]; do
         case "$method" in
         GET)
-            exec_command "curl $info_option -X GET '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false" || return 1
+            exec_command "curl $info_option -X GET '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" || return 1
             ;;
         POST)
-            exec_command "curl $info_option -X POST '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" "false" || return 1
+            exec_command "curl $info_option -X POST '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" || return 1
             ;;
         *)
             output "Unsupported method '$method'."
@@ -3109,7 +3205,9 @@ hex2str() {
 # Function to convert string to hex
 str2hex() {
     local input_string=$(trim "$1")
-    local having_space=$(trim "${2:-"true"}") # Having space as separator for standard hex
+    local having_space=$(trim "$2")
+    in_array "$having_space" "true" "false" || having_space="true"
+
     local result=""
 
     result=$(echo -n "$input_string" | xxd -p | tr -d '[:space:]' || echo "") || {
@@ -3360,6 +3458,18 @@ check_commands_list() {
 
 # Function to clean files when exit
 exit_with_commands() {
+    local sleep_time=$(trim "$1")
+    local timeout=$(trim "$2")
+    local max_retries=$(trim "$3")
+
+    is_posi_numeric "$sleep_time" || sleep_time=1
+    if [[ "$timeout" != "-1" ]] && ! is_posi_int "$timeout"; then
+        timeout=30
+    fi
+    if [[ "$max_retries" != "-1" ]] && ! is_posi_int "$max_retries"; then
+        max_retries=2
+    fi
+
     local array_name="EXIT_WITH_COMMANDS"
 
     if ! array_is_available "$array_name"; then
@@ -3371,21 +3481,20 @@ exit_with_commands() {
     for val in "${vals[@]}"; do
         val=$(trim "$val")
         if [[ -n "$val" ]]; then
-            exec_command "$val" "false"
+            continuous_exec "$val" "$sleep_time" "$timeout" "$max_retries"
         fi
     done
 
-    local current_pid="$CURRENT_PID"
-    quit "$current_pid"
+    quit "$(current_pid)"
 }
 
-# Function: continous_exec
-continous_exec() {
+# Function: continuous_exec
+continuous_exec() {
     local line=$(trim "$1")
     local sleep_time=$(trim "$2")
     local timeout=$(trim "$3")
     local max_retries=$(trim "$4")
-    local ops_name=$(trim "$5")
+    local op_name=$(trim "$5")
     shift 5
 
     # POSIX-safe word splitting
@@ -3396,13 +3505,13 @@ continous_exec() {
 
     # while preparation
     is_posi_numeric "$sleep_time" || sleep_time=3.1
-
     if [[ "$timeout" != "-1" ]] && ! is_posi_int "$timeout"; then
         timeout=15
     fi
     if [[ "$max_retries" != "-1" ]] && ! is_posi_int "$max_retries"; then
         max_retries=2
     fi
+
     local count=0
     local pid
     local status
@@ -3416,10 +3525,10 @@ continous_exec() {
     # while start
     while [ 0 ]; do
         local start_time=$(date +%s)
-        [ -n "$ops_name" ] && [ "$count" -gt 0 ] && {
-            log_message "The operation [$ops_name] failed. Attempting retry $count..."
+        [ -n "$op_name" ] && [ "$count" -gt 0 ] && {
+            log_message "The operation [$op_name] failed. Attempting retry $count..."
         }
-        exec_command "$func $args" "false"
+        exec_command "$func $args" "true"
         pid=$!
         count=$((count + 1))
 
@@ -3477,9 +3586,7 @@ continous_exec() {
 # Function for atomic mutex lock fast check
 atomic_mutex_lock() {
     local atomic_mutex_lock=$(trim "${ATOMIC_MUTEX_LOCK:-"true"}")
-    if [[ "$atomic_mutex_lock" != "true" ]] && [[ "$atomic_mutex_lock" != "false" ]]; then
-        atomic_mutex_lock="true"
-    fi
+    in_array "$atomic_mutex_lock" "true" "false" || atomic_mutex_lock="true"
     if [[ "$atomic_mutex_lock" != "true" ]]; then
         return 1
     fi
@@ -3505,7 +3612,7 @@ release_lock() {
 
 # Trap function to handle script termination
 cleanup() {
-    exit_with_commands
+    exit_with_commands "$EXIT_COMMAND_INTERVAL" "$EXIT_COMMAND_TIMEOUT" "$EXIT_COMMAND_RETRY"
     exit 0
 }
 
@@ -3654,7 +3761,7 @@ register_current_command() {
 
 # Get args and store them in an associative array
 get_args() {
-    local key value param pos_index=1
+    local key value param pos_index=0
     local emptyExpr="$EMPTY_EXPR" # Assign with 0x00 to distinguish empty from null
     local args=$(current_args)
 
@@ -3701,13 +3808,15 @@ get_args() {
 
         # Positional arguments
         *)
-            arr_set_val "$pos_index" "$param"
             pos_index=$((pos_index + 1))
+            arr_set_val "$pos_index" "$param"
             ;;
         esac
 
         shift
     done
+
+    arr_set_val "__ARGC__" "$pos_index"
 
     return 0
 }
@@ -3775,16 +3884,30 @@ callfunc() {
     return 0
 }
 
-# Get the current version of the script.
-current_script_version() {
-    local version=$(get_importer_var "$(current_filename)_VERSION")
-    is_valid_version "$version" || error_exit "Invalid version number definition for $(current_filename)_VERSION: '$version'"
+# get the current utility's name.
+current_utility_name() {
+    local utility_name=$(trim "$UTILITY_NAME")
+    echo "$utility_name"
+}
+
+# Get the current utility's version.
+current_utility_version() {
+    local version=$(trim "$UTILITY_VERSION")
+    is_valid_version "$version" || error_exit "Invalid version number definition for \$UTILITY_VERSION: '$version'"
     echo "$version"
 }
 
-# Get the current document URI of the script.
-current_script_doc_uri() {
-    echo $(get_importer_var "$(current_filename)_DOC_URI")
+# Get extra info URI of the current utility.
+current_utility_info_uri() {
+    local doc_uri=$(trim "$UTILITY_INFO_URI")
+    echo "$doc_uri"
+}
+
+# Get the current utility's last release date
+last_release_date() {
+    local last_release_date=$(trim "$LAST_RELEASE_DATE")
+    last_release_date=$(normalise_iso_datetime "$last_release_date")
+    echo "$last_release_date"
 }
 
 # Integrated operations
@@ -3793,6 +3916,7 @@ integrated_ops() {
     local param1=$(arr_get_val 1)
     local option_force=$(arr_get_val "f" "force")
     local option_yes=$(arr_get_val "y" "yes")
+    local option_version=$(arr_get_val "v" "version")
     local action="$param1"
     local force="false"
     local confirmed="false"
@@ -3804,13 +3928,32 @@ integrated_ops() {
     local is_matched_action="true"
 
     [[ -z "$action" ]] && action="$option_force"
+    [[ -z "$action" ]] && [[ "$option_version" == "$EMPTY_EXPR" ]] && action="version"
     [[ "$action" == "$EMPTY_EXPR" ]] && action=""
 
     case "$action" in
-    "doc" | "document")
-        log_message "Please visit [ $(current_script_doc_uri) ] for the document."
+    "v" | "version")
+        local version current_utility_name last_release_date
+        current_utility_name="$(current_utility_name)"
+        [ -n "$current_utility_name" ] || current_utility_name="$(current_filename)"
+        version="$current_utility_name v$(current_utility_version)"
+        last_release_date="$(last_release_date)"
+        [ -n "$last_release_date" ] && {
+            last_release_date="$(gdate "$last_release_date")"
+            version+="; last release on ${last_release_date}"
+        }
+        [[ "$(current_filename)" == "bisu" ]] || {
+            version+="; using bisu framework v${BISU_VERSION}"
+        }
+        [ -n "$(current_utility_info_uri)" ] && {
+            version+="; for more info please visit $(current_utility_info_uri)"
+        }
+        output "${version}"
         ;;
-    "install" | "installation")
+    "info")
+        log_message "For more info please visit $(current_utility_info_uri)"
+        ;;
+    "install")
         in_array "$option_force" "install" "$EMPTY_EXPR" && force="true"
         in_array "$option_yes" "install" "$EMPTY_EXPR" && confirmed="true"
 
@@ -3855,17 +3998,17 @@ install_script() {
         local current_file=$(current_file)
         local current_filename=$(current_filename)
         local backup_dir="$(user_backup_dir)/$date_str"
-        local current_script_version="$(/bin/bash "$target_path" callfunc current_script_version)"
-        current_script_version=$(strtolower "$current_script_version")
-        string_starts_with "$current_script_version" "v" || current_script_version="v$current_script_version"
-        local backup_path="${backup_dir}/${current_filename}.${current_script_version}_${uuid}"
-        log_message "Moving $target_path to the path: $backup_path"
+        local current_utility_version="$(/bin/bash "$target_path" callfunc current_utility_version)"
+        current_utility_version=$(strtolower "$current_utility_version")
+        string_starts_with "$current_utility_version" "v" || current_utility_version="v$current_utility_version"
+        local backup_path="${backup_dir}/${current_filename}.${current_utility_version}_${uuid}"
+        log_message "Moving $target_path to path: $backup_path"
         mkdir_p "$backup_dir"
         move_file "$target_path" "$backup_path"
         log_message "Your previous installation has been backed up to: $backup_path"
     fi
 
-    log_message "Moving $current_filename to the path: $target_path"
+    log_message "Moving $current_filename to path: $target_path"
     exec_command "cp \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
     log_message "Done."
 }
