@@ -1,12 +1,12 @@
 #!/bin/bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.x-1.tech
-## Version: 20250502z1
+## Version: 20250505Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION=">=7.0.0"
+export THIS_REQUIRED_BISU_VERSION=">=7.5.0"
 export BISU_PATH="/usr/local/sbin/bisu"
 ## <required-script-files>
 export REQUIRED_SCRIPT_FILES=()
@@ -25,12 +25,22 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## <user-customised-variables>
-# Set this script's version number
-export ECS_MANAGER_VERSION="3.0.9"
-# Set this script's doc URI
-export ECS_MANAGER_DOC_URI="https://go2.vip/ecs-manager-doc"
+# Set this utility's name
+export UTILITY_NAME="ecs-manager"
+# Set this utility's version number
+export UTILITY_VERSION="3.1.0"
+# Set this utility's doc URI
+export UTILITY_INFO_URI="https://go2.vip/ecs-manager"
+# Set this utility's last release date
+export LAST_RELEASE_DATE="2025-05-05Z"
 # Atomic mutex lock switch for single-threaded utilities
-ATOMIC_MUTEX_LOCK="true"
+export ATOMIC_MUTEX_LOCK="true"
+# Execution interval of per exit command
+export EXIT_COMMAND_INTERVAL=0.1
+# Execution time limit of per exit command
+export EXIT_COMMAND_TIMEOUT=30
+# Execution retry times of per exit command
+export EXIT_COMMAND_RETRY=2
 ## </user-customised-variables>
 
 ## Import BISU file, need to set at the last
@@ -64,7 +74,7 @@ export PREFER_PEM=true
 # When PREFER_PEM is true, the PEM_FILE variable should be set as required
 export PEM_FILE=""
 # Specify which folders to search for PEM files
-export PEM_FILE_DIRS=("$HOME/.ssh" ".")
+export PEM_FILE_DIRS=("$HOME/.ssh")
 # Cache for hostname modification
 export HOSTNAME_BACKUP_FILE="/etc/hostname.backup.default"
 # Debug Switch
@@ -149,9 +159,12 @@ set_host_info() {
 
 # Prepare ssh command
 prep_ssh_command() {
-    local set_account=$(trim "${1:-true}")
-    local use_proxy=$(trim "${2:-auto}")
-    local use_prefix=$(trim "${3:-true}")
+    local set_account=$(trim "$1")
+    in_array "$set_account" "true" "false" || set_account="true"
+    local use_proxy=$(trim "$2")
+    in_array "$use_proxy" "auto" "true" "false" || use_proxy="auto"
+    local use_prefix=$(trim "$3")
+    in_array "$use_prefix" "true" "false" || use_prefix="true"
     local ssh_command=""
 
     if [[ "$use_proxy" == "auto" ]]; then
@@ -194,7 +207,7 @@ get_pem_file() {
         error_exit "Pem File Not Exists"
     fi
 
-    if string_starts_with "$pem_file" "/" && is_file "$pem_file"; then
+    if string_starts_with "$pem_file" "/"; then
         echo "$pem_file"
         return
     fi
@@ -211,7 +224,7 @@ get_pem_file() {
         fi
 
         if [[ "$pem_file_dir" == "." ]]; then
-            pem_file_dir="$(dirname "$CURRENT_FILE_PATH")/$HOSTS_INFO_DIR"
+            pem_file_dir="$(dirname "$(current_file)")/$HOSTS_INFO_DIR"
         fi
 
         if is_file "$pem_file_dir/$pem_file"; then
@@ -241,7 +254,7 @@ remote_exec_command() {
 # Unified function for SSH and MOSH command execution
 ssh_handle() {
     local operation=$(trim "$1")
-    operation="${operation:-connect}"
+    operation="${operation:-"connect"}"
 
     if [[ "$operation" != "connect" && "$operation" != "set-hostname" && "$operation" != "rsync" && "$operation" != "remote-command" ]]; then
         error_exit "Invalid operation."
@@ -774,15 +787,15 @@ usage() {
 # Main function to collect parameters and invoke SSH/MOSH handler
 main() {
     # Parameters (these can come from the environment or command-line arguments)
-    USE_PROXY="${USE_PROXY:-false}"
-    USE_MOSH="${USE_MOSH:-false}"
-    USERNAME="${USERNAME:-user}"
+    in_array "${USE_PROXY}" "true" "false" || USE_PROXY="false"
+    in_array "${USE_MOSH}" "true" "false" || USE_MOSH="false"
+    USERNAME="${USERNAME:-"user"}"
     HOST_ADDR="${HOST_ADDR:-}"
     HOST_PORT="${HOST_PORT:-22}"
     MOSH_PORTS="${MOSH_PORTS:-60000:61000}"
     PROXY_ADDR="${PROXY_ADDR:-}"
     PROXY_PORT="${PROXY_PORT:-8080}"
-    PREFER_PEM="${PREFER_PEM:-true}"
+    in_array "${PREFER_PEM}" "true" "false" || PREFER_PEM="true"
     PEM_FILE="${PEM_FILE:-}"
 
     get_args
