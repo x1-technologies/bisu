@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.5.0"
+export BISU_VERSION="7.5.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
@@ -46,7 +46,6 @@ export CURRENT_LOG_FILE_DIR=""                  # Current Log file dir
 export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file dir
 export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file dir
 export TARGET_PATH_PREFIX="/usr/local/sbin"     # Default target path for moving scripts
-export PROMPT_COMMAND="set_title"
 # The current file path
 export CURRENT_FILE_PATH=""
 # The current file name
@@ -76,7 +75,7 @@ EXIT_COMMAND_TIMEOUT=${EXIT_COMMAND_TIMEOUT:-30}
 # Execution retry times of per exit command
 EXIT_COMMAND_RETRY=${EXIT_COMMAND_RETRY:-2}
 # Debug Switch
-export DEBUG_MODE="false"
+DEBUG_MODE=${DEBUG_MODE:-"false"}
 
 # isset function
 isset() {
@@ -161,12 +160,7 @@ quit() {
     exit_code=${exit_code:-0}
     in_array "${quit_group}" "true" "false" || quit_group="true"
     in_array "${force}" "true" "false" || force="false"
-    if [[ "$quit_group" != "true" ]] && [[ "$quit_group" != "false" ]]; then
-        quit_group="true"
-    fi
-    if [[ "$force" != "true" ]] && [[ "$force" != "false" ]]; then
-        force="false"
-    fi
+
     if [[ "$force" == "true" ]]; then
         signal="9"
     fi
@@ -184,7 +178,8 @@ quit() {
             command="kill -${signal} \"$pid\" &>/dev/null"
         fi
 
-        eval "$command" &>/dev/null
+        eval "$command &>/dev/null" &
+        &>/dev/null
         trap "$original_sigterm" SIGTERM
     fi
 
@@ -1015,7 +1010,7 @@ exec_command() {
     else
         # Execute SSH command
         if [[ "$run_in_bg" == "false" ]]; then
-            eval "$command" || {
+            eval "$command" 2>/dev/null || {
                 return 1
             }
         else
@@ -3566,10 +3561,9 @@ continuous_exec() {
             sleep $sleep_time
         done
 
-        wait "$pid" 2>/dev/null
         status=$?
-
         if [ "$status" -eq 0 ]; then
+            quit "$pid"
             return 0
         fi
 
@@ -3605,7 +3599,6 @@ acquire_lock() {
 release_lock() {
     local lock_file=$(current_lock_file)
     is_file "$lock_file" || return 1
-    revert_title
     flock -u 200 && saferm "$lock_file" || return 1
     return 0
 }
@@ -3623,39 +3616,18 @@ cleanup() {
 set_title() {
     local title=$(trim "$1")
 
-    # Validate non-empty
-    if [ -z "$title" ]; then
-        return 1
-    fi
-
-    # Validate allowed characters: alphanum, space, dot, colon, underscore, hyphen
-    if ! printf '%s' "$title" | grep -Eq '^[[:alnum:] .:_[\-]]*$'; then
-        return 1
-    fi
-
-    # Check for control characters (0x00–0x1F and 0x7F)
-    if printf '%s' "$title" | grep -q '[[:cntrl:]]'; then
-        return 1
-    fi
-
-    # Truncate safely
-    title=$(substr "$title" 0 256)
-
-    # Terminal support detection
-    case "$TERM" in
-    xterm* | rxvt* | screen* | tmux* | ansi)
-        printf '\033]0;%s\007' "$title" 2>/dev/null
+    # Check if the title is valid (only alphanumeric and spaces for simplicity)
+    if [ -n "$title" ] && echo "$title" | awk '!/[^a-zA-Z0-9 ]/' &>/dev/null; then
+        # Set terminal title (in a POSIX-compliant way)
+        echo -ne "\033]0;${title}\007" 2>/dev/null
         return 0
-        ;;
-    *)
-        return 1
-        ;;
-    esac
+    fi
+    return 1
 }
 
 # Function to revert the terminal title
 revert_title() {
-    set_title "$DEFAULT_TITLE"
+    set_title "$DEFAULT_TITLE" || return 1
     return 0
 }
 
@@ -3680,12 +3652,6 @@ load_required_scripts() {
     done
 
     return 0
-}
-
-# Function to execute a command robustly
-execute_command() {
-    local commandString=$(trim "$1")
-    eval "$commandString" || error_exit "Failed to execute command: $commandString"
 }
 
 # Execute a command when quit
@@ -3750,6 +3716,8 @@ register_current_command() {
     [ -n "$CURRENT_FILE_NAME" ] && {
         USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
+
+    in_array "$DEBUG_MODE" "true" "false" || DEBUG_MODE="false"
 
     array_unique_push "AUTORUN" '\"set_signals\"'
 
@@ -3824,8 +3792,7 @@ get_args() {
 # Set bash signals
 set_signals() {
     trap 'wait' SIGCHLD
-    trap "set_title '$DEFAULT_TITLE'" EXIT SIGINT SIGTERM SIGQUIT
-    trap 'cleanup;exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT SIGKILL
+    trap 'revert_title; cleanup; exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT SIGKILL
 }
 
 # Start autorun list
@@ -3835,7 +3802,7 @@ autorun_start() {
     fi
 
     for command in "${AUTORUN[@]}"; do
-        execute_command "$(printf '%s ' "$command")"
+        exec_command "$(printf '%s ' "$command")"
     done
 
     return 0
@@ -3851,8 +3818,7 @@ initialise() {
     check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
     load_required_scripts
     # Integrated operations
-    integrated_ops
-    callfunc $(printf '%s ' "$@")
+    integrated_ops $(printf '%s ' "$@")
 }
 
 # Execute a command when quit
@@ -3972,6 +3938,9 @@ integrated_ops() {
         fi
 
         install_script
+        ;;
+    "callfunc")
+        callfunc $(printf '%s ' "$@")
         ;;
     *)
         is_matched_action="false"
