@@ -1,14 +1,13 @@
 #!/bin/bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.x-1.tech
-## Version: 20250502z1
+## Version: 20250505Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -f install
+## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION=">=7.0.0"
+export THIS_REQUIRED_BISU_VERSION=">=7.5.0"
 export BISU_PATH="/usr/local/sbin/bisu"
-
 ## <required-script-files>
 export REQUIRED_SCRIPT_FILES=()
 ## </required-script-files>
@@ -26,15 +25,25 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## <user-customised-variables>
-# Set this script's version number
-# {SCRIPT_NAME}_VERSION=""
-# Set this script's doc URI
-# {SCRIPT_NAME}_DOC_URI=""
+# Set this utility's name
+export UTILITY_NAME=""
+# Set this utility's version number
+export UTILITY_VERSION=""
+# Set this utility's doc URI
+export UTILITY_INFO_URI=""
+# Set this utility's last release date
+export LAST_RELEASE_DATE=""
 # Atomic mutex lock switch for single-threaded utilities
-ATOMIC_MUTEX_LOCK="true"
+export ATOMIC_MUTEX_LOCK="true"
+# Execution interval of per exit command
+export EXIT_COMMAND_INTERVAL=0.1
+# Execution time limit of per exit command
+export EXIT_COMMAND_TIMEOUT=30
+# Execution retry times of per exit command
+export EXIT_COMMAND_RETRY=2
 ## </user-customised-variables>
 
-## Import BISU file
+## Import BISU file, need to set at the last
 source "$BISU_PATH" || {
     printf "Error: Unable to load BISU\n" >&2
     exit 1
