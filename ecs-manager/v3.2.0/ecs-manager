@@ -28,11 +28,11 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.1.2"
+export UTILITY_VERSION="3.2.0"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://go2.vip/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-05-05Z"
+export LAST_RELEASE_DATE="2025-05-07Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Execution interval of per exit command
@@ -87,9 +87,9 @@ generate_proxy_param() {
     local proxy_port=$(trim "$PROXY_PORT")
 
     if [[ "$use_proxy" == "true" ]] && is_valid_ip "$proxy_ip_addr" && is_valid_port "$proxy_port"; then
-        echo "-o ProxyCommand='nc -x $proxy_ip_addr:$proxy_port %h %p'"
+        printf '%s' "-o ProxyCommand='nc -x $proxy_ip_addr:$proxy_port %h %p'"
     else
-        echo ""
+        printf ""
     fi
 }
 
@@ -112,7 +112,7 @@ exact_host_config() {
     fi
 
     yaml_to_array "$(cat "$host_config_file")"
-    log_message "Using $host_config_file"
+    log_msg "Using $host_config_file"
 
     return 0
 }
@@ -183,20 +183,20 @@ prep_ssh_command() {
 
     # Apply PEM file if preferred
     if [[ "$PREFER_PEM" == "true" ]]; then
-        log_message "Connecting to [$HOST_NAME] via SSH with PEM..."
+        log_msg "Connecting to [$HOST_NAME] via SSH with PEM..."
         [[ -z "$ssh_command" ]] || ssh_command+=" "
         ssh_command+="-i '$PEM_FILE'"
     else
-        log_message "Connecting to [$HOST_NAME] via SSH..."
+        log_msg "Connecting to [$HOST_NAME] via SSH..."
     fi
 
     if [[ "$use_proxy" == "true" ]]; then
-        local proxy_command=$(generate_proxy_param)
+        local proxy_command="$(printf '%s' "$(generate_proxy_param)")"
         [[ -z "$ssh_command" ]] || ssh_command+=" "
         ssh_command+="$proxy_command"
     fi
 
-    echo "$ssh_command"
+    printf '%s' "$ssh_command"
 }
 
 # Get the PEM file path
@@ -239,7 +239,7 @@ get_pem_file() {
 ssh_remote_command() {
     local command=$(trim "$1")
     local ssh_command=$(prep_ssh_command)
-    [[ -n "$command" ]] && ssh_command="$ssh_command bash -c \"$command\""
+    [[ -n "$command" ]] && ssh_command="$ssh_command bash -c $(printf '%s' "$command")"
     echo "$ssh_command"
 }
 
@@ -275,20 +275,20 @@ ssh_handle() {
 
         # Apply PEM file if preferred
         if [ "$PREFER_PEM" == "true" ]; then
-            log_message "Connecting via MOSH with PEM..."
+            log_msg "Connecting via MOSH with PEM..."
             params="-i '$PEM_FILE' $params"
         else
-            log_message "Connecting via MOSH..."
+            log_msg "Connecting via MOSH..."
         fi
 
         # Construct SSH command for MOSH connection
         ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
 
         # Execute the SSH command
-        response=$(exec_command "$ssh_command")
+        response=$(exec_command "$ssh_command" 2>/dev/null)
 
         if [ $? -ne 0 ]; then
-            error_exit "Failed to execute SSH command to retrieve MOSH details."
+            error_exit "Failed to execute SSH command to retrieve MOSH details." "true" "true"
         fi
 
         # Extract MOSH connection details
@@ -296,27 +296,25 @@ ssh_handle() {
         mosh_server_port=$(echo "$response" | awk '/MOSH CONNECT/{print $3}')
 
         if [ -z "$mosh_key" ] || [ -z "$mosh_server_port" ] && [[ "$DEBUG_MODE" == "false" ]]; then
-            error_exit "Failed to retrieve MOSH connection details."
+            error_exit "Failed to retrieve MOSH connection details." "true" "true"
         fi
 
         # Export MOSH key and address
-        export MOSH_KEY="$mosh_key" &&
-            mosh_server_addr="$HOST_ADDR" &&
-
-            # Run MOSH client
-            exec_command "mosh-client '$mosh_server_addr' '$mosh_server_port'"
-
-        exec_command "$ssh_command"
+        export MOSH_KEY="$mosh_key"
+        mosh_server_addr="$HOST_ADDR"
+        if ! exec_command "mosh-client '$mosh_server_addr' '$mosh_server_port'" 2>/dev/null; then
+            error_exit "Failed to connect to [$HOST_NAME]."
+        fi
     else
         # Set hostname
         if [[ "$operation" == "set-hostname" ]]; then
             local remote_set_hostname="test -f /etc/hostname.backup.default || cp /etc/hostname /etc/hostname.backup.default && hostnamectl set-hostname $HOST_NAME"
-            log_message "Setting the hostname..."
+            log_msg "Setting the hostname..."
             remote_exec_command "$remote_set_hostname"
         elif [[ "$operation" == "connect" ]]; then
             remote_exec_command
         elif [[ "$operation" == "rsync" ]]; then
-            log_message "Starting rsync..."
+            log_msg "Starting rsync..."
             local dest1=$(trim "$2")
             local dest2=$(trim "$3")
 
@@ -328,10 +326,10 @@ ssh_handle() {
             # Validate format: "local:/path" or "remote:/path"
             local valid_regex="^(.+):(.+)$"
             if [[ ! "$dest1" =~ $valid_regex ]]; then
-                error_exit "Invalid format for dest1. Please check for its completeness of format: local:/path/to/dest or \$existing_hostname:/path/to/dest"
+                error_exit "Invalid format for dest1. Please check for its completeness of format: local:/path/to/dest or \$hostname:/path/to/dest"
             fi
             if [[ ! "$dest2" =~ $valid_regex ]]; then
-                error_exit "Invalid format for dest2. Please check for its completeness of format: local:/path/to/dest or \$existing_hostname:/path/to/dest"
+                error_exit "Invalid format for dest2. Please check for its completeness of format: local:/path/to/dest or \$hostname:/path/to/dest"
             fi
 
             # Extract actual paths
@@ -354,7 +352,7 @@ ssh_handle() {
                 rsync_dest="$USERNAME@$HOST_ADDR:$dest2_path"
                 ssh_command=$(prep_ssh_command "false")
                 ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_source\" \"$rsync_dest\""
-                exec_command "$ssh_command"
+                exec_command "$(printf '%s' "$ssh_command")"
             elif [[ "$dest1_type" != "local" && "$dest2_type" == "local" ]]; then
                 set_host_info "$dest1_type"
                 dest2_path=$(file_real_path "$dest2_path")
@@ -365,7 +363,7 @@ ssh_handle() {
                 rsync_dest="$dest2_path"
                 ssh_command=$(prep_ssh_command "false")
                 ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_source\" \"$rsync_dest\""
-                exec_command "$ssh_command"
+                exec_command "$(printf '%s' "$ssh_command")"
             else
                 error_exit "Invalid destination(s), please check the correcness of the location tag(s)."
             fi
@@ -379,7 +377,7 @@ ssh_handle() {
             usage
         fi
 
-        log_message "Done."
+        log_msg "Done."
     fi
 }
 
@@ -501,7 +499,7 @@ EOF
 
     if [[ "$vi_status" == 0 ]] && [ -s "$tmpfile" ] && [[ "$tempfileMd5" != $(md5sum "$tmpfile") ]]; then
         move_file "$tmpfile" "$host_config_path" "false" && {
-            log_message "Host config file has been saved as: $host_config_path"
+            log_msg "Host config file has been saved as: $host_config_path"
         }
     fi
 }
@@ -531,7 +529,7 @@ edit() {
         error_exit "There is no specified host."
     fi
 
-    exec_command "vi \"$host_config_path\""
+    exec_command "vi \"$host_config_path\"" 2>/dev/null
 }
 
 rename() {
@@ -570,7 +568,7 @@ rename() {
     fi
 
     move_file "$host_config_path" "$new_host_config_path" || error_exit "Failed to rename the specified host."
-    log_message "The specified host has been renamed as '$new_hostname'"
+    log_msg "The specified host has been renamed as '$new_hostname'"
 }
 
 #shortcut for remove
@@ -655,7 +653,7 @@ remove_known_host() {
     [[ $(strpos "$(cat "$known_hosts_file")" "$ip_addr") != "false" ]] || error_exit "No fingerprint has been assigned to the specified host."
     remove_matched_lines "$known_hosts_file" "$ip_addr" || error_exit "Failed to remove the specified fingerprint."
     [[ $(strpos "$(cat "$known_hosts_file")" "$ip_addr") == "false" ]] || error_exit "Failed to remove the specified fingerprint."
-    log_message "Successfully removed $ip_addr from $known_hosts_file"
+    log_msg "Successfully removed $ip_addr from $known_hosts_file"
 }
 
 # ED25519 key generation
@@ -741,12 +739,12 @@ gen_ed25519_key() {
         ;;
     esac
 
-    log_message "✅ ed25519 key files were successfully generated."
-    log_message "🔑 ed25519 key length: ${key_length}bit (RSA Equivalent: ${rsa_equivalent}bit)"
-    log_message "🔑 Private key file: $pem"
-    log_message "🔑 Public  key file: $pem_pub"
-    log_message "📝 ed25519 key comment: $comment"
-    log_message "🔑 Password (Phrase) is: '$password' $([ -n "$password" ] && echo "(Please save it carefully)" || echo "(none)")"
+    log_msg "✅ ed25519 key files were successfully generated."
+    log_msg "🔑 ed25519 key length: ${key_length}bit (RSA Equivalent: ${rsa_equivalent}bit)"
+    log_msg "🔑 Private key file: $pem"
+    log_msg "🔑 Public  key file: $pem_pub"
+    log_msg "📝 ed25519 key comment: $comment"
+    log_msg "🔑 Password (Phrase) is: '$password' $([ -n "$password" ] && echo "(Please save it carefully)" || echo "(none)")"
 }
 
 # Reg ssh pubkey remotely
@@ -759,7 +757,7 @@ reg_pubkey_remotely() {
     local remote_command="mkdir -p /root/.ssh && chmod 700 /root/.ssh; touch /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys && \
         echo '$pubkey' >>/root/.ssh/authorized_keys && cat /root/.ssh/authorized_keys | uniq | tee $temp_file && mv $temp_file /root/.ssh/authorized_keys"
     remote_exec_command "$remote_command" || error_exit "Failed to reg pubkey: $pubkey_file for [$HOST_NAME]."
-    log_message "Done."
+    log_msg "Done."
 }
 
 # Usage information
