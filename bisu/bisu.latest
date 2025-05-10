@@ -5,14 +5,14 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.7.0"
+export BISU_VERSION="7.8.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
-export _ASSOC_KEYS=()   # Core array for the common associative array keys, no modification
-export _ASSOC_VALUES=() # Core array for the common associative array values, no modification
+export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
+export _ASSOC_VALUES=() # Core array for common associative arrays, no modification
 export _LOG_BUFFER=()
-export _ERROR_LOG=()
-export _ERROR_LOG_LAST_SIGN=""
+export _CK="_ASSOC_KEYS"   # Current big array key storage
+export _CV="_ASSOC_VALUES" # Current big array value storage
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export HOME="$(eval printf '%s' "~${SUDO_USER:-$USER}")"
@@ -67,9 +67,9 @@ UTILITY_NAME=${UTILITY_NAME:-"bisu"}
 # Set this utility's version number
 UTILITY_VERSION=${UTILITY_VERSION:-"$BISU_VERSION"}
 # Set this utility's doc URI
-UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.x-1.tech"}
+UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.cc"}
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-08Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-10Z"}
 # Atomic mutex lock switch for single-threaded utilities
 ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Execution interval of per exit command
@@ -81,11 +81,39 @@ EXIT_COMMAND_RETRY=${EXIT_COMMAND_RETRY:-2}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# isset function
+# Robust and POSIX-compliant isset function
 isset() {
-    for var in "$@"; do
-        if [[ -z "${!var+x}" ]]; then
+    local name index pattern
+    for arg in "$@"; do
+        # Parse "name[index]" vs "name"
+        case "$arg" in
+        *\[*\]*)
+            name="${arg%%\[*}"
+            index="${arg#*\[}"
+            index="${index%\]*}"
+            # Strip quotes from index if present
+            if [[ $index == \"*\" ]]; then
+                index="${index#\"}"
+                index="${index%\"}"
+            fi
+            ;;
+        *)
+            name="$arg"
+            index=""
+            ;;
+        esac
+        # Check if base variable exists
+        if ! declare -p "$name" >/dev/null 2>&1; then
             return 1
+        fi
+        # If an index/key is given, verify it exists in the array
+        if [ -n "$index" ]; then
+            pattern="\\[\"?$index\"?\\]="
+            if ! declare -p "$name" | awk -v patt="$pattern" '
+                   { if ($0 ~ patt) { found=1; exit } }
+                   END { exit(!found) }'; then
+                return 1
+            fi
         fi
     done
     return 0
@@ -93,7 +121,7 @@ isset() {
 
 # Universal function to trim whitespace
 trim() {
-    printf '%s\n' "$1" | awk '{$1=$1}1'
+    printf '%s\n' "$1" | awk '{$1=$1}1' 2>/dev/null
 }
 
 # BISU file path
@@ -103,7 +131,7 @@ bisu_file() {
 
 # BISU file name
 bisu_filename() {
-    echo $(basename $(bisu_file))
+    printf '%s' $(basename $(bisu_file))
 }
 
 # Function: output a message
@@ -116,22 +144,20 @@ output() {
 
     local command="printf"
     if [[ "$use_newline" == "true" ]]; then
-        command+=" \"%s\n\" '$message'"
+        command+=" \"%b\n\" \"$message\""
     else
-        command+=" \"%s\" '$message'"
+        command+=" \"%b\" \"$message\""
     fi
 
-    {
-        if [[ "$log_only" == "true" ]]; then
-            eval "$command" | awk '
+    if [[ "$log_only" == "true" ]]; then
+        eval "$(printf '%s' "$command")" | awk '
                 !/[^a-zA-Z0-9\-_ \(\)\#\@\*\.\/\=\"\x27\+]/ { print $0 }' 2>/dev/null |
-                fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$(current_log_file)" &>/dev/null
-        else
-            eval "$command" >&2 | awk '
+            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$(current_log_file)" &>/dev/null || return 1
+    else
+        eval "$(printf '%s' "$command")" >&2 | awk '
                 !/[^a-zA-Z0-9\-_ \(\)\#\@\*\.\/\=\"\x27\+]/ { print $0 }' 2>/dev/null |
-                fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$(current_log_file)"
-        fi
-    } || return 1
+            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$(current_log_file)" || return 1
+    fi
 
     return 0
 }
@@ -145,10 +171,22 @@ command_exists() {
     return 0
 }
 
+# Function to check if a func is defined
+func_is_defined() {
+    local command=$(trim "$1")
+    [ -n "$command" ] || return 1
+    type "$command" &>/dev/null || return 1
+
+    return 0
+}
+
 # Function to check if the command is executable
 is_executable() {
     local command=$(trim "$1")
-    [ -n "$command" ] && [ -x "$command" ] || return 1
+    [ -n "$command" ] || return 1
+    if ! func_is_defined "$command" && ! command_exists "$command"; then
+        return 1
+    fi
 
     return 0
 }
@@ -165,15 +203,22 @@ process_is_running() {
 quit() {
     local original_sigterm=$(trap -p SIGTERM)
 
-    local pid=$1
-    local exit_code=$2
+    local exit_code=$1
+    local pid=$2
     local quit_group=$(trim "$3")
     local force=$(trim "$4")
 
     local command=""
     local signal="TERM"
 
-    is_posi_int "$pid" || exit 1
+    if [[ "$pid" == "" ]]; then
+        pid=$(current_pid)
+    fi
+
+    if ! is_posi_int "$pid"; then
+        exit 1
+    fi
+
     is_posi_int "$exit_code" || exit_code=0
     in_array "${quit_group}" "true" "false" || quit_group="true"
     in_array "${force}" "true" "false" || force="false"
@@ -205,7 +250,18 @@ quit() {
 dump() {
     local msg=$(trim "$1")
     output "$(printf '%s' "$msg")"
-    quit $CURRENT_PID
+    quit
+}
+
+# Function: current_command
+# Description: According to its naming
+current_pid() {
+    if [ -z "$CURRENT_PID" ] || [ "$CURRENT_PID" -le 0 ]; then
+        output "Invalid current pid"
+        quit
+    fi
+
+    printf '%s' "$CURRENT_PID"
 }
 
 # Function: current_command
@@ -213,7 +269,7 @@ dump() {
 current_command() {
     if [ -z "$CURRENT_COMMAND" ]; then
         output "Invalid current command"
-        quit $CURRENT_PID
+        quit
     fi
 
     printf '%s' "$CURRENT_COMMAND"
@@ -230,7 +286,7 @@ current_args() {
 current_file() {
     if [ -z $CURRENT_FILE_PATH ] || ! is_file "$CURRENT_FILE_PATH"; then
         output "Invalid current file path: $CURRENT_FILE_PATH"
-        quit $CURRENT_PID
+        quit
     fi
 
     printf '%s' "$CURRENT_FILE_PATH"
@@ -241,7 +297,7 @@ current_file() {
 current_filename() {
     if [ -z $CURRENT_FILE_NAME ]; then
         output "Invalid current file name"
-        quit $CURRENT_PID
+        quit
     fi
     printf '%s' "$CURRENT_FILE_NAME"
 }
@@ -251,7 +307,7 @@ current_filename() {
 user_conf_dir() {
     if [[ -z $USER_CONF_DIR ]]; then
         output "Invalid user conf dir"
-        quit $CURRENT_PID
+        quit
     fi
     printf '%s' "$USER_CONF_DIR"
 }
@@ -265,7 +321,7 @@ user_backup_dir() {
 # Function: current_dir
 # Description: According to its naming
 current_dir() {
-    echo $(dirname $(current_file))
+    printf '%s' $(dirname $(current_file))
 }
 
 # The current log file
@@ -274,7 +330,7 @@ current_log_file() {
     local log_file=""
     local filename="$(current_filename)"
 
-    [ -n "$filename" ] || quit $CURRENT_PID
+    [ -n "$filename" ] || quit
 
     if [[ -z "$CURRENT_LOG_FILE_DIR" ]]; then
         if is_root_user; then
@@ -292,22 +348,22 @@ current_log_file() {
     log_file_dir="$CURRENT_LOG_FILE_DIR"
 
     local date_str="$(date +'%Y%m%d')"
-    is_valid_datetime "$date_str" || quit $CURRENT_PID
+    is_valid_datetime "$date_str" || quit
 
     local month_str=$(substr "$date_str" 0 6)
     local day_str=$(substr "$date_str" 6 2)
     log_file_dir="$log_file_dir/$filename/$month_str"
     log_file="$log_file_dir/$day_str.log"
 
-    [[ $(strpos "$log_file" "]0;") == "false" ]] || quit $CURRENT_PID
+    [[ $(strpos "$log_file" "]0;") == "false" ]] || quit
 
     is_dir "$log_file_dir" || {
-        mkdir -p "$log_file_dir" &>/dev/null || quit $CURRENT_PID
-        chmod -R 755 "$log_file_dir" &>/dev/null || quit $CURRENT_PID
+        mkdir -p "$log_file_dir" &>/dev/null || quit
+        chmod -R 755 "$log_file_dir" &>/dev/null || quit
     }
 
-    touch "$log_file" || quit $CURRENT_PID
-    is_file "$log_file" || quit $CURRENT_PID
+    touch "$log_file" || quit
+    is_file "$log_file" || quit
 
     printf '%s' "$log_file"
 }
@@ -315,7 +371,7 @@ current_log_file() {
 # Add a log record to buffer
 log_add() {
     local msg="$1"
-    array_unique_push "_LOG_BUFFER" "$(echo -en "$(date +'%Y-%m-%d %H:%M:%S') - $msg")"
+    array_push "_LOG_BUFFER" "$msg" || return 1
     return 0
 }
 
@@ -329,7 +385,7 @@ log_flush() {
 
     is_array "_LOG_BUFFER" || {
         output "${ERROR_MSG_PREFIX}Illegal log buffer array."
-        quit $CURRENT_PID 1
+        quit 1
     }
 
     if [[ "$output_buffer" == "true" ]]; then
@@ -361,59 +417,24 @@ log_msg() {
     return 0
 }
 
+# Function: error_log
+error_log() {
+    local error_msg="$1"
+    log_msg "${ERROR_MSG_PREFIX}$error_msg" "true" "true"
+    return 0
+}
+
 # Function: forcefully terminate and show errors
 error_exit() {
     local msg=$(trim "$1")
-    local status_code=$2
-    status_code=${status_code:-1}
-    is_nn_int "$status_code" || status_code=1
+    local status_code=$(trim "$2")
+    is_posi_int "${status_code}" || status_code=1
 
     [ -n "$msg" ] && {
         log_msg "${ERROR_MSG_PREFIX}$msg" "true" "false"
     }
 
-    quit $CURRENT_PID $status_code
-}
-
-# Function: error_log
-error_log() {
-    is_array "_ERROR_LOG" || error_exit "Invalid array of _ERROR_LOG."
-    local error_msg="$1"
-    array_push "_ERROR_LOG" "$error_msg" || return 1
-    return 0
-}
-
-try() {
-    is_array "_ERROR_LOG" || error_exit "Invalid array of _ERROR_LOG."
-    _ERROR_LOG_LAST_SIGN=$(exec_command "md5sum <<<"$(printf "%s\n" "${_ERROR_LOG[@]}")" | awk '{print $1}' 2>/dev/null")
-}
-
-# to catch errors
-# {
-#     expressions
-# } || error_handle "$func|$command"
-error_handle() {
-    is_array "_ERROR_LOG" || error_exit "Invalid array of _ERROR_LOG."
-
-    local command=$(trim "$1")
-    local status_code=$2
-    status_code=${status_code:-1}
-    is_nn_int "$status_code" || status_code=1
-
-    if ! array_is_available "_ERROR_LOG"; then
-        return
-    fi
-
-    while error_msg=$(array_shift "_ERROR_LOG"); do
-        log_msg "$error_msg"
-    done
-
-    if is_executable "$command"; then
-        eval "$(printf '%s ' "$command") >>'$(current_log_file)'"
-    fi
-
-    export _ERROR_LOG=()
-    export _ERROR_LOG_LAST_SIGN=""
+    quit $status_code
 }
 
 # The current file's run lock by signed md5 of full path
@@ -438,7 +459,7 @@ current_lock_file() {
         fi
 
         if string_ends_with "$lock_file_dir" "/"; then
-            lock_file_dir=$(substr "$lock_file_dir" -1)
+            lock_file_dir=$(substr "$lock_file_dir" 0 -1)
         fi
 
         LOCK_FILE_DIR="$lock_file_dir"
@@ -495,26 +516,26 @@ substr() {
     local string="$1"
     local offset=$(trim "$2")
     local length=$(trim "$3")
-    length="${length:-${#string}}"
+    local strlen="${#string}"
 
-    if ! is_nn_int "$offset" || ! is_posi_int "$length"; then
-        printf '%s' ""
+    [[ -z "$length" ]] && length="$strlen"
+
+    # Validate integers
+    if [[ "$strlen" -eq 0 ]] || ! is_int "$offset" || ! is_int "$length" ||
+        [[ "$length" -eq 0 || $(abs "$offset") -gt "$strlen" || $(abs "$length") -gt "$strlen" ]]; then
         return 1
     fi
 
-    if ((offset < 0)); then
-        offset=$((${#string} + offset))
-    fi
+    # Handle negative offset
+    ((offset < 0)) && offset=$((strlen + offset))
 
-    if ((offset < 0 || offset >= ${#string})); then
-        printf '%s' ""
-        return 1
-    fi
+    # Handle negative length
+    ((length < 0)) && length=$((strlen - offset + length))
 
-    if ((length < 0)); then
-        length=$((${#string} - offset + length))
-    fi
+    # Bounds check
+    ((offset + length > strlen)) && length=$((strlen - offset))
 
+    # Extract substring
     printf '%s' "${string:offset:length}"
     return 0
 }
@@ -635,7 +656,7 @@ normalise_number() {
 # Function: md5_sign
 # Description: According to its naming
 md5_sign() {
-    echo $(trim "$1") | md5sum | awk '{print $1}'
+    printf '%s' $(trim "$1") | md5sum | awk '{print $1}' 2>/dev/null
 }
 
 # PHP-like function as its naming
@@ -1040,23 +1061,19 @@ exec_command() {
     local log_file=$(current_log_file)
     in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
 
-    {
-        [ -n "$command" ] || return 1
+    [ -n "$command" ] || return 1
 
-        if [[ "$DEBUG_MODE" == "true" ]]; then
-            log_msg "*** Using Debug Mode ***"
-            log_msg "* Raw Command: $command"
-            return 0
-        fi
+    if [[ "$DEBUG_MODE" == "true" ]]; then
+        log_msg "*** Using Debug Mode ***"
+        log_msg "* Raw Command: $command"
+        return 0
+    fi
 
-        command+=" | tee -a -- '$log_file'"
-        if [[ "$run_in_bg" == "false" ]]; then
-            printf '%s' "$(eval "$(printf '%s' "$command")")"
-        else
-            printf '%s' "$(eval "$(printf '%s' "$command" &)")"
-            hanging_process $!
-        fi
-    } || return 1
+    if [[ "$run_in_bg" == "false" ]]; then
+        eval "$(printf '%s' "$command")"
+    else
+        eval "$(printf '%s' "$command") &"
+    fi
 
     return 0
 }
@@ -1171,9 +1188,7 @@ is_numeric() {
     # Validate numeric format using awk
     printf '%s\n' "$num" | awk '
         BEGIN { status = 1 }
-        # Match: optional minus, digits, optional decimal with digits
-        # No leading zeros unless followed by decimal or zero itself
-        /^-?0$|^-?[1-9][0-9]*$|^-?0\.[0-9]+$|^-?[1-9][0-9]*\.[0-9]+$/ { status = 0 }
+        /^0$|^-?(0|[1-9][0-9]*)$|^-?(0|[1-9][0-9]*)\.[0-9]+$/ { status = 0 }
         END { exit status }
     ' || return 1
 
@@ -1232,9 +1247,7 @@ abs() {
 is_int() {
     local num=$(trim "$1")
     [ -n "$num" ] || return 1
-    is_numeric "$num" || return 1
-    [[ $(abs "$num") == "$num" ]] || return 1
-
+    [[ "$num" =~ ^-?(0|[1-9][0-9]*)$ ]] || return 1
     return 0
 }
 
@@ -1265,6 +1278,44 @@ is_nega_int() {
 # positive int validator
 is_unsigned_int() {
     is_posi_int "$1" || return 1
+    return 0
+}
+
+# Check if it's int
+is_float() {
+    local num=$(trim "$1")
+    [ -n "$num" ] || return 1
+    [[ "$num" =~ ^-?[1-9]?[0-9]*\.[0-9]+$ ]] || return 1
+    return 0
+}
+
+# positive float validator
+is_posi_float() {
+    local num=$(trim "$1")
+    is_float "$num" || return 1
+    [ "$num" -gt 0 ] || return 1
+    return 0
+}
+
+# natural float validator
+is_nn_float() {
+    local num=$(trim "$1")
+    is_float "$num" || return 1
+    [ "$num" -ge 0 ] || return 1
+    return 0
+}
+
+# negative float validator
+is_nega_float() {
+    local num=$(trim "$1")
+    is_float "$num" || return 1
+    [ "$num" -lt 0 ] || return 1
+    return 0
+}
+
+# positive float validator
+is_unsigned_float() {
+    is_posi_float "$1" || return 1
     return 0
 }
 
@@ -1642,12 +1693,8 @@ saferm() {
 
 # Function to check if a variable is an array
 is_array() {
-    local array_name=$(trim "$1")
-
-    if ! declare -p "$array_name" 2>/dev/null | grep -q 'declare -a'; then
-        return 1
-    fi
-
+    # Check if variable is declared as an array (indexed or associative)
+    declare -p "$(trim "$1")" 2>/dev/null | grep -qE 'declare -a|declare -A' 2>/dev/null || return 1
     return 0
 }
 
@@ -1658,6 +1705,58 @@ array_is_available() {
     is_array "$array_name" || return 1
 
     [ -n "${array_name[*]}" ] || return 1
+
+    return 0
+}
+
+# Function to sign an array based on its name
+sign_array() {
+    local array_name="$1"
+    local array_contents
+    local array_md5
+
+    # Use eval to perform indirect referencing of the array by its name
+    array_copy "$array_name" "array_contents" || {
+        printf '%s' ""
+        return 1
+    }
+
+    # Check if the array is empty
+    if [ ${#array_contents[@]} -eq 0 ]; then
+        printf '%s' ""
+        return 1
+    fi
+
+    # Compute the MD5 hash of the array contents safely
+    array_md5=$(printf "%s\n" "${array_contents[@]}" | awk '{ print $0 }' | md5sum | awk '{print $1}' 2>/dev/null)
+
+    # Ensure the MD5 computation was successful
+    if [ -z "$array_md5" ]; then
+        printf '%s' ""
+        return 1
+    fi
+
+    # Output the computed MD5 hash (array signature)
+    printf '%s' "$array_md5"
+    return 0
+}
+
+# Function to count an array's element number
+array_count() {
+    local array_name=$(trim "$1")
+
+    is_array "$array_name" || {
+        printf '%s' "false"
+        return 1
+    }
+    array_copy "$array_name" "arr" || {
+        printf '%s' "false"
+        return 1
+    }
+    awk -v n="${#arr[@]}" 'BEGIN { print n }' 2>/dev/null || {
+        printf '%s' "false"
+        return 1
+    }
 
     return 0
 }
@@ -1692,12 +1791,35 @@ in_array() {
 array_copy() {
     local array_name=$(trim "$1")
     local var_name=$(trim "$2")
+    local force=$(trim "$3")
+    in_array "$force" "true" "false" || force="false"
 
-    if ! is_array "$array_name" || ! is_valid_var_name "$var_name"; then
+    if ! is_array "$array_name" || ! is_valid_var_name "$var_name" && [[ "$force" == "false" ]]; then
         return 1
     fi
 
-    eval "$var_name=(\"\${$array_name[@]}\")"
+    eval "$var_name=(\"\${$array_name[@]}\")" 2>/dev/null || return 1
+    return 0
+}
+
+# Function: normalise_array
+normalise_array() {
+    local array_name=$(trim "$1")
+
+    # Check if the array name has a valid array
+    [[ "${!array_name}" =~ \[.*\] ]] || return 1
+
+    # Extract array content into a local array
+    array_copy "$array_name" "arr"
+
+    # Normalize the array: trim spaces, deduplicate, sort
+    local input=$(printf '%s\n' "${arr[@]}" |
+        awk '{ gsub(/^[ \t]+|[ \t]+$/, ""); if (!seen[$0]++) print }' |
+        sort -u) || return 1
+
+    # Reassign normalized array to the original variable
+    array_copy "arr" "$array_name" || return 1
+
     return 0
 }
 
@@ -1766,76 +1888,87 @@ array_splice() {
     }
 
     # Assign back to original array
-    array_copy "temp_array" "$array_name"
+    array_copy "temp_array" "$array_name" || return 1
+    return 0
+}
+
+# Set the specified values in either indexed or associative arrays
+array_set() {
+    local array_name=$(trim "$1")
+    shift
+
+    # Ensure array is valid
+    is_array "$array_name" || return 1
+
+    # Loop through key-value pairs
+    while [[ $# -gt 0 ]]; do
+        local key=$(trim "$1")
+        local value=$(trim "$2")
+        shift 2
+
+        # Skip empty keys or values
+        if [[ -z "$key" || -z "$value" ]]; then
+            continue
+        fi
+
+        eval "$array_name[$key]=\"$value\"" || return 1
+    done
+
     return 0
 }
 
 # Get the specified value from an array
-array_access() {
-    # Check argument count
-    [ $# -ne 2 ] && {
-        printf '%s' ""
-        return 1
-    }
-
-    # Local variables
+array_get() {
     local array_name=$(trim "$1")
-    local key=$(trim "$2")
-    local len
+    shift
+
+    is_array "$array_name" || {
+        printf '%s' ""
+        return 1
+    }
+
     local result
+    # Loop through all passed arguments (parameters)
+    for key in "$@"; do
+        # Otherwise, treat it as a key for associative arrays
+        local key=$(trim "$key")
+        if [[ -z "$key" ]]; then
+            continue
+        fi
 
-    # Verify array existence and type
-    eval "[ -n \"\${$array_name+set}\" ]" || {
-        printf '%s' ""
-        return 1
-    }
-    declare -p "$array_name" 2>/dev/null | grep -q '^declare -a' || {
-        printf '%s' ""
-        return 1
-    }
+        # Access specific element using eval and awk
+        eval "printf '%s\n' \"\${$array_name[$key]}\"" |
+            { awk 'NR==1 { printf "%s", $0 }' 2>/dev/null; } || {
+            printf '%s' ""
+            return 1
+        }
 
-    # Validate key is non-negative integer
-    printf '%s\n' "$key" | grep -qE '^[0-9]+$' || {
-        printf '%s' ""
-        return 1
-    }
+    done
 
-    # Get array length and check bounds
-    eval "len=\${#$array_name[@]}"
-    [ "$key" -lt "$len" ] || {
-        printf '%s' ""
-        return 1
-    }
-
-    # Access specific element using eval and awk
-    eval "printf '%s\n' \"\${$array_name[$key]}\"" |
-        { IFS= read -r result && printf '%s' "$result"; } || {
-        printf '%s' ""
-        return 1
-    }
-
+    # If no matching value found
+    printf '%s' ""
     return 0
 }
 
-# Function to add an element to a specified global array
+# Function to add an element to a specified global array from the bottom
 array_push() {
     local array_name=$(trim "$1")
     local new_value="$2"
     local value_type=$(trim "$3")
     value_type=${value_type:-"string"}
     local unique_values=$(trim "$4")
-    in_array "$unique_values" "true" "false" || unique_values="false"
+    unique_values=${unique_values:-"false"}
 
     # Validate the type parameter and input value
     case "$value_type" in
     int)
-        if ! [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
+        if ! is_int "$new_value"; then
             error_log "Value must be an integer."
             return 1
         fi
         ;;
     float)
-        if ! [[ "$new_value" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
+        if ! is_numeric "$new_value"; then
             error_log "Value must be a float."
             return 1
         fi
@@ -1850,48 +1983,96 @@ array_push() {
     esac
 
     # Ensure the global array exists
-    if ! is_array "$array_name"; then
+    is_array "$array_name" || {
         error_log "Array $array_name does not exist."
-        return 1
-    fi
-
-    # Access the global array using indirect reference
-    eval "array=(\"\${$array_name[@]}\")"
-
-    # Function to check if item exists in an array
-    item_exists() {
-        local item=$1
-        shift
-        local element
-        for element in "$@"; do
-            if [[ "$unique_values" == "true" && "$element" == "$item" ]]; then
-                return 0
-            fi
-        done
         return 1
     }
 
-    # Check if the value is already in the array
-    if item_exists "$new_value" "${array[@]}"; then
-        return 1
-    fi
+    # Access the global array using indirect reference
+    array_copy "$array_name" "array" || return 1
 
-    # Append the new value to the array
-    # Using indirect reference to modify the global array
+    # Check if the value is already in the array (for unique values check)
+    for element in "${array[@]}"; do
+        if [[ "$unique_values" == "true" && "$element" == "$new_value" ]]; then
+            return 0
+        fi
+    done
+
+    # Append the new value to the array using indirect reference to modify the global array
     eval "$array_name+=(\"$new_value\")"
 
     return 0
 }
 
-# Function to add an element to a specified global array
+# Function to add an element to a specified global array from the bottom
 array_unique_push() {
     local array_name="$1"
     local new_value="$2"
     local value_type="$3"
 
-    {
-        printf '%s' "$(array_push "$array_name" "$new_value" "$value_type" "true")"
-    } || return 1
+    array_push "$array_name" "$new_value" "$value_type" "true" || return 1
+
+    return 0
+}
+
+# Function to add an element to a specified global array from the top
+array_unshift() {
+    local array_name=$(trim "$1")
+    local new_value="$2"
+    local value_type=$(trim "$3")
+    value_type=${value_type:-"string"}
+    local unique_values=$(trim "$4")
+    in_array "$unique_values" "true" "false" || unique_values="false"
+
+    case "$value_type" in
+    int)
+        if ! [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
+            error_log "Value must be an integer."
+            return 1
+        fi
+        ;;
+    float)
+        if ! [[ "$new_value" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
+            error_log "Value must be a float."
+            return 1
+        fi
+        ;;
+    string) ;;
+    *)
+        error_log "Invalid type specified. Use string, int, or float."
+        return 1
+        ;;
+    esac
+
+    # Ensure the global array exists
+    is_array "$array_name" || {
+        error_log "Array $array_name does not exist."
+        return 1
+    }
+
+    # Access the global array using indirect reference
+    array_copy "$array_name" "array" || return 1
+
+    # Check if the value is already in the array (for unique values check)
+    for element in "${array[@]}"; do
+        if [[ "$unique_values" == "true" && "$element" == "$new_value" ]]; then
+            return 0
+        fi
+    done
+
+    # Prepend the new value
+    eval "$array_name=(\"\$new_value\" \"\${$array_name[@]}\")"
+
+    return 0
+}
+
+# Function to add an element to a specified global array from the top
+array_unique_unshift() {
+    local array_name="$1"
+    local new_value="$2"
+    local value_type="$3"
+
+    array_unshift "$array_name" "$new_value" "$value_type" "true" || return 1
 
     return 0
 }
@@ -1901,15 +2082,25 @@ array_unique_push() {
 # Returns: last value via stdout, modifies input_array
 # Exits: 0 if success, 1 if failure (empty array)
 array_pop() {
-    array_is_available "$input_array" || {
-        printf '%s' ""
+    local array_name=$(trim "$1")
+    local count=$(array_count "$array_name")
+
+    if ! is_posi_int "$count"; then
+        return 1
+    fi
+
+    array_copy "$array_name" "array" || {
         return 1
     }
 
-    local popped="${input_array[-1]}"
-    # Use AWK to drop the last line and reassign globally
-    mapfile -t input_array < <(printf '%s\n' "${input_array[@]}" | awk 'NR < NR_total { lines[NR++] = $0 } END { for (i = 1; i < NR; i++) print lines[i] }' NR_total="${#input_array[@]}" 2>/dev/null)
-    printf '%s' "$popped"
+    count=$((count - 1))
+    array_splice "array" $count 1 || {
+        return 1
+    }
+    array_copy "array" "$array_name" || {
+        return 1
+    }
+
     return 0
 }
 
@@ -1917,15 +2108,24 @@ array_pop() {
 # OUTPUT: stdout = first value
 # RETURN: 0 on success, 1 if empty
 array_shift() {
-    array_is_available "$input_array" || {
-        printf '%s' ""
+    local array_name=$(trim "$1")
+    local count=$(array_count "$array_name")
+
+    if ! is_posi_int "$count"; then
+        return 1
+    fi
+
+    array_copy "$array_name" "array" || {
         return 1
     }
 
-    local shifted="${input_array[0]}"
-    # Use AWK to remove first element and reassign to global
-    mapfile -t input_array < <(printf '%s\n' "${input_array[@]}" | awk 'NR > 1' 2>/dev/null)
-    printf '%s' "$shifted"
+    array_splice "array" 0 1 || {
+        return 1
+    }
+    array_copy "array" "$array_name" || {
+        return 1
+    }
+
     return 0
 }
 
@@ -1953,67 +2153,82 @@ array_merge() {
 # Description: To remove duplicates from a global array
 array_unique() {
     local array_name=$(trim "$1")
-    if [[ $# -ne 1 ]] || ! is_array "$array_name"; then
-        error_log "Requires exactly one argument (array name)."
-        return 1
+    is_array "$array_name" || return 1
+
+    if [[ $# -eq 1 ]]; then
+        return 0
     fi
-    eval "$array_name=($(echo \${$array_name[@]} | tr ' ' '\n' | sort -u | tr '\n' ' '))"
+
+    eval "${array_name}=(\"\$(printf '%s\n' \"\${${array_name}[@]}\" | awk '!a[\$0]++' | tr '\n' ' ')\")" || return 1
+    return 0
 }
 
 # Function to dynamically set or update a key-value pair for the common array
 arr_set_val() {
     local key=$(trim "$1")
     local value=$(trim "$2")
-    local found=0
 
-    # Validate input
-    [ -z "$key" ] && return # Ignore empty keys
+    if ! isset "$_CK" || ! is_array "$_CK"; then
+        return 1
+    fi
+
+    if ! isset "$_CV" || ! is_array "$_CV"; then
+        return 1
+    fi
+    [ -n "$key" ] || {
+        return 1
+    }
 
     # Type handling (preserve numbers and booleans correctly)
     case "$value" in
-    "true" | "false") ;;                                                 # Keep booleans unchanged
-    '' | [0-9]* | *[.][0-9]*) ;;                                         # Keep numbers (integers & floats)
-    *) value=$(printf '%s\n' "$value" | awk '{gsub(/"/, ""); print}') ;; # Strip double quotes from strings
+    "true" | "false") ;;                                                             # Keep booleans unchanged
+    '' | [0-9]* | *[.][0-9]*) ;;                                                     # Keep numbers (integers & floats)
+    *) value=$(printf '%s\n' "$value" | awk '{gsub(/"/, ""); print}' 2>/dev/null) ;; # Strip double quotes from strings
     esac
 
-    # Search for existing key and update if found
-    for ((i = 0; i < ${#_ASSOC_KEYS[@]}; i++)); do
-        if [[ "${_ASSOC_KEYS[$i]}" == "$key" ]]; then
-            _ASSOC_VALUES[$i]="$value"
-            found=1
-            break
-        fi
-    done
+    local found=0
+    local array_count=$(array_count "$_CK")
+
+    if is_posi_int "$array_count"; then
+        # Search for existing key and update if found
+        for ((i = 0; i < $array_count; i++)); do
+            if eval "[[ \${${_CK}[$i]} == \"$key\" ]]"; then
+                eval "${_CV}[$i]=\"$value\""
+                found=1
+                break
+            fi
+        done
+    fi
 
     # Append new key-value pair if not found
     if [ "$found" -eq 0 ]; then
-        _ASSOC_KEYS+=("$key")
-        _ASSOC_VALUES+=("$value")
+        eval "${_CK}+=(\"$key\")"
+        eval "${_CV}+=(\"$value\")"
     fi
+
+    return 0
 }
 
 # Function to access elements for the common associative array and looping search for the first populated value
 arr_get_val() {
-    # Loop through all passed arguments
+    local idx search_key
+
+    if ! isset "$_CK" || ! is_array "$_CK"; then
+        return 1
+    fi
+
+    if ! isset "$_CV" || ! is_array "$_CV"; then
+        return 1
+    fi
+
     for search_key in "$@"; do
-        # Trim whitespace from the search key
-        search_key=$(trim "$search_key")
+        [ -z "$search_key" ] && continue
 
-        # Check if the search_key is empty
-        if [[ -z "$search_key" ]]; then
-            continue
-        fi
+        idx=$(eval "printf '%s\\n' \"\${${_CK}[@]}\"" | awk -v key="$search_key" '$0 == key {print NR; exit}' 2>/dev/null)
 
-        # Find matching key in the list of keys
-        idx=$(printf '%s\n' "${_ASSOC_KEYS[@]}" | awk -v key="$search_key" '$0 == key {print NR; exit}')
+        [ -z "$idx" ] && continue
 
-        # If no match is found, continue to the next key
-        if [[ -z "$idx" ]]; then
-            continue
-        fi
-
-        # Return corresponding value from _ASSOC_VALUES
-        printf '%s' "${_ASSOC_VALUES[$((idx - 1))]}"
+        eval "printf '%s' \"\${${_CV}[\$((idx - 1))]}\""
         return 0
     done
 
@@ -2023,14 +2238,16 @@ arr_get_val() {
 
 # Function to reset the common associative array
 arr_reset() {
-    # Ensure arrays exist before resetting
-    if ! is_array "_ASSOC_KEYS" || ! is_array "_ASSOC_VALUES"; then
+    if ! isset "$_CK" || ! is_array "$_CK"; then
+        return 1
+    fi
+    if ! isset "$_CV" || ! is_array "$_CV"; then
         return 1
     fi
 
     # Clear the keys and values arrays
-    export _ASSOC_KEYS=() || return 1
-    export _ASSOC_VALUES=() || return 1
+    eval "export ${_CK}=()" || return 1
+    eval "export ${_CV}=()" || return 1
 
     return 0
 }
@@ -2191,11 +2408,11 @@ compare_version() {
             # Numeric comparison of each segment
             if [[ "$s1" =~ ^[0-9]+$ && "$s2" =~ ^[0-9]+$ ]]; then
                 if ((10#$s1 > 10#$s2)); then
-                    echo 1
+                    printf '%s' "1"
                     return
                 fi
                 if ((10#$s1 < 10#$s2)); then
-                    echo -1
+                    printf '%s' "-1"
                     return
                 fi
             else
@@ -2204,18 +2421,18 @@ compare_version() {
                 s2=${version_labels[$s2]:-$s2}
 
                 if [[ "$s1" > "$s2" ]]; then
-                    echo 1
+                    printf '%s' "1"
                     return
                 fi
                 if [[ "$s1" < "$s2" ]]; then
-                    echo -1
+                    printf '%s' "-1"
                     return
                 fi
             fi
 
             ((i++))
         done
-        echo 0
+        printf '%s' "0"
     }
 
     # Perform comparison based on operator
@@ -2224,44 +2441,44 @@ compare_version() {
     case "$operator" in
     "=")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
-            [ "$cmp_result" -eq 0 ] && echo 1 || echo 0
+            [ "$cmp_result" -eq 0 ] && printf '%s' "1" || printf '%s' "0"
         else
-            echo 0
+            printf '%s' "0"
         fi
         ;;
     "!=")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
-            [ "$cmp_result" -ne 0 ] && echo 1 || echo 0
+            [ "$cmp_result" -ne 0 ] && printf '%s' "1" || printf '%s' "0"
         else
-            echo 0
+            printf '%s' "0"
         fi
         ;;
     "<")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
-            [ "$cmp_result" -lt 0 ] && echo 1 || echo 0
+            [ "$cmp_result" -lt 0 ] && printf '%s' "1" || printf '%s' "0"
         else
-            echo 0
+            printf '%s' "0"
         fi
         ;;
     "<=")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
-            [ "$cmp_result" -le 0 ] && echo 1 || echo 0
+            [ "$cmp_result" -le 0 ] && printf '%s' "1" || printf '%s' "0"
         else
-            echo 0
+            printf '%s' "0"
         fi
         ;;
     ">")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
-            [ "$cmp_result" -gt 0 ] && echo 1 || echo 0
+            [ "$cmp_result" -gt 0 ] && printf '%s' "1" || printf '%s' "0"
         else
-            echo 0
+            printf '%s' "0"
         fi
         ;;
     ">=")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
-            [ "$cmp_result" -ge 0 ] && echo 1 || echo 0
+            [ "$cmp_result" -ge 0 ] && printf '%s' "1" || printf '%s' "0"
         else
-            echo 0
+            printf '%s' "0"
         fi
         ;;
     "~" | "^")
@@ -2270,19 +2487,19 @@ compare_version() {
 
             if [[ "$version_check" =~ ^-?[0-9]+$ ]]; then
                 if [ "$cmp_result" -ge 0 ] && [ "$version_check" -le 0 ]; then
-                    echo 1
+                    printf '%s' "1"
                 else
-                    echo 0
+                    printf '%s' "0"
                 fi
             else
-                echo 0
+                printf '%s' "0"
             fi
         else
-            echo 0
+            printf '%s' "0"
         fi
         ;;
     *)
-        echo 0
+        printf '%s' "0"
         ;;
     esac
 }
@@ -3403,7 +3620,7 @@ base36_encode() {
         printf '%s' ""
         return 1
     }
-    echo $result
+    printf '%s' "$result"
     return 0
 }
 
@@ -3511,11 +3728,13 @@ check_commands_list() {
     local invalid_commands_count=0
     local invalid_commands=""
 
-    if ! array_is_available "$array_name"; then
-        error_exit "Invalid array name provided."
+    is_array "$array_name" || error_exit "Invalid array: '$array_name' provided."
+
+    if ! array_unique "$array_name"; then
+        error_exit "Invalid array name '$array_name' provided."
     fi
 
-    array_copy "$array_name" "vals"
+    array_copy "$array_name" "vals" || error_exit "Failed to check dependent commands."
 
     for val in "${vals[@]}"; do
         # Check if the command exists
@@ -3548,14 +3767,14 @@ hanging_process() {
     }
 
     [[ "$status" == 0 ]] || return 1
-    quit "$pid" || return 1
+    quit 0 "$pid" || return 1
     return 0
 }
 
 # Function to clean files when exit
 exit_with_commands() {
-    if ! is_array "$array_name"; then
-        error_exit "Invalid array name provided."
+    if ! is_array "EXIT_WITH_COMMANDS"; then
+        error_exit "Invalid array name 'EXIT_WITH_COMMANDS' provided."
     fi
 
     for val in "${EXIT_WITH_COMMANDS[@]}"; do
@@ -3566,7 +3785,7 @@ exit_with_commands() {
         exec_command "$val" "true"
     done
 
-    quit $CURRENT_PID
+    quit
 }
 
 # Function: continuous_exec
@@ -3652,7 +3871,7 @@ continuous_exec() {
         fi
 
         if [[ "$over_retry" == "true" ]]; then
-            quit "$pid" 1 "true" "true"
+            quit 1 "$pid" "true" "true"
             break
         fi
     done
@@ -3705,10 +3924,10 @@ set_title() {
         [ -n "$title" ] || return 1
         # Replace any non-alphanumeric character check and clean
 
-        title=$(echo "$title" | awk '!/[^a-zA-Z0-9\-\(\)\#\@ ]/ { print $0 }' 2>/dev/null)
+        title=$(printf '%s' "$title" | awk '!/[^a-zA-Z0-9\-\(\)\#\@ ]/ { print $0 }' 2>/dev/null)
         # Set terminal title (in a POSIX-compliant way)
         stty -echo
-        echo -ne "\033]0;${title}\007" 2>/dev/null
+        printf '\033]2;%s\007' "$title"
         stty echo
     } || return 1
 
@@ -3784,7 +4003,6 @@ separate_command() {
 # Register the current command
 register_current_command() {
     CURRENT_PID="$$"
-    is_posi_int "$CURRENT_PID" || error_exit "Invalid current pid"
 
     local params=($(printf '%s ' "$@"))
     local current_file_path=""
@@ -3810,6 +4028,9 @@ register_current_command() {
     }
 
     in_array "$DEBUG_MODE" "true" "false" || DEBUG_MODE="false"
+
+    # normalisation of arrays allowed to manually modify
+    normalise_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
 
     array_unique_push "AUTORUN" '\"set_signals\"'
 
@@ -3919,25 +4140,25 @@ callfunc() {
     get_args
     local action=$(arr_get_val 1)
     [[ "$action" == "callfunc" ]] || {
-        quit $CURRENT_PID
+        quit
     }
 
     [ $# -ge 1 ] || {
-        quit $CURRENT_PID
+        quit
     }
 
     local current_args=("$(current_args)")
     array_splice "current_args" 0 1
-    local func=$(array_access "current_args" 0)
+    local func=$(array_get "current_args" 0)
     func=$(normalise_string "$func")
     array_splice "current_args" 0 1
     local params="${current_args[@]}"
 
-    command_exists "$func" || {
+    func_is_defined "$func" || {
         error_exit "Function '$func' does not exist."
     }
 
-    printf '%s\n' "$(trim "$(eval "$func $params" || error_exit "Function '$func' does not exist.")")"
+    printf '%s\n' "$(eval "$func $params")" || error_exit "Function '$func' does not exist."
 }
 
 # get the current utility's name.
@@ -4029,18 +4250,18 @@ integrated_ops() {
 
         install_script
         ;;
+    "view-log")
+        vi "$(current_log_file)" 2>/dev/null
+        ;;
     "callfunc")
         callfunc $(printf '%s ' "$@")
-        ;;
-    "test")
-        test $(printf '%s ' "$@")
         ;;
     *)
         is_matched_action="false"
         ;;
     esac
 
-    [[ "$is_matched_action" == "false" ]] || quit $CURRENT_PID
+    [[ "$is_matched_action" == "false" ]] || quit
 }
 
 # Function to check if BISU is installed
@@ -4073,11 +4294,6 @@ install_script() {
     log_msg "Moving $current_filename to path: $target_path"
     exec_command "cp \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
     log_msg "Done."
-}
-
-# test
-test() {
-    printf '%s\n' "testing logic below:"
 }
 
 # Initialisation
