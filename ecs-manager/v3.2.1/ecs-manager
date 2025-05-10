@@ -28,11 +28,11 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.2.0"
+export UTILITY_VERSION="3.2.1"
 # Set this utility's doc URI
-export UTILITY_INFO_URI="https://go2.vip/ecs-manager"
+export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-05-07Z"
+export LAST_RELEASE_DATE="2025-05-10Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Execution interval of per exit command
@@ -283,12 +283,10 @@ ssh_handle() {
 
         # Construct SSH command for MOSH connection
         ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
-
         # Execute the SSH command
         response=$(exec_command "$ssh_command" 2>/dev/null)
-
         if [ $? -ne 0 ]; then
-            error_exit "Failed to execute SSH command to retrieve MOSH details." "true" "true"
+            error_log "Failed to execute SSH command to retrieve MOSH details."
         fi
 
         # Extract MOSH connection details
@@ -296,7 +294,7 @@ ssh_handle() {
         mosh_server_port=$(echo "$response" | awk '/MOSH CONNECT/{print $3}')
 
         if [ -z "$mosh_key" ] || [ -z "$mosh_server_port" ] && [[ "$DEBUG_MODE" == "false" ]]; then
-            error_exit "Failed to retrieve MOSH connection details." "true" "true"
+            error_log "Failed to retrieve MOSH connection details."
         fi
 
         # Export MOSH key and address
@@ -529,7 +527,7 @@ edit() {
         error_exit "There is no specified host."
     fi
 
-    exec_command "vi \"$host_config_path\"" 2>/dev/null
+    exec_command "vi \"$host_config_path\""
 }
 
 rename() {
@@ -762,21 +760,21 @@ reg_pubkey_remotely() {
 
 # Usage information
 usage() {
-    log_add "Usage: $(current_filename) connect <host_name>"
-    log_add "       $(current_filename) set-hostname <host_name>"
-    log_add "       $(current_filename) ls [specified_folder]"
-    log_add "       $(current_filename) create <specified_host>"
-    log_add "       $(current_filename) edit <specified_host>"
-    log_add "       $(current_filename) rename <specified_host>"
-    log_add "       $(current_filename) rm <specified_host>"
-    log_add "       $(current_filename) rm-fp <specified_host|specified_ip>"
-    log_add "       $(current_filename) rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
-    log_add "       $(current_filename) rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
-    log_add "       $(current_filename) remote-command <host_name> <remote_command>"
-    log_add "       $(current_filename) genkey [specified_file_path] [comment] [password] [strength=low|moderate|*high|extreme]"
-    log_add "       $(current_filename) reg-pubkey <host_name> <public_key_file>"
-    log_add "       $(current_filename) doc"
-    log_add "       $(current_filename) install"
+    log_add "  Usage:   $(current_filename) connect <host_name>"
+    log_add "           $(current_filename) set-hostname <host_name>"
+    log_add "           $(current_filename) ls [specified_folder]"
+    log_add "           $(current_filename) create <specified_host>"
+    log_add "           $(current_filename) edit <specified_host>"
+    log_add "           $(current_filename) rename <specified_host>"
+    log_add "           $(current_filename) rm <specified_host>"
+    log_add "           $(current_filename) rm-fp <specified_host|specified_ip>"
+    log_add "           $(current_filename) rsync 'local:/path/to/source' '<host_name>:/path/to/destination'"
+    log_add "           $(current_filename) rsync '<host_name>:/path/to/source' 'local:/path/to/destination'"
+    log_add "           $(current_filename) remote-command <host_name> <remote_command>"
+    log_add "           $(current_filename) genkey [specified_file_path] [comment] [password] [strength=low|moderate|*high|extreme]"
+    log_add "           $(current_filename) reg-pubkey <host_name> <public_key_file>"
+    log_add "           $(current_filename) doc"
+    log_add "           $(current_filename) install"
 
     log_flush
     exit 0
