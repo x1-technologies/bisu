@@ -28,7 +28,7 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.2.1"
+export UTILITY_VERSION="3.2.2"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
@@ -426,7 +426,7 @@ list_hosts() {
     # List subdirectories with [folder] prefix
     find "$host_config_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while read -r dir; do
         sub_dir=$(relative_path "$dir" "$parent_dir")
-        echo " - [$sub_dir]"
+        echo " + [$sub_dir]"
     done
 
     # List files without extensions in the parent directory
@@ -434,6 +434,7 @@ list_hosts() {
         sub_dir=$(relative_path $(dirname "$file") "$parent_dir")
         file_name=$(basename "$file")
         file_name=$(echo "$file_name" | awk -F. '{OFS="."; NF--; print $0}')
+        string_starts_with "$file_name" "\." && continue
         if [[ -n "$sub_dir" ]]; then
             filename="$sub_dir/$file_name"
         else
