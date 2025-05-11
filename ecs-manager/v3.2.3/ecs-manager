@@ -1,7 +1,7 @@
 #!/bin/bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.x-1.tech
-## Version: 20250505Z2
+## Version: 20250511Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
@@ -28,11 +28,11 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.2.2"
+export UTILITY_VERSION="3.2.3"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-05-10Z"
+export LAST_RELEASE_DATE="2025-05-11Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Execution interval of per exit command
@@ -42,7 +42,7 @@ export EXIT_COMMAND_TIMEOUT=30
 # Execution retry times of per exit command
 export EXIT_COMMAND_RETRY=2
 # Debug Switch
-export DEBUG_MODE=false
+export DEBUG_MODE="false"
 ## </user-customised-variables>
 
 ## Import BISU file, need to set at the last
@@ -270,7 +270,7 @@ ssh_handle() {
     set_title "$conn_str"
 
     # Check if MOSH is to be used
-    if [[ "$operation" == "connect" && "$USE_MOSH" = "true" ]]; then
+    if [[ "$operation" == "connect" && "$USE_MOSH" == "true" ]]; then
         local params="mosh-server new -s -p $MOSH_PORTS -l LANG=en_US.UTF-8"
 
         # Apply PEM file if preferred
@@ -528,7 +528,7 @@ edit() {
         error_exit "There is no specified host."
     fi
 
-    exec_command "vi \"$host_config_path\""
+    vi "$host_config_path" 2>/dev/null
 }
 
 rename() {
