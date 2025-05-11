@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.8.2"
+export BISU_VERSION="7.9.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -62,6 +62,10 @@ export CURRENT_ARGS=()
 export EMPTY_EXPR="0x00"
 # Error message prefix
 export ERROR_MSG_PREFIX="Error:-( "
+# Quitting flag
+export QUITTING_FLAG=0
+# Lock held
+export LOCK_HELD=0
 # Set this utility's name
 UTILITY_NAME=${UTILITY_NAME:-"bisu"}
 # Set this utility's version number
@@ -121,7 +125,8 @@ isset() {
 
 # Universal function to trim whitespace
 trim() {
-    printf '%s\n' "$1" | awk '{$1=$1}1' 2>/dev/null
+    printf '%s' "$1" | awk '{$1=$1}1' 2>/dev/null || return 1
+    return 0
 }
 
 # BISU file path
@@ -203,7 +208,7 @@ quit() {
     local original_sigterm=$(trap -p SIGTERM)
 
     local exit_code=$1
-    local pid=$2
+    local pid=$(trim "$2")
     local quit_group=$(trim "$3")
     local force=$(trim "$4")
 
@@ -211,7 +216,7 @@ quit() {
     local signal="TERM"
 
     if [[ "$pid" == "" ]]; then
-        pid=$(current_pid)
+        pid=$CURRENT_PID
     fi
 
     if ! is_posi_int "$pid"; then
@@ -231,6 +236,10 @@ quit() {
     fi
 
     if process_is_running "$pid"; then
+        if [[ "$QUITTING_FLAG" == 1 && "$pid" == "$CURRENT_PID" ]]; then
+            exit $exit_code
+        fi
+
         trap '' SIGTERM
         if [[ "$quit_group" == "true" ]]; then
             command="kill -${signal} -- \"$pid\" 2>/dev/null"
@@ -238,10 +247,13 @@ quit() {
             command="kill -${signal} \"$pid\" 2>/dev/null"
         fi
 
-        eval "$command" | tee -a -- "$(current_log_file)" &
+        eval "$command" 2>>"$(current_log_file)" &>/dev/null || {
+            log_msg "\n❗️ Error occurred when quit the process (pid: ${pid})." "true"
+        } &
         trap "$original_sigterm" SIGTERM
     fi
 
+    [[ "$pid" == "$CURRENT_PID" ]] && QUITTING_FLAG=1
     exit $exit_code
 }
 
@@ -250,16 +262,6 @@ dump() {
     local msg=$(trim "$1")
     output "$(printf '%s' "$msg")"
     quit
-}
-
-# Function: current_pid
-# Description: According to its naming
-current_pid() {
-    if [ -z "$CURRENT_PID" ] || [ "$CURRENT_PID" -le 0 ]; then
-        output "Invalid current pid"
-        quit
-    fi
-    printf '%s' "$CURRENT_PID"
 }
 
 # Function: current_command
@@ -454,7 +456,7 @@ current_lock_file() {
         fi
 
         if ! is_dir "$lock_file_dir"; then
-            error_exit "Lock file creation failed."
+            error_exit "❗️ Failed to create 🔒 lock_file_dir: ${lock_file_dir}."
         fi
 
         if string_ends_with "$lock_file_dir" "/"; then
@@ -464,12 +466,12 @@ current_lock_file() {
         LOCK_FILE_DIR="$lock_file_dir"
         LOCK_ID=$(md5_sign "$(current_command)")
         LOCK_FILE="$LOCK_FILE_DIR/$(current_filename)_$LOCK_ID.lock" || {
-            error_exit "Failed to set LOCK_FILE."
+            error_exit "❗️ Failed to set 🔒 lock_file: ${LOCK_FILE}"
         }
     fi
 
     if [[ -z "$LOCK_ID" ]]; then
-        error_exit "Could not set LOCK_ID."
+        error_exit "❗️ Could not set 🔒 lock_id."
     fi
 
     printf '%s' "$LOCK_FILE"
@@ -563,7 +565,7 @@ normalise_string() {
                 
                 print $0;  # Return the normalised string
             }
-        ')
+        ' 2>/dev/null)
 
         # If the normalised string is empty, return empty
         if [ -z "$normalised" ]; then
@@ -677,7 +679,7 @@ strpos() {
 
     # Use grep to find the position and return the result
     local position
-    position=$(printf '%s' "$string" | grep -b -o "$needle" | head -n 1 | cut -d: -f1)
+    position=$(printf '%s' "$string" | grep -b -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
 
     # Check if a position was found
     if [ -z "$position" ]; then
@@ -708,7 +710,7 @@ stripos() {
 
     # Use grep to find the position and return the result
     local position
-    position=$(printf '%s' "$string" | grep -ib -o "$needle" | head -n 1 | cut -d: -f1)
+    position=$(printf '%s' "$string" | grep -ib -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
 
     # Check if a position was found
     if [ -z "$position" ]; then
@@ -743,7 +745,7 @@ strrpos() {
 
     # Use grep to find the position and return the result (search in the reversed string)
     local position
-    position=$(printf '%s' "$reversed_string" | grep -ib -o "$needle" | head -n 1 | cut -d: -f1)
+    position=$(printf '%s' "$reversed_string" | grep -ib -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
 
     # Check if a position was found
     if [ -z "$position" ]; then
@@ -781,7 +783,7 @@ strripos() {
 
     # Use grep to find the position (case-insensitive search in reversed string)
     local position
-    position=$(printf '%s' "$reversed_string" | grep -iob -o "$needle" | head -n 1 | cut -d: -f1)
+    position=$(printf '%s' "$reversed_string" | grep -iob -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
 
     # Check if a position was found
     if [ -z "$position" ]; then
@@ -847,7 +849,7 @@ strstr() {
                 print substr($0, pos)
             }
         }
-    ')
+    ' 2>/dev/null)
 
     # If no match found, result will be empty
     if [ -z "$result" ]; then
@@ -894,7 +896,7 @@ stristr() {
                 print substr($0, pos)
             }
         }
-    ')
+    ' 2>/dev/null)
 
     # If no match found, result will be empty
     if [ -z "$result" ]; then
@@ -915,7 +917,7 @@ string_starts_with() {
     in_array "${ignore_case}" "true" "false" || ignore_case="true"
     local pos=""
 
-    if [ "$ignore_case" = "true" ]; then
+    if [[ "$ignore_case" == "true" ]]; then
         pos=$(stripos "$string" "$phrase")
     else
         pos=$(strpos "$string" "$phrase")
@@ -965,7 +967,7 @@ str_replace() {
         [ -z "$needle" ] && continue # Skip empty search terms
 
         # Perform replacement using awk (safe handling of special characters)
-        haystack=$(awk -v n="$needle" -v r="$replace" 'BEGIN { ORS=""; } { gsub(n, r); print }' <<<"$haystack")
+        haystack=$(awk -v n="$needle" -v r="$replace" 'BEGIN { ORS=""; } { gsub(n, r); print }' <<<"$haystack" 2>/dev/null)
     done
 
     printf '%s' "$haystack"
@@ -995,7 +997,7 @@ str_ireplace() {
             IGNORECASE=1; 
             gsub(n, r); 
             print 
-        }' <<<"$haystack")
+        }' <<<"$haystack" 2>/dev/null)
     done
 
     printf '%s' "$haystack"
@@ -1032,7 +1034,7 @@ remove_matched_lines() {
     # Remove matched lines using a while loop with awk to process each line
     while IFS= read -r line; do
         # Using awk to check if the line matches the pattern
-        printf '%s\n' "$line" | awk -v pat="$pattern" '{if ($0 !~ pat) print $0}' >>"$tmp_file"
+        printf '%s\n' "$line" | awk -v pat="$pattern" '{if ($0 !~ pat) print $0}' 2>/dev/null >>"$tmp_file"
     done <"$file" || return 1
 
     # Check if any changes were made, and compare the files
@@ -1059,6 +1061,8 @@ exec_command() {
     local run_in_bg=$(trim "$2")
     local log_file=$(current_log_file)
     in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
+    local show_log=$(trim "$3")
+    in_array "${show_log}" "true" "false" || show_log="false"
 
     [ -n "$command" ] || return 1
 
@@ -1068,12 +1072,23 @@ exec_command() {
         return 0
     fi
 
+    [[ "$show_log" == "true" ]] && log_msg "🕒 Command executing: $command" "true"
     if [[ "$run_in_bg" == "false" ]]; then
-        eval "$(printf '%s' "$command")"
+        eval "$(printf '%s' "$command")" | tee -a -- "$(current_log_file)" || {
+            log_msg "❗️ Command failed: $command" "true"
+            return 1
+        }
     else
-        eval "$(printf '%s' "$command")" &
+        eval "$(printf '%s' "$command")" | tee -a -- "$(current_log_file)" &
+        local status=$(hanging_process $!)
+        if [[ "$status" != 0 ]]; then
+            [[ "$show_log" == "true" ]] && log_msg "❗️ Command (bg) failed: $command" "true"
+            return 1
+        fi
+
     fi
 
+    [[ "$show_log" == "true" ]] && log_msg "✅ Command done: $command" "true"
     return 0
 }
 
@@ -1115,7 +1130,7 @@ file_real_path() {
 
     # Expand shell variables and tilde (~) safely
     file=$(eval printf '%s' "$file")
-    file=$(printf '%s\n' "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}')
+    file=$(printf '%s\n' "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}' 2>/dev/null)
 
     # Convert relative paths to absolute paths
     case "$file" in
@@ -1128,14 +1143,14 @@ file_real_path() {
     esac
 
     # Normalise redundant slashes and remove `./` safely using POSIX awk
-    file=$(printf '%s\n' "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}')
+    file=$(printf '%s\n' "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}' 2>/dev/null)
 
     # Remove trailing slashes (except root "/") and spaces
     file=$(printf '%s\n' "$file" | awk '{
         if (length($0) > 1) gsub(/\/+$/, ""); 
         gsub(/ *$/, ""); 
         print $0
-    }')
+    }' 2>/dev/null)
 
     # Ensure the root path is handled correctly, i.e., "/" should not be turned into ""
     if [[ "$file" == "/" ]]; then
@@ -1187,9 +1202,9 @@ is_numeric() {
     # Validate numeric format using awk
     printf '%s\n' "$num" | awk '
         BEGIN { status = 1 }
-        /^0$|^-?(0|[1-9][0-9]*)$|^-?(0|[1-9][0-9]*)\.[0-9]+$/ { status = 0 }
+        /^0$|^(-?[1-9][0-9]*)$|^-?(0|[1-9][0-9]*)\.[0-9]+$/ { status = 0 }
         END { exit status }
-    ' || return 1
+    ' 2>/dev/null || return 1
 
     return 0
 }
@@ -1232,13 +1247,13 @@ abs() {
         BEGIN { status = 1 }
         /^-?0$|^-?[1-9][0-9]*$|^-?0\.[0-9]+$|^-?[1-9][0-9]*\.[0-9]+$/ { status = 0 }
         END { exit status }
-    ' || {
+    ' 2>/dev/null || {
         printf '%s' ""
         return 1
     }
 
     # Compute absolute value
-    printf '%s\n' "$num" | awk '{ print ($1 < 0) ? -$1 : $1 }'
+    printf '%s\n' "$num" | awk '{ print ($1 < 0) ? -$1 : $1 }' 2>/dev/null
     return 0
 }
 
@@ -1246,7 +1261,7 @@ abs() {
 is_int() {
     local num=$(trim "$1")
     [ -n "$num" ] || return 1
-    [[ "$num" =~ ^-?(0|[1-9][0-9]*)$ ]] || return 1
+    [[ "$num" =~ ^(0|-?[1-9][0-9]*)$ ]] || return 1
     return 0
 }
 
@@ -1339,7 +1354,7 @@ ceil() {
         } else {
             print int($1)
         }
-    }')
+    }' 2>/dev/null)
 
     # Check for empty result
     if [ -z "$result" ]; then
@@ -1372,7 +1387,7 @@ floor() {
         } else {
             print int($1) - 1
         }
-    }')
+    }' 2>/dev/null)
 
     # Check for empty result
     if [ -z "$result" ]; then
@@ -1388,7 +1403,7 @@ floor() {
 # Description: According to its naming
 is_file() {
     local filepath=$(trim "$1")
-    [[ -n "$filepath" && -f "$filepath" ]] || return 1
+    [ -n "$filepath" ] && [ -f "$filepath" ] || return 1
     return 0
 }
 
@@ -1471,7 +1486,7 @@ fileext() {
 
     # Extract the file extension using POSIX awk
     local ext
-    ext=$(printf '%s\n' "$filename" | awk -F. '{if (NF > 1) {print $NF}}')
+    ext=$(printf '%s\n' "$filename" | awk -F. '{if (NF > 1) {print $NF}}' 2>/dev/null)
     ext=$(trim "$ext")
 
     # Output the extension, or an empty string if no extension is found
@@ -1672,7 +1687,7 @@ saferm() {
 
     case "$timing" in
     "immediately")
-        exec_command "$rm_command" || return 1
+        exec_command "$rm_command" "true" || return 1
         ;;
     "when_quit")
         exec_when_quit "$rm_command" || return 1
@@ -1722,7 +1737,7 @@ sign_array() {
     fi
 
     # Compute the MD5 hash of the array contents safely
-    array_md5=$(printf "%s\n" "${array_contents[@]}" | awk '{ print $0 }' | md5sum | awk '{print $1}' 2>/dev/null)
+    array_md5=$(printf "%s\n" "${array_contents[@]}" | awk '{ print $0 }' 2>/dev/null | md5sum | awk '{print $1}' 2>/dev/null)
 
     # Ensure the MD5 computation was successful
     if [ -z "$array_md5" ]; then
@@ -1747,7 +1762,7 @@ array_count() {
         printf '%s' "false"
         return 1
     }
-    awk -v n="${#arr[@]}" 'BEGIN { print n }' 2>/dev/null || {
+    awk -v n="${#arr[@]}" 'BEGIN { print n }' &>/dev/null || {
         printf '%s' "false"
         return 1
     }
@@ -1776,7 +1791,7 @@ in_array() {
         BEGIN { found = 0 }
         $0 == needle { found = 1; exit }
         END { exit found ? 0 : 1 }
-    ' || return 1
+    ' 2>/dev/null || return 1
 
     return $?
 }
@@ -1808,7 +1823,7 @@ normalise_array() {
 
     # Normalize the array: trim spaces, deduplicate, sort
     local input=$(printf '%s\n' "${arr[@]}" |
-        awk '{ gsub(/^[ \t]+|[ \t]+$/, ""); if (!seen[$0]++) print }' |
+        awk '{ gsub(/^[ \t]+|[ \t]+$/, ""); if (!seen[$0]++) print }' 2>/dev/null |
         sort -u) || return 1
 
     # Reassign normalized array to the original variable
@@ -1862,7 +1877,7 @@ array_splice() {
                     print a[i]
                 }
             }
-        }')
+        }' 2>/dev/null)
 
     # Check if awk failed or output is empty
     if [ $? -ne 0 ] || [ -z "$new_array" ]; then
@@ -1932,7 +1947,7 @@ array_get() {
 
         # Access specific element using eval and awk
         eval "printf '%s\n' \"\${$array_name[$key]}\"" |
-            { awk 'NR==1 { printf "%s", $0 }' 2>/dev/null; } || {
+            { awk 'NR==1 { printf "%s", $0 }' &>/dev/null; } || {
             printf '%s' ""
             return 1
         }
@@ -2153,7 +2168,7 @@ array_unique() {
         return 0
     fi
 
-    eval "${array_name}=(\"\$(printf '%s\n' \"\${${array_name}[@]}\" | awk '!a[\$0]++' | tr '\n' ' ')\")" || return 1
+    eval "${array_name}=(\"\$(printf '%s\n' \"\${${array_name}[@]}\" | awk '!a[\$0]++' 2>/dev/null | tr '\n' ' ')\")" || return 1
     return 0
 }
 
@@ -2301,7 +2316,7 @@ array_to_json() {
             # Return key-value pair in JSON format
             print "\"" key "\": \"" value "\""
         }
-        ')
+        ' 2>/dev/null)
 
         # If no match, continue to the next line
         if [ -z "$line" ]; then
@@ -2506,7 +2521,7 @@ bash_version() {
 
     # Use POSIX awk to extract the version number (e.g., 5.2.37)
     local version
-    version=$(printf '%s\n' "$version_string" | awk '{print $4}' | cut -d'(' -f1)
+    version=$(printf '%s\n' "$version_string" | awk '{print $4}' 2>/dev/null | cut -d'(' -f1)
 
     # Ensure it has a valid format (vX.X.X)
     if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -2561,7 +2576,7 @@ normalise_iso_datetime() {
 
     local raw="$(printf '%s' "$input" | tr -cd '[:alnum:]: T/.\-')" # only valid chars
     local digits_only="$(printf '%s' "$raw" | tr -cd '[:digit:]')"
-    local time_part="$(printf '%s' "$raw" | grep -oE '[0-9]{2}:[0-9]{2}(:[0-9]{2})?' | head -n1)"
+    local time_part="$(printf '%s' "$raw" | grep -oE '[0-9]{2}:[0-9]{2}(:[0-9]{2})?' 2>/dev/null | head -n1)"
 
     # Time normalisation
     if [ -n "$time_part" ]; then
@@ -2705,7 +2720,7 @@ gdate() {
             } else {
                 printf "%04d-%02d-%02d %02d:%02d:%02d\n", d[1], d[2], d[3], h, m, s
             }
-        }')
+        }' 2>/dev/null)
 
     [ -z "$clean" ] && {
         printf '%s' ""
@@ -2727,7 +2742,7 @@ gdate() {
     }
 
     # Remove extra parts
-    printf '%s\n' "$out" | awk -v C="$compact" '{ if (C=="true") gsub("00:00:00", ""); print }' | tr -s ' '
+    printf '%s\n' "$out" | awk -v C="$compact" '{ if (C=="true") gsub("00:00:00", ""); print }' 2>/dev/null | tr -s ' '
     return 0
 }
 
@@ -2822,7 +2837,7 @@ is_valid_ipv4() {
             BEGIN { status = 1 }
             ($1 >= 0 && $1 <= 255) { status = 0 }
             END { exit status }
-        '; then
+        ' 2>/dev/null; then
             return 1
         fi
 
@@ -2886,7 +2901,7 @@ is_valid_ipv6() {
             BEGIN { status = 1 }
             length($1) > 0 && length($1) <= 4 && $1 ~ /^[0-9A-Fa-f]+$/ { status = 0 }
             END { exit status }
-        '; then
+        ' 2>/dev/null; then
             return 1
         fi
 
@@ -2990,7 +3005,7 @@ is_valid_json() {
             valid = 0;  # Ensures the structure ends properly
         }
         exit valid;
-    }' || {
+    }' 2>/dev/null || {
         return 1
     }
 
@@ -3027,7 +3042,7 @@ yaml_to_json() {
         printf "  \"%s\": \"%s\"", key, value;
     }
     END { print "\n}"; }
-    ' || {
+    ' 2>/dev/null || {
         printf '%s' ""
         return 1
     }
@@ -3051,8 +3066,8 @@ yaml_to_array() {
     # Read the input line by line
     while IFS=':' read -r key value; do
         # Trim spaces and remove quotes from key and value using POSIX awk
-        key=$(printf '%s\n' "$key" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, ""); gsub(/'\''/, ""); print}')
-        value=$(printf '%s\n' "$value" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, ""); gsub(/'\''/, ""); print}')
+        key=$(printf '%s\n' "$key" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, ""); gsub(/'\''/, ""); print}' 2>/dev/null)
+        value=$(printf '%s\n' "$value" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); gsub(/"/, ""); gsub(/'\''/, ""); print}' 2>/dev/null)
 
         # Skip if the key is empty (or invalid)
         [ -z "$key" ] && continue
@@ -3080,7 +3095,7 @@ json_to_array() {
     # Read the input line by line
     while IFS= read -r line; do
         # Trim spaces around the line
-        line=$(printf '%s\n' "$line" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}')
+        line=$(printf '%s\n' "$line" | awk '{gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print}' 2>/dev/null)
 
         # Skip empty lines and braces (starting or ending JSON object)
         if [[ -z "$line" || "$line" =~ ^[\{\}]$ ]]; then
@@ -3093,8 +3108,8 @@ json_to_array() {
             value="${BASH_REMATCH[2]}"
 
             # Remove quotes from key and value using POSIX awk
-            key=$(printf '%s\n' "$key" | awk '{gsub(/"/, ""); print}')
-            value=$(printf '%s\n' "$value" | awk '{gsub(/"/, ""); print}')
+            key=$(printf '%s\n' "$key" | awk '{gsub(/"/, ""); print}' 2>/dev/null)
+            value=$(printf '%s\n' "$value" | awk '{gsub(/"/, ""); print}' 2>/dev/null)
 
             # Skip if the key is empty (or invalid)
             [ -z "$key" ] && continue
@@ -3143,7 +3158,7 @@ urlencode() {
     }
     function ord(c) {
         return sprintf("%d", c);  # Efficient ASCII conversion
-    }'
+    }' 2>/dev/null
 
     return 0
 }
@@ -3175,7 +3190,7 @@ urldecode() {
             }
         }
         print output;
-    }'
+    }' 2>/dev/null
 
     return 0
 }
@@ -3190,7 +3205,7 @@ url_is_encoded() {
     } # Handle empty input safely
 
     # Check for correctly formatted percent-encoded sequences
-    if ! printf '%s\n' "$segment" | awk 'BEGIN { valid=1 } /%[0-9A-Fa-f]{2}/ { if (!match($0, /%[0-9A-Fa-f]{2}/)) valid=0 } END { exit !valid }'; then
+    if ! printf '%s\n' "$segment" | awk 'BEGIN { valid=1 } /%[0-9A-Fa-f]{2}/ { if (!match($0, /%[0-9A-Fa-f]{2}/)) valid=0 } END { exit !valid }' 2>/dev/null; then
         return 1 # False, it's not encoded
     fi
 
@@ -3212,10 +3227,10 @@ get_url_info() {
     local encoded_req_path=""
 
     # Check if scheme exists and extract scheme and remaining URL
-    if printf '%s\n' "$url" | awk -F "://" '{if (NF > 1) print $1}' | grep -q '[a-zA-Z]'; then
+    if printf '%s\n' "$url" | awk -F "://" '{if (NF > 1) print $1}' | grep -q '[a-zA-Z]' 2>/dev/null; then
         # Extract scheme and remaining URL
-        scheme=$(printf '%s\n' "$url" | awk -F "://" '{print $1}')
-        remaining_url=$(printf '%s\n' "$url" | awk -F "://" '{print $2}')
+        scheme=$(printf '%s\n' "$url" | awk -F "://" '{print $1}' 2>/dev/null)
+        remaining_url=$(printf '%s\n' "$url" | awk -F "://" '{print $2}' 2>/dev/null)
     else
         remaining_url="$url"
     fi
@@ -3239,7 +3254,7 @@ get_url_info() {
     fi
 
     # Step 5: Normalize the path (handle multiple '?' and missing root '/')
-    path=$(printf '%s\n' "$path" | awk '{gsub(/\?/, "&"); print}')
+    path=$(printf '%s\n' "$path" | awk '{gsub(/\?/, "&"); print}' 2>/dev/null)
 
     # If the path is empty or doesn't start with '/', add the root '/'
     if [ -z "$path" ] || ! string_starts_with "$path" "/"; then
@@ -3247,7 +3262,7 @@ get_url_info() {
     fi
 
     # Remove extra '?' in the path (only keep the first one)
-    path=$(printf '%s\n' "$path" | awk '{if (match($0, /\?.*\?/)) sub(/\?.*/, "?"); print}')
+    path=$(printf '%s\n' "$path" | awk '{if (match($0, /\?.*\?/)) sub(/\?.*/, "?"); print}' 2>/dev/null)
 
     # Step 6: Output the normalised URL
     normalised_url="$scheme://$domain$path"
@@ -3304,7 +3319,7 @@ urlparams_to_json() {
             printf("\"%s\": \"%s\"", key, value);
         }
     }
-    END { print "}" }' || {
+    END { print "}" }' 2>/dev/null || {
         printf '%s' ""
         return 1
     }
@@ -3333,7 +3348,7 @@ json_to_urlparams() {
 
         # Print key-value pair safely
         printf("%s=%s", key, value);
-    }' || {
+    }' 2>/dev/null || {
         printf '%s' ""
         return 1
     }
@@ -3466,11 +3481,11 @@ http_post() {
 uuidv4() {
     local uuidv4=""
     # Use /dev/urandom to generate random data and format as hex
-    uuidv4=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | awk '{print tolower($0)}')
+    uuidv4=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | awk '{print tolower($0)}' 2>/dev/null)
     uuidv4=$(trim "$uuidv4")
 
     if [[ -z "$uuidv4" ]]; then
-        uuidv4=$(uuidgen | tr -d '-' | awk '{print tolower($0)}') || {
+        uuidv4=$(uuidgen | tr -d '-' | awk '{print tolower($0)}' 2>/dev/null) || {
             printf '%s' ""
             return 1
         }
@@ -3499,7 +3514,7 @@ str2hex() {
         return 1
     }
     if [[ "$having_space" == "true" ]] && [[ -n "$result" ]]; then
-        result=$(printf '%s\n' "$result" | awk '{ gsub(/(..)/, "& "); print }') || {
+        result=$(printf '%s\n' "$result" | awk '{ gsub(/(..)/, "& "); print }' 2>/dev/null) || {
             printf '%s' ""
             return 1
         }
@@ -3606,7 +3621,7 @@ base36_encode() {
         printf '%s' ""
         return 1
     }
-    result=$(printf '%s\n' "$input" | base64 | od -An -t u8 | awk '{ print $1 }' | awk '{ printf "%x", $1 }') || {
+    result=$(printf '%s\n' "$input" | base64 | od -An -t u8 | awk '{ print $1 }' 2>/dev/null | awk '{ printf "%x", $1 }' 2>/dev/null) || {
         printf '%s' ""
         return 1
     }
@@ -3767,14 +3782,16 @@ exit_with_commands() {
         error_exit "Invalid array name 'EXIT_WITH_COMMANDS' provided."
     fi
 
+    log_msg "🕒 Exit commands executing..." "true"
     for val in "${EXIT_WITH_COMMANDS[@]}"; do
         val=$(trim "$val")
         if [ -z "$val" ]; then
             continue
         fi
-        exec_command "$val" "true"
+        exec_command "$val" "false" "true"
     done
 
+    log_msg "⌛️ Quitting..." "true"
     quit
 }
 
@@ -3882,25 +3899,37 @@ atomic_mutex_lock() {
 
 # Function to acquire a lock to prevent multiple instances
 acquire_lock() {
-    local lock_file=$(current_lock_file)
-    [[ -n "$lock_file" ]] || error_exit "Failed to acquire lock."
-    exec 200>"$lock_file"
-    flock -n 200 || error_exit "An instance is running: $lock_file"
+    lock_file=$(current_lock_file)
+    [ -n "$lock_file" ] || error_exit "❗️ Failed to acquire 🔒 lock."
+    exec 200>"$lock_file" || error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
+    flock -n 200 || error_exit "🔒 An instance is running: $lock_file"
+    [ "$LOCK_HELD" -eq 1 ] || LOCK_HELD=1
 }
 
 # Function to release the lock
 release_lock() {
-    local lock_file=$(current_lock_file)
-    is_file "$lock_file" || return 1
-    flock -u 200 && saferm "$lock_file" || return 1
+    [ "$LOCK_HELD" -eq 1 ] || return 0
+
+    lock_file=$(current_lock_file)
+    log_msg "🕒 Releasing 🔒 lock_file: ${lock_file}" "true"
+
+    is_file "$lock_file" || {
+        log_msg "❗️ Invalid lock file to release." "true"
+        return 1
+    }
+    flock -u 200 && saferm "$lock_file" || {
+        log_msg "❗️ Failed to remove lock file: ${lock_file}" "true"
+        return 1
+    }
+
+    log_msg "🕒 Released 🔒 lock_file: ${lock_file}" "true"
     return 0
 }
 
 # Trap function to handle script termination
 cleanup() {
-    log_msg "BISU: Cleaning up..." "true"
+    log_msg "🕒 BISU: Cleaning up..." "true"
     exit_with_commands
-    exit 0
 }
 
 # Function: set_title
@@ -3910,16 +3939,14 @@ cleanup() {
 set_title() {
     local title=$(trim "$1")
 
-    {
-        [ -n "$title" ] || return 1
-        # Replace any non-alphanumeric character check and clean
+    [ -n "$title" ] || return 1
+    # Replace any non-alphanumeric character check and clean
 
-        title=$(printf '%s' "$title" | awk '!/[^a-zA-Z0-9\-\(\)\#\@ ]/ { print $0 }' 2>/dev/null)
-        # Set terminal title (in a POSIX-compliant way)
-        stty -echo &>/dev/null
-        printf '\033]2;%s\007' "$title" 2>/dev/null
-        stty echo &>/dev/null
-    } || return 1
+    title=$(printf '%s' "$title" | awk '!/[^a-zA-Z0-9\-\(\)\#\@ ]/ { print $0 }' 2>/dev/null) || return 1
+    # Set terminal title (in a POSIX-compliant way)
+    stty -echo &>/dev/null
+    printf '\033]2;%s\007' "$title" 2>/dev/null
+    stty echo &>/dev/null
 
     return 0
 }
@@ -3927,7 +3954,7 @@ set_title() {
 # Function to revert the terminal title
 revert_title() {
     set_title "$DEFAULT_TITLE"
-    stty echo &>/dev/null
+    stty echo &>/dev/null || return 1
     return 0
 }
 
@@ -3977,7 +4004,7 @@ separate_command() {
         else
             params="$params $word" # Everything after is considered a parameter
         fi
-    done <<<"$(printf '%s\n' "$input" | awk '{for(i=1;i<=NF;i++) print $i}')" || return 0
+    done <<<"$(printf '%s\n' "$input" | awk '{for(i=1;i<=NF;i++) print $i}')" 2>/dev/null || return 0
 
     if [ -z "$cmd" ]; then
         return 1
@@ -4024,7 +4051,6 @@ register_current_command() {
     normalise_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
 
     array_unique_push "AUTORUN" '\"set_signals\"'
-
     if atomic_mutex_lock; then
         array_unique_push "AUTORUN" '\"acquire_lock\"'
         array_unique_push "EXIT_WITH_COMMANDS" '\"release_lock\"'
@@ -4095,9 +4121,8 @@ get_args() {
 
 # Set bash signals
 set_signals() {
-    trap 'wait' SIGCHLD
-    trap 'revert_title; cleanup; exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT SIGKILL
-    log_msg "BISU: Signals set." "true"
+    trap 'wait' SIGCHLD 2>/dev/null
+    trap 'revert_title; cleanup; exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT 2>/dev/null
 }
 
 # Start autorun list
@@ -4107,7 +4132,12 @@ autorun_start() {
     fi
 
     for command in "${AUTORUN[@]}"; do
-        eval "$(printf '%s ' "$command") >>'$(current_log_file)'"
+        log_msg "🕒 Autorun command executing: $command" "true"
+        eval "$(printf '%s' "$command")" 2>>"$(current_log_file)" || {
+            log_msg "\n❗️ Autorun command failed: $command" "true"
+            continue
+        }
+        log_msg "✅ Autorun command done: $command" "true"
     done
 
     return 0
