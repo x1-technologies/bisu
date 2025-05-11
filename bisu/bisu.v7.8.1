@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.8.0"
+export BISU_VERSION="7.8.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -69,7 +69,7 @@ UTILITY_VERSION=${UTILITY_VERSION:-"$BISU_VERSION"}
 # Set this utility's doc URI
 UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.cc"}
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-10Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-11Z"}
 # Atomic mutex lock switch for single-threaded utilities
 ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Execution interval of per exit command
@@ -103,15 +103,15 @@ isset() {
             ;;
         esac
         # Check if base variable exists
-        if ! declare -p "$name" >/dev/null 2>&1; then
+        if ! declare -p "$name" &>/dev/null; then
             return 1
         fi
         # If an index/key is given, verify it exists in the array
         if [ -n "$index" ]; then
             pattern="\\[\"?$index\"?\\]="
-            if ! declare -p "$name" | awk -v patt="$pattern" '
+            if ! declare -p "$name" 2>/dev/null | awk -v patt="$pattern" '
                    { if ($0 ~ patt) { found=1; exit } }
-                   END { exit(!found) }'; then
+                   END { exit(!found) }' &>/dev/null; then
                 return 1
             fi
         fi
@@ -141,6 +141,7 @@ output() {
     in_array "$use_newline" "true" "false" || use_newline="true"
     local log_only=$(trim "$3")
     in_array "${log_only}" "true" "false" || log_only="false"
+    local log_file="$(current_log_file)"
 
     local command="printf"
     if [[ "$use_newline" == "true" ]]; then
@@ -150,13 +151,11 @@ output() {
     fi
 
     if [[ "$log_only" == "true" ]]; then
-        eval "$(printf '%s' "$command")" | awk '
-                !/[^a-zA-Z0-9\-_ \(\)\#\@\*\.\/\=\"\x27\+]/ { print $0 }' 2>/dev/null |
-            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$(current_log_file)" &>/dev/null || return 1
+        eval "$(printf '%s' "$command")" |
+            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$log_file" &>/dev/null || return 1
     else
-        eval "$(printf '%s' "$command")" >&2 | awk '
-                !/[^a-zA-Z0-9\-_ \(\)\#\@\*\.\/\=\"\x27\+]/ { print $0 }' 2>/dev/null |
-            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$(current_log_file)" || return 1
+        eval "$(printf '%s' "$command")" |
+            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$log_file" || return 1
     fi
 
     return 0
@@ -253,14 +252,13 @@ dump() {
     quit
 }
 
-# Function: current_command
+# Function: current_pid
 # Description: According to its naming
 current_pid() {
     if [ -z "$CURRENT_PID" ] || [ "$CURRENT_PID" -le 0 ]; then
         output "Invalid current pid"
         quit
     fi
-
     printf '%s' "$CURRENT_PID"
 }
 
@@ -271,7 +269,6 @@ current_command() {
         output "Invalid current command"
         quit
     fi
-
     printf '%s' "$CURRENT_COMMAND"
 }
 
@@ -288,7 +285,6 @@ current_file() {
         output "Invalid current file path: $CURRENT_FILE_PATH"
         quit
     fi
-
     printf '%s' "$CURRENT_FILE_PATH"
 }
 
@@ -339,13 +335,20 @@ current_log_file() {
             log_file_dir="$USER_LOG_FILE_DIR"
         fi
 
+        log_file_dir=$(trim "$log_file_dir")
+
         [ -n "$log_file_dir" ] || {
             log_file_dir="$HOME/.local/var/run"
         }
 
         CURRENT_LOG_FILE_DIR="$log_file_dir"
     fi
+
     log_file_dir="$CURRENT_LOG_FILE_DIR"
+    string_starts_with "$log_file_dir" "$USER_LOG_FILE_DIR" || string_starts_with "$log_file_dir" "$ROOT_LOG_FILE_DIR" || {
+        error_log "Failed to mkdir: $log_file_dir"
+        quit
+    }
 
     local date_str="$(date +'%Y%m%d')"
     is_valid_datetime "$date_str" || quit
@@ -354,8 +357,6 @@ current_log_file() {
     local day_str=$(substr "$date_str" 6 2)
     log_file_dir="$log_file_dir/$filename/$month_str"
     log_file="$log_file_dir/$day_str.log"
-
-    [[ $(strpos "$log_file" "]0;") == "false" ]] || quit
 
     is_dir "$log_file_dir" || {
         mkdir -p "$log_file_dir" &>/dev/null || quit
@@ -405,12 +406,10 @@ log_flush() {
 # Description: Log messages with timestamps to a specified log file, with fallback options.
 log_msg() {
     local msg="$1"
-    local use_newline=$(trim "$2")
-    in_array "${use_newline}" "true" "false" || use_newline="true"
-    local log_only=$(trim "$3")
+    local log_only=$(trim "$2")
     in_array "${log_only}" "true" "false" || log_only="false"
-    local caller=$(trim "$4")
-    local log_file="$(current_log_file)"
+    local use_newline=$(trim "$3")
+    in_array "${use_newline}" "true" "false" || use_newline="true"
 
     output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "$log_only" || return 1
 
@@ -420,7 +419,7 @@ log_msg() {
 # Function: error_log
 error_log() {
     local error_msg="$1"
-    log_msg "${ERROR_MSG_PREFIX}$error_msg" "true" "true"
+    log_msg "${ERROR_MSG_PREFIX}$error_msg" "true"
     return 0
 }
 
@@ -431,7 +430,7 @@ error_exit() {
     is_posi_int "${status_code}" || status_code=1
 
     [ -n "$msg" ] && {
-        log_msg "${ERROR_MSG_PREFIX}$msg" "true" "false"
+        log_msg "${ERROR_MSG_PREFIX}$msg"
     }
 
     quit $status_code
@@ -922,7 +921,7 @@ string_starts_with() {
         pos=$(strpos "$string" "$phrase")
     fi
 
-    if [[ "$pos" != "0" ]]; then
+    if [[ "$pos" != 0 ]]; then
         return 1
     fi
 
@@ -1072,7 +1071,7 @@ exec_command() {
     if [[ "$run_in_bg" == "false" ]]; then
         eval "$(printf '%s' "$command")"
     else
-        eval "$(printf '%s' "$command") &"
+        eval "$(printf '%s' "$command")" &
     fi
 
     return 0
@@ -1539,11 +1538,6 @@ get_file_info() {
 # mkdir_p
 mkdir_p() {
     local dir=$(trim "$1")
-    [[ $(strpos "$dir" "]0;") == "false" ]] || {
-        error_log "Failed to mkdir: $dir"
-        return 1
-    }
-
     dir=$(file_real_path "$dir")
 
     # Check if the directory exists, if not, create it
@@ -1694,7 +1688,7 @@ saferm() {
 # Function to check if a variable is an array
 is_array() {
     # Check if variable is declared as an array (indexed or associative)
-    declare -p "$(trim "$1")" 2>/dev/null | grep -qE 'declare -a|declare -A' 2>/dev/null || return 1
+    declare -p "$(trim "$1")" 2>/dev/null | grep -qE 'declare -a|declare -A' &>/dev/null || return 1
     return 0
 }
 
@@ -2525,7 +2519,6 @@ bash_version() {
 
 # Function: check_bash_version
 # Description: Verifies that the installed Bash version is greater than or equal to the specified required version.
-# Returns: 0 if Bash version is valid, 1 if not.
 check_bash_version() {
     if ! is_valid_version "$MINIMAL_BASH_VERSION"; then
         error_exit "Illegal version number of required Bash"
@@ -2542,7 +2535,6 @@ check_bash_version() {
 
 # Function: check_bisu_version
 # Description: Verifies that the installed BISU version is greater than or equal to the specified required version.
-# Returns: 0 if Bash version is valid, 1 if not.
 check_bisu_version() {
     local expr="$THIS_REQUIRED_BISU_VERSION"
     local result=$(compare_version "$expr" "$BISU_VERSION")
@@ -2550,8 +2542,6 @@ check_bisu_version() {
     if [[ $result == 0 ]] && [[ $(current_filename) != $(bisu_filename) ]]; then
         error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($THIS_REQUIRED_BISU_VERSION)."
     fi
-
-    current_utility_version >/dev/null
 }
 
 # Function: normalise_iso_datetime
@@ -3908,7 +3898,7 @@ release_lock() {
 
 # Trap function to handle script termination
 cleanup() {
-    error_log "BISU: Cleaning up..."
+    log_msg "BISU: Cleaning up..." "true"
     exit_with_commands
     exit 0
 }
@@ -3926,9 +3916,9 @@ set_title() {
 
         title=$(printf '%s' "$title" | awk '!/[^a-zA-Z0-9\-\(\)\#\@ ]/ { print $0 }' 2>/dev/null)
         # Set terminal title (in a POSIX-compliant way)
-        stty -echo
-        printf '\033]2;%s\007' "$title"
-        stty echo
+        stty -echo &>/dev/null
+        printf '\033]2;%s\007' "$title" 2>/dev/null
+        stty echo &>/dev/null
     } || return 1
 
     return 0
@@ -3936,7 +3926,8 @@ set_title() {
 
 # Function to revert the terminal title
 revert_title() {
-    set_title "$DEFAULT_TITLE" || return 1
+    set_title "$DEFAULT_TITLE"
+    stty echo &>/dev/null
     return 0
 }
 
@@ -4106,7 +4097,7 @@ get_args() {
 set_signals() {
     trap 'wait' SIGCHLD
     trap 'revert_title; cleanup; exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT SIGKILL
-    error_log "BISU: Signals set."
+    log_msg "BISU: Signals set." "true"
 }
 
 # Start autorun list
@@ -4251,7 +4242,7 @@ integrated_ops() {
         install_script
         ;;
     "view-log")
-        vi "$(current_log_file)" 2>/dev/null
+        vi "$(current_log_file)"
         ;;
     "callfunc")
         callfunc $(printf '%s ' "$@")
