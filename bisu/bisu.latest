@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.8.1"
+export BISU_VERSION="7.8.2"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -1088,17 +1088,17 @@ confirm() {
     [Nn]*) prompt="[y/N]" ;; # Default No (uppercase N)
     esac
 
-    while true; do
-        log_msg "$message" "false"
-        read -r -p " $prompt " response
+    while [ 0 ]; do
+        log_msg "$message" "false" "false"
+        read -p " $prompt " -r input
 
         # If user just presses Enter, use default
-        response=$(trim "$response")
-        if [ -z "$response" ]; then
-            response="$default"
+        input=$(trim "$input")
+        if [ -z "$input" ]; then
+            input="$default"
         fi
 
-        case "$response" in
+        case "$input" in
         [Yy]) return 0 ;; # Yes
         [Nn]) return 1 ;; # No
         *) return 1 ;;    # No
