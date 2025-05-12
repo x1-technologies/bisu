@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.9.5"
+export BISU_VERSION="7.9.6"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -3990,7 +3990,7 @@ import_script() {
     if ! is_file "$script"; then
         error_exit "Failed to import script: $script"
     fi
-    source "$script" || { error_exit "Failed to import script: $script"; }
+    source "$script" &>/dev/null || { error_exit "Failed to import script: $script"; }
 }
 
 # Automatically import required scripts
