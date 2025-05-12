@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.10.1"
+export BISU_VERSION="7.11.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -27,6 +27,10 @@ REQUIRED_SCRIPT_FILES=(${REQUIRED_SCRIPT_FILES[@]:-})
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
     'getopt' 'awk' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq'
+)
+# Read-only actions avoiding AML lock
+export ACTIONS_RO=(
+    'version' 'info'
 )
 # Required external commands list
 REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
@@ -4049,6 +4053,12 @@ register_current_command() {
         fi
     done
 
+    in_array "$DEBUG_MODE" "true" "false" || DEBUG_MODE="false"
+
+    # normalisation of arrays allowed to manually modify them
+    normalise_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
+    normalise_array "ACTIONS_RO"
+
     CURRENT_FILE_PATH=$(normalise_string "$current_file_path")
     CURRENT_COMMAND="$CURRENT_FILE_PATH"
     CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
@@ -4059,11 +4069,6 @@ register_current_command() {
     [ -n "$CURRENT_FILE_NAME" ] && {
         USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
-
-    in_array "$DEBUG_MODE" "true" "false" || DEBUG_MODE="false"
-
-    # normalisation of arrays allowed to manually modify
-    normalise_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
 
     array_unique_push "AUTORUN" '\"set_signals\"'
     if atomic_mutex_lock; then
@@ -4134,6 +4139,15 @@ get_args() {
     return 0
 }
 
+# check dependencies
+check_dependencies() {
+    check_bash_version
+    check_bisu_version
+    check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
+    check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
+    load_required_scripts
+}
+
 # Set bash signals
 set_signals() {
     local utility_name=$(current_utility_name)
@@ -4162,15 +4176,14 @@ autorun_start() {
 
 # Function to initialise BISU
 initialise() {
-    register_current_command $(printf '%s ' "$@") # Need to be in the fixed 1st order
-    check_bash_version
-    check_bisu_version
-    autorun_start
-    check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
-    check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
-    load_required_scripts
-    # Integrated operations
+    # order#1 register current command
+    register_current_command $(printf '%s ' "$@")
+    # order#2 check dependencies
+    check_dependencies
+    # order#3 integrate operations needed
     integrated_ops $(printf '%s ' "$@")
+    # order#4 autorun items start
+    autorun_start
 }
 
 # Execute a command when quit
@@ -4242,6 +4255,15 @@ integrated_ops() {
     [[ -z "$action" ]] && action="$option_force"
     [[ -z "$action" ]] && [[ "$option_version" == "$EMPTY_EXPR" ]] && action="version"
     [[ "$action" == "$EMPTY_EXPR" ]] && action=""
+
+    # Read-only actions are not meant to have a mutex lock
+    if [[ "$ATOMIC_MUTEX_LOCK" == "true" ]]; then
+        array_copy "ACTIONS_RO" "actions_ro"
+        array_unique_unshift "actions_ro" "$action"
+        if in_array $(printf '%s ' "$actions_ro"); then
+            ATOMIC_MUTEX_LOCK="false"
+        fi
+    fi
 
     case "$action" in
     "v" | "version")
