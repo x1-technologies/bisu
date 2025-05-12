@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.9.3"
+export BISU_VERSION="7.9.5"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -36,8 +36,6 @@ AUTORUN=(${AUTORUN[@]:-})
 EXIT_WITH_COMMANDS=(${EXIT_WITH_COMMANDS[@]:-})
 # Current Process ID
 export CURRENT_PID=""
-# Processes pids to cleanup
-export EXIT_ROCESSES_PIDS=()
 # Global Variables
 export ROOT_LOCK_FILE_DIR="/var/run"
 export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
@@ -198,6 +196,7 @@ is_executable() {
 # Function to check if the process is running
 process_is_running() {
     local pid=$(trim "$1")
+    sleep 0.1
     is_nn_int "$pid" || return 1
     kill -0 "$pid" &>/dev/null || return 1
     return 0
@@ -247,9 +246,8 @@ quit() {
             command="kill -${signal} \"$pid\" 2>/dev/null"
         fi
 
-        eval "$command" 2>>"$(current_log_file)" &>/dev/null || {
-            log_msg "\n❗️ Last execution failure was from: process termination, pid: ${pid} (Clean-up Task)" "true"
-        } &
+        exec_command "$command" "true" 2>>"$(current_log_file)" &>/dev/null &
+
         trap "$original_sigterm" SIGTERM
     fi
 
@@ -1112,12 +1110,12 @@ exec_command() {
 
     [[ "$show_log" == "true" ]] && log_msg "🕒 Command executing: $command" "true"
     if [[ "$run_in_bg" == "false" ]]; then
-        eval "$(printf '%s' "$command")" | tee -a -- "$(current_log_file)" || {
-            log_msg "\n❗️ Last execution failure was from: $command" "true"
+        eval "$(printf '%s' "$command")" 2>&1 | tee -a -- "$(current_log_file)" || {
+            log_msg "❗️ Last execution failure was from: $command" "true"
             return 1
         }
     else
-        eval "$(printf '%s' "$command")" | tee -a -- "$(current_log_file)" &
+        eval "$(printf '%s' "$command")" 1>/dev/null | tee -a -- "$(current_log_file)" &
         if ! hanging_process $!; then
             [[ "$show_log" == "true" ]] && log_msg "❗️ Command execution (bg) failed: $command" "true"
             return 1
@@ -3797,7 +3795,8 @@ exit_with_commands() {
         error_exit "Invalid array name 'EXIT_WITH_COMMANDS' provided."
     fi
 
-    log_msg "🕒 BISU: Cleaning up..." "true"
+    local utility_name=$(current_utility_name)
+    log_msg "🕒 ${utility_name}: cleaning up..." "true"
     for val in "${EXIT_WITH_COMMANDS[@]}"; do
         val=$(trim "$val")
         if [ -z "$val" ]; then
@@ -3806,7 +3805,7 @@ exit_with_commands() {
         exec_command "$val" "false" "true"
     done
 
-    log_msg "⌛️ Quitting..." "true"
+    log_msg "⌛️ ${utility_name}: Quitting..." "true"
     quit
 }
 
@@ -3850,7 +3849,7 @@ continuous_exec() {
         [ -n "$op_name" ] && [ "$count" -gt 0 ] && {
             log_msg "The operation [$op_name] failed. Attempting retry $count..."
         }
-        exec_command "$func $args" "true"
+        eval "$func $args" &
         pid=$!
         count=$((count + 1))
 
@@ -3912,18 +3911,39 @@ atomic_mutex_lock() {
     return 0
 }
 
+# exit transactions
+on_signal_exit() {
+    local exit_code=$?
+    is_nn_int "$exit_code" || exit_code=1
+
+    if [[ "$LOCK_HELD" -eq 0 ]]; then
+        exit_with_commands
+    fi
+
+    revert_title
+    exit $exit_code
+}
+
+# set lock flag for flock
+lock_held() {
+    [ "$LOCK_HELD" -eq 1 ] || LOCK_HELD=1
+    return 0
+}
+
 # Function to acquire a lock to prevent multiple instances
 acquire_lock() {
     local lock_file=$(current_lock_file)
     [ -n "$lock_file" ] || error_exit "❗️ Failed to acquire 🔒 lock."
     exec 200>"$lock_file" || error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
-    flock -n 200 || error_exit "🔒 An instance is running: $lock_file"
-    [ "$LOCK_HELD" -eq 1 ] || LOCK_HELD=1
+    flock -n 200 || {
+        lock_held
+        error_exit "🔒 An instance is running: $lock_file"
+    }
 }
 
 # Function to release the lock
 release_lock() {
-    [ "$LOCK_HELD" -eq 1 ] || return 0
+    [ "$LOCK_HELD" -eq 0 ] || return 0
 
     local lock_file=$(current_lock_file)
     is_file "$lock_file" || {
@@ -3931,20 +3951,13 @@ release_lock() {
         return 1
     }
 
-    flock -u 200
-
-    saferm "$lock_file" && hanging_process $! || {
+    flock -u 200 && saferm "$lock_file" || {
         log_msg "❗️ Failed to remove lock file: ${lock_file}" "true"
         return 1
     }
 
     log_msg "✅ Released 🔒 lock_file: ${lock_file}" "true"
     return 0
-}
-
-# Trap function to handle script termination
-cleanup() {
-    exit_with_commands
 }
 
 # Function: set_title
@@ -3959,9 +3972,8 @@ set_title() {
 
     title=$(printf '%s' "$title" | awk '!/[^a-zA-Z0-9\-\(\)\#\@ ]/ { print $0 }' 2>/dev/null) || return 1
     # Set terminal title (in a POSIX-compliant way)
-    stty -echo &>/dev/null
-    printf '\033]2;%s\007' "$title" 2>/dev/null
-    stty echo &>/dev/null
+    exec 3>/dev/tty || return 1
+    printf '\033]2;%s\007' "$title" >&3 2>/dev/null
 
     return 0
 }
@@ -3969,7 +3981,6 @@ set_title() {
 # Function to revert the terminal title
 revert_title() {
     set_title "$DEFAULT_TITLE"
-    stty echo &>/dev/null || return 1
     return 0
 }
 
@@ -4136,9 +4147,10 @@ get_args() {
 
 # Set bash signals
 set_signals() {
-    log_msg "🕒 BISU: Initialising..." "true"
-    trap 'wait' SIGCHLD 2>/dev/null
-    trap 'revert_title; cleanup; exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT 2>/dev/null
+    local utility_name=$(current_utility_name)
+    log_msg "🕒 ${utility_name}: initialising..." "true"
+    trap 'wait' SIGCHLD
+    trap 'on_signal_exit' EXIT SIGINT SIGTERM SIGHUP SIGQUIT
 }
 
 # Start autorun list
@@ -4150,7 +4162,7 @@ autorun_start() {
     for command in "${AUTORUN[@]}"; do
         log_msg "🕒 Autorun command executing: $command" "true"
         eval "$(printf '%s' "$command")" 2>>"$(current_log_file)" || {
-            log_msg "\n❗️ Last execution failure was from: $command (Initialisation Task)" "true"
+            log_msg "❗️ Last execution failure was from: $command (Initialisation Task)" "true"
             continue
         }
         log_msg "✅ Autorun command done: $command" "true"
