@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.9.1"
+export BISU_VERSION="7.9.2"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -248,7 +248,7 @@ quit() {
         fi
 
         eval "$command" 2>>"$(current_log_file)" &>/dev/null || {
-            log_msg "\n❗️ Error occurred when quit the process (pid: ${pid})." "true"
+            log_msg "\n❗️ Last execution failure was from: process termination, pid: ${pid} (Clean-up Task)" "true"
         } &
         trap "$original_sigterm" SIGTERM
     fi
@@ -580,6 +580,42 @@ normalise_string() {
         return 1
     }
 
+    return 0
+}
+
+# Function: string_join
+string_join() {
+    local array_name=$(trim "$1")
+    local quoter=$(trim "$2")
+
+    is_array "$array_name" || {
+        printf '%s' ""
+        return 1
+    }
+
+    local args_count=$(array_count "$array_name")
+    is_posi_int "$args_count" || {
+        printf '%s' ""
+        return 1
+    }
+
+    local params=""
+    local param=""
+
+    if [[ "$args_count" == 1 ]]; then
+        param=$(printf '%s' "$(array_get "current_args" 0)")
+        param="${quoter}${param}${quoter}"
+        return 0
+    fi
+
+    if is_posi_int "$argc"; then
+        for ((i = 0; i < $argc; i++)); do
+            param=$(array_get "current_args" $i)
+            params+=" ${quoter}${param}${quoter}"
+        done
+    fi
+
+    printf '%s' "$params"
     return 0
 }
 
@@ -1039,7 +1075,9 @@ remove_matched_lines() {
 
     # Check if any changes were made, and compare the files
     if compare_files "$file" "$tmp_file"; then
-        saferm "$tmp_file" || return 1
+        local base_dir=$(dirname "$tmp_file")
+        is_file "$tmp_file" || return 0
+        saferm "$tmp_file" "$base_dir" || return 1
     else
         move_file "$tmp_file" "$file" || return 1
     fi
@@ -1075,20 +1113,18 @@ exec_command() {
     [[ "$show_log" == "true" ]] && log_msg "🕒 Command executing: $command" "true"
     if [[ "$run_in_bg" == "false" ]]; then
         eval "$(printf '%s' "$command")" | tee -a -- "$(current_log_file)" || {
-            log_msg "❗️ Command failed: $command" "true"
+            log_msg "\n❗️ Last execution failure was from: $command" "true"
             return 1
         }
     else
         eval "$(printf '%s' "$command")" | tee -a -- "$(current_log_file)" &
-        local status=$(hanging_process $!)
-        if [[ "$status" != 0 ]]; then
-            [[ "$show_log" == "true" ]] && log_msg "❗️ Command (bg) failed: $command" "true"
+        if ! hanging_process $!; then
+            [[ "$show_log" == "true" ]] && log_msg "❗️ Command execution (bg) failed: $command" "true"
             return 1
         fi
-
     fi
 
-    [[ "$show_log" == "true" ]] && log_msg "✅ Command done: $command" "true"
+    [[ "$show_log" == "true" ]] && log_msg "✅ Command execution done: $command" "true"
     return 0
 }
 
@@ -1687,7 +1723,7 @@ saferm() {
 
     case "$timing" in
     "immediately")
-        exec_command "$rm_command" "true" || return 1
+        exec_command "$rm_command" "true" "true" || return 1
         ;;
     "when_quit")
         exec_when_quit "$rm_command" || return 1
@@ -1762,7 +1798,7 @@ array_count() {
         printf '%s' "false"
         return 1
     }
-    awk -v n="${#arr[@]}" 'BEGIN { print n }' &>/dev/null || {
+    awk -v n="${#arr[@]}" 'BEGIN { print n }' 2>/dev/null || {
         printf '%s' "false"
         return 1
     }
@@ -1800,14 +1836,13 @@ in_array() {
 array_copy() {
     local array_name=$(trim "$1")
     local var_name=$(trim "$2")
-    local force=$(trim "$3")
-    in_array "$force" "true" "false" || force="false"
 
-    if ! is_array "$array_name" || ! is_valid_var_name "$var_name" && [[ "$force" == "false" ]]; then
+    if ! is_array "$array_name" || ! is_valid_var_name "$var_name"; then
         return 1
     fi
 
     eval "$var_name=(\"\${$array_name[@]}\")" 2>/dev/null || return 1
+
     return 0
 }
 
@@ -1815,19 +1850,7 @@ array_copy() {
 normalise_array() {
     local array_name=$(trim "$1")
 
-    # Check if the array name has a valid array
-    [[ "${!array_name}" =~ \[.*\] ]] || return 1
-
-    # Extract array content into a local array
-    array_copy "$array_name" "arr"
-
-    # Normalize the array: trim spaces, deduplicate, sort
-    local input=$(printf '%s\n' "${arr[@]}" |
-        awk '{ gsub(/^[ \t]+|[ \t]+$/, ""); if (!seen[$0]++) print }' 2>/dev/null |
-        sort -u) || return 1
-
-    # Reassign normalized array to the original variable
-    array_copy "arr" "$array_name" || return 1
+    array_splice "$array_name" 0 0 || return 1
 
     return 0
 }
@@ -1847,7 +1870,7 @@ array_splice() {
     shift 3                       # Shift past first three arguments
 
     # Validate position and quantity
-    if ! is_posi_int "$position" && [ "$position" != "0" ] || ! is_posi_int "$quantity"; then
+    if ! is_nn_int "$position"; then
         eval "$array_name=()"
         return 1
     fi
@@ -1930,33 +1953,22 @@ array_set() {
 array_get() {
     local array_name=$(trim "$1")
     shift
-
     is_array "$array_name" || {
         printf '%s' ""
-        return 1
+        return 0
     }
 
-    local result
-    # Loop through all passed arguments (parameters)
+    local key val
     for key in "$@"; do
-        # Otherwise, treat it as a key for associative arrays
-        local key=$(trim "$key")
-        if [[ -z "$key" ]]; then
-            continue
-        fi
+        [ -z "$key" ] && continue
+        val=$(eval "printf '%s' \"\${${array_name}[${key}]}\"")
+        [ -z "$val" ] && continue
 
-        # Access specific element using eval and awk
-        eval "printf '%s\n' \"\${$array_name[$key]}\"" |
-            { awk 'NR==1 { printf "%s", $0 }' &>/dev/null; } || {
-            printf '%s' ""
-            return 1
-        }
-
+        printf '%s' "$val"
+        return 0
     done
 
-    # If no matching value found
-    printf '%s' ""
-    return 0
+    return 1
 }
 
 # Function to add an element to a specified global array from the bottom
@@ -3692,7 +3704,10 @@ random_string() {
     local uuid_rounds=$(printf '%s' "$byte_length / 32" | bc -l)
     uuid_rounds=$(normalise_number "$uuid_rounds")
     uuid_rounds=$(ceil "$uuid_rounds")
-    is_posi_int "$uuid_rounds" || return 1
+    is_posi_int "$uuid_rounds" || {
+        printf '%s' ""
+        return 1
+    }
 
     for ((i = 0; i < uuid_rounds; i++)); do
         uuid=$(uuidv4)
@@ -3782,7 +3797,7 @@ exit_with_commands() {
         error_exit "Invalid array name 'EXIT_WITH_COMMANDS' provided."
     fi
 
-    log_msg "🕒 Exit commands executing..." "true"
+    log_msg "🕒 BISU: Cleaning up..." "true"
     for val in "${EXIT_WITH_COMMANDS[@]}"; do
         val=$(trim "$val")
         if [ -z "$val" ]; then
@@ -3899,7 +3914,7 @@ atomic_mutex_lock() {
 
 # Function to acquire a lock to prevent multiple instances
 acquire_lock() {
-    lock_file=$(current_lock_file)
+    local lock_file=$(current_lock_file)
     [ -n "$lock_file" ] || error_exit "❗️ Failed to acquire 🔒 lock."
     exec 200>"$lock_file" || error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
     flock -n 200 || error_exit "🔒 An instance is running: $lock_file"
@@ -3910,25 +3925,25 @@ acquire_lock() {
 release_lock() {
     [ "$LOCK_HELD" -eq 1 ] || return 0
 
-    lock_file=$(current_lock_file)
-    log_msg "🕒 Releasing 🔒 lock_file: ${lock_file}" "true"
-
+    local lock_file=$(current_lock_file)
     is_file "$lock_file" || {
         log_msg "❗️ Invalid lock file to release." "true"
         return 1
     }
-    flock -u 200 && saferm "$lock_file" || {
+
+    flock -u 200
+
+    saferm "$lock_file" && hanging_process $! || {
         log_msg "❗️ Failed to remove lock file: ${lock_file}" "true"
         return 1
     }
 
-    log_msg "🕒 Released 🔒 lock_file: ${lock_file}" "true"
+    log_msg "✅ Released 🔒 lock_file: ${lock_file}" "true"
     return 0
 }
 
 # Trap function to handle script termination
 cleanup() {
-    log_msg "🕒 BISU: Cleaning up..." "true"
     exit_with_commands
 }
 
@@ -4061,7 +4076,7 @@ register_current_command() {
 get_args() {
     local key value param pos_index=0
     local emptyExpr="$EMPTY_EXPR" # Assign with 0x00 to distinguish empty from null
-    local args=$(current_args)
+    local args="$(current_args)"
 
     eval "set -- $(printf '%s ' "$args")" 2>/dev/null || return 1
 
@@ -4121,6 +4136,7 @@ get_args() {
 
 # Set bash signals
 set_signals() {
+    log_msg "🕒 BISU: Initialising..." "true"
     trap 'wait' SIGCHLD 2>/dev/null
     trap 'revert_title; cleanup; exit $?' EXIT SIGINT SIGTERM SIGHUP SIGQUIT 2>/dev/null
 }
@@ -4134,7 +4150,7 @@ autorun_start() {
     for command in "${AUTORUN[@]}"; do
         log_msg "🕒 Autorun command executing: $command" "true"
         eval "$(printf '%s' "$command")" 2>>"$(current_log_file)" || {
-            log_msg "\n❗️ Autorun command failed: $command" "true"
+            log_msg "\n❗️ Last execution failure was from: $command (Initialisation Task)" "true"
             continue
         }
         log_msg "✅ Autorun command done: $command" "true"
@@ -4158,26 +4174,23 @@ initialise() {
 
 # Execute a command when quit
 callfunc() {
-    get_args
-    local action=$(arr_get_val 1)
-    [[ "$action" == "callfunc" ]] || {
-        quit
-    }
-
-    [ $# -ge 1 ] || {
-        quit
-    }
-
     local current_args=("$(current_args)")
-    array_splice "current_args" 0 1
-    local func=$(array_get "current_args" 0)
+    normalise_array "current_args"
+    local action=$(array_get "current_args" 0)
+    action=$(normalise_string "$action")
+    [[ "$action" == "callfunc" ]] || quit
+
+    local func=$(array_get "current_args" 1)
     func=$(normalise_string "$func")
-    array_splice "current_args" 0 1
-    local params="${current_args[@]}"
+    local argc=$(array_count "current_args")
+    is_posi_int "$argc" || quit
 
     func_is_defined "$func" || {
         error_exit "Function '$func' does not exist."
     }
+
+    array_splice "current_args" 0 2
+    local params=$(string_join "current_args" '"')
 
     printf '%s\n' "$(eval "$func $params")" || error_exit "Function '$func' does not exist."
 }
