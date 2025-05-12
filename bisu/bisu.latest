@@ -1,11 +1,11 @@
 #!/bin/bash
 ############################################### BISU_START: Bash Internal Simple Utils ###############################################
-## Official Web Site: https://bisu.x-1.tech
+## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.10.0"
+export BISU_VERSION="7.10.1"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -3907,13 +3907,11 @@ atomic_mutex_lock() {
 on_signal_exit() {
     local exit_code=$?
     is_nn_int "$exit_code" || exit_code=1
+    revert_title
 
     if [[ "$LOCK_HELD" -eq 0 ]]; then
         exit_with_commands
     fi
-
-    revert_title
-    exit $exit_code
 }
 
 # set lock flag for flock
