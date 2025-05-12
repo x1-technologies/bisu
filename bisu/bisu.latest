@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.9.7"
+export BISU_VERSION="7.10.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -1109,10 +1109,8 @@ exec_command() {
         }
     else
         eval "$(printf '%s' "$command")" 1>/dev/null | tee -a -- "$(current_log_file)" &
-        if ! hanging_process $!; then
-            [[ "$show_log" == "true" ]] && log_msg "❗️ Command execution (bg) failed: $command" "true"
-            return 1
-        fi
+        pid=$!
+        disown %+ &>/dev/null
     fi
 
     [[ "$show_log" == "true" ]] && log_msg "✅ Command execution done: $command" "true"
@@ -3795,7 +3793,7 @@ exit_with_commands() {
         if [ -z "$val" ]; then
             continue
         fi
-        exec_command "$val" "false" "true"
+        exec_command "$val" "true" "true"
     done
 
     log_msg "⌛️ ${utility_name}: Quitting..." "true"
@@ -3844,6 +3842,7 @@ continuous_exec() {
         }
         eval "$func $args" &
         pid=$!
+        disown %+ &>/dev/null
         count=$((count + 1))
 
         while process_is_running "$pid"; do
@@ -3940,8 +3939,7 @@ release_lock() {
 
     local lock_file=$(current_lock_file)
     is_file "$lock_file" || {
-        log_msg "❗️ Invalid lock file to release." "true"
-        return 1
+        return 0
     }
 
     flock -u 200 && saferm "$lock_file" || {
