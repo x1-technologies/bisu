@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.9.6"
+export BISU_VERSION="7.9.7"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -74,12 +74,6 @@ UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.cc"}
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-12Z"}
 # Atomic mutex lock switch for single-threaded utilities
 ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
-# Execution interval of per exit command
-EXIT_COMMAND_INTERVAL=${EXIT_COMMAND_INTERVAL:-0.1}
-# Execution time limit of per exit command
-EXIT_COMMAND_TIMEOUT=${EXIT_COMMAND_TIMEOUT:-30}
-# Execution retry times of per exit command
-EXIT_COMMAND_RETRY=${EXIT_COMMAND_RETRY:-2}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
@@ -196,7 +190,6 @@ is_executable() {
 # Function to check if the process is running
 process_is_running() {
     local pid=$(trim "$1")
-    sleep 0.1
     is_nn_int "$pid" || return 1
     kill -0 "$pid" &>/dev/null || return 1
     return 0
