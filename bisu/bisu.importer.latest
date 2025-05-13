@@ -1,24 +1,29 @@
 #!/bin/bash
 ######################################################## BISU Importer Start #########################################################
-## Official Web Site: https://bisu.x-1.tech
-## Version: 20250512Z1
+## Official Web Site: https://bisu.cc
+## Version: 20250513Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION=">=7.5.0"
+export THIS_REQUIRED_BISU_VERSION=">=7.12.0"
 export BISU_PATH="/usr/local/sbin/bisu"
-## <required-script-files>
-export REQUIRED_SCRIPT_FILES=()
-## </required-script-files>
 
 ## <required-external-commands>
 export REQUIRED_EXTERNAL_COMMANDS=()
 ## </required-external-commands>
 
-## <auto-run>
+## <required-scripts>
+export REQUIRED_SCRIPTS=()
+## </required-scripts>
+
+## <actions-read-only>
+export ACTIONS_RO=()
+## </actions-read-only>
+
+## <auto-run-commands>
 export AUTORUN=()
-## </auto-run>
+## </auto-run-commands>
 
 ## <exit-with-commands>
 export EXIT_WITH_COMMANDS=()
