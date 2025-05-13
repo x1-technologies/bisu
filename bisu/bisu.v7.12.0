@@ -5,7 +5,7 @@
 ## Have a fresh installation for BISU with copy and paste the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="7.11.0"
+export BISU_VERSION="7.12.0"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -22,24 +22,30 @@ export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
 export LINE_BREAK_LENGTH=160
-# Required files
-REQUIRED_SCRIPT_FILES=(${REQUIRED_SCRIPT_FILES[@]:-})
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
     'getopt' 'awk' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq'
 )
-# Read-only actions avoiding AML lock
-export ACTIONS_RO=(
-    'version' 'info'
-)
 # Required external commands list
 REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
+# Required scripts
+export BISU_REQUIRED_SCRIPTS=()
+# Required scripts
+REQUIRED_SCRIPTS=(${REQUIRED_SCRIPTS[@]:-})
+# Read-only actions avoiding AML lock
+export BISU_ACTIONS_RO=(
+    'version' 'info' 'usage' 'doc' 'help'
+)
+# Read-only actions avoiding AML lock for user definitions
+ACTIONS_RO=(${ACTIONS_RO[@]:-})
+# Auto run commands
+export BISU_AUTORUN=(${BISU_AUTORUN[@]:-})
 # Auto run commands
 AUTORUN=(${AUTORUN[@]:-})
 # Exit with commands
+export BISU_EXIT_WITH_COMMANDS=()
+# Exit with commands
 EXIT_WITH_COMMANDS=(${EXIT_WITH_COMMANDS[@]:-})
-# Current Process ID
-export CURRENT_PID=""
 # Global Variables
 export ROOT_LOCK_FILE_DIR="/var/run"
 export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
@@ -50,6 +56,8 @@ export CURRENT_LOG_FILE_DIR=""                  # Current Log file dir
 export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file dir
 export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file dir
 export TARGET_PATH_PREFIX="/usr/local/sbin"     # Default target path for moving scripts
+# Current Process ID
+export CURRENT_PID=""
 # The current file path
 export CURRENT_FILE_PATH=""
 # The current file name
@@ -60,6 +68,8 @@ export USER_CONF_DIR=""
 export CURRENT_COMMAND=""
 # The current args by the actual script
 export CURRENT_ARGS=()
+# The action currently specified
+export CURRENT_ACTION=""
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
 # Error message prefix
@@ -75,7 +85,7 @@ UTILITY_VERSION=${UTILITY_VERSION:-"$BISU_VERSION"}
 # Set this utility's doc URI
 UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.cc"}
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-12Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-13Z"}
 # Atomic mutex lock switch for single-threaded utilities
 ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Debug Switch
@@ -254,8 +264,7 @@ quit() {
 
 # Dump
 dump() {
-    local msg=$(trim "$1")
-    output "$(printf '%s' "$msg")"
+    output "$(printf '%s ' "$@")"
     quit
 }
 
@@ -693,139 +702,60 @@ md5_sign() {
 
 # PHP-like function as its naming
 strpos() {
-    local string=$(trim "$1")
+    # Assign core args
+    local haystack="$1"
     local needle="$2"
     local offset="${3:-0}"
+    local ci=$(trim "$4")
+    in_array "$ci" "true" "false" || ci="false"
+    local reverse=$(trim "$5")
+    in_array "$reverse" "true" "false" || reverse="false"
 
-    # Check if needle is empty
-    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
+    [ -n "$haystack" ] && [ -n "$needle" ] || {
         printf '%s' "false"
         return 1
-    fi
-
-    # Handle the case where offset is provided
-    if [ "$offset" -gt 0 ]; then
-        string="${string:$offset}"
-    fi
-
-    # Use grep to find the position and return the result
-    local position
-    position=$(printf '%s' "$string" | grep -b -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
-
-    # Check if a position was found
-    if [ -z "$position" ]; then
+    }
+    is_nn_int "$offset" || {
         printf '%s' "false"
         return 1
-    fi
+    }
 
-    printf '%s' "$position"
+    [ "$offset" -gt 0 ] && haystack=${haystack:$offset}
+
+    local grep_opt=""
+    [[ "$ci" == "true" ]] && grep_opt="-i"
+
+    pos=$(printf '%s' "$haystack" |
+        grep -abo $grep_opt -- "$needle" 2>/dev/null |
+        cut -d: -f1 |
+        { [[ "$reverse" == "true" ]] && tail -n1 || head -n1; })
+
+    is_nn_int "$pos" || {
+        printf '%s' "false"
+        return 1
+    }
+
+    [ "$offset" -gt 0 ] && pos=$((pos + offset))
+
+    printf '%s' "$pos"
     return 0
 }
 
 # PHP-like function as its naming
 stripos() {
-    local string="$1"
-    local needle="$2"
-    local offset="${3:-0}"
-
-    # Check if needle is empty
-    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
-        printf '%s' "false"
-        return 1
-    fi
-
-    # Handle the case where offset is provided
-    if [ "$offset" -gt 0 ]; then
-        string="${string:$offset}"
-    fi
-
-    # Use grep to find the position and return the result
-    local position
-    position=$(printf '%s' "$string" | grep -ib -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
-
-    # Check if a position was found
-    if [ -z "$position" ]; then
-        printf '%s' "false"
-        return 1
-    fi
-
-    printf '%s' "$position"
+    strpos "$1" "$2" "$3" "true" "false" || return 1
     return 0
 }
 
 # PHP-like function as its naming
 strrpos() {
-    local string="$1"
-    local needle="$2"
-    local offset="${3:-0}"
-
-    # Check if needle is empty
-    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
-        printf '%s' "false"
-        return 1
-    fi
-
-    # Handle the case where offset is provided
-    if [ "$offset" -gt 0 ]; then
-        string="${string:$offset}"
-    fi
-
-    # Reverse the string to find the last occurrence
-    local reversed_string
-    reversed_string=$(printf '%s' "$string" | rev)
-
-    # Use grep to find the position and return the result (search in the reversed string)
-    local position
-    position=$(printf '%s' "$reversed_string" | grep -ib -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
-
-    # Check if a position was found
-    if [ -z "$position" ]; then
-        printf '%s' "false"
-        return 1
-    fi
-
-    # Adjust the position to account for the reversed string
-    local adjusted_position=$((${#string} - $position - ${#needle}))
-
-    printf '%s' "$adjusted_position"
+    strpos "$1" "$2" "$3" "false" "true" || return 1
     return 0
 }
 
 # PHP-like function as its naming
-strripos() {
-    local string="$1"
-    local needle="$2"
-    local offset="${3:-0}"
-
-    # Check if needle is empty
-    if [ -z "$needle" ] || ! is_nn_int "$offset"; then
-        printf '%s' "false"
-        return 1
-    fi
-
-    # Handle the case where offset is provided
-    if [ "$offset" -gt 0 ]; then
-        string="${string:$offset}"
-    fi
-
-    # Reverse the string to find the last occurrence (case-insensitive search)
-    local reversed_string
-    reversed_string=$(printf '%s' "$string" | rev)
-
-    # Use grep to find the position (case-insensitive search in reversed string)
-    local position
-    position=$(printf '%s' "$reversed_string" | grep -iob -o "$needle" 2>/dev/null | head -n 1 | cut -d: -f1)
-
-    # Check if a position was found
-    if [ -z "$position" ]; then
-        printf '%s' "false"
-        return 1
-    fi
-
-    # Adjust the position to account for the reversed string
-    local adjusted_position=$((${#string} - $position - ${#needle}))
-
-    printf '%s' "$adjusted_position"
+stripos() {
+    strpos "$1" "$2" "$3" "true" "true" || return 1
     return 0
 }
 
@@ -1834,7 +1764,7 @@ array_copy() {
         return 1
     fi
 
-    eval "$var_name=(\"\${$array_name[@]}\")" 2>/dev/null || return 1
+    eval "$var_name=(\"\${$array_name[@]}\")" &>/dev/null || return 1
 
     return 0
 }
@@ -1844,6 +1774,7 @@ normalise_array() {
     local array_name=$(trim "$1")
 
     array_splice "$array_name" 0 0 || return 1
+    array_copy "$array_name" "$array_name" || return 1
 
     return 0
 }
@@ -2144,23 +2075,31 @@ array_shift() {
 }
 
 # Function: array_merge
-# Description: Function to merge 2 global arrays
+# Description: Function to merge 2 arrays into arg3, according to arg3's array name
 array_merge() {
-    local array1="$1" array2="$2" result="$3"
-    if [[ $# -ne 3 ]] || ! is_array "$array1" || ! is_array "$array2" || ! is_array "$array3"; then
-        error_log "Requires exactly three arguments (two array names and one result name)."
+    local src1=$(trim "$1")
+    local src2=$(trim "$2")
+    local dest=$(trim "$3")
+
+    if ! is_array "$src1" || ! is_array "$src2" || ! is_valid_var_name "$dest"; then
         return 1
     fi
 
-    # Initialize result array as empty
-    eval "$result=()"
+    eval "src1_values=(\"\${$src1[@]}\") src2_values=(\"\${$src2[@]}\")
+        dest_values=(\"\${$dest[@]}\")" &>/dev/null || return 1
 
-    # Add unique elements from array1 and array2
-    for array in "$array1" "$array2"; do
-        eval "for item in \${$array[@]}; do
-        [[ ! \${result[@]} =~ \"\$item\" ]] && result+=(\"\$item\")
-    done"
+    for val in "${src1_values[@]}" "${src2_values[@]}"; do
+        found=0
+        for existing in "${dest_values[@]}"; do
+            [ "$val" = "$existing" ] && found=1 && break
+        done
+        [ "$found" -eq 0 ] && dest_values+=("$val")
     done
+
+    # One final push into destination
+    eval "$dest=(\"\${dest_values[@]}\")" &>/dev/null || return 1
+
+    return 0
 }
 
 # Function: array_unique
@@ -3737,19 +3676,12 @@ random_string() {
 
 # Function to check existence of external commands
 check_commands_list() {
-    local array_name=$(trim "$1")
     local invalid_commands_count=0
     local invalid_commands=""
 
-    is_array "$array_name" || error_exit "Invalid array: '$array_name' provided."
+    is_array "BISU_REQUIRED_EXTERNAL_COMMANDS" || error_exit "Invalid array of BISU_REQUIRED_EXTERNAL_COMMANDS."
 
-    if ! array_unique "$array_name"; then
-        error_exit "Invalid array name '$array_name' provided."
-    fi
-
-    array_copy "$array_name" "vals" || error_exit "Failed to check dependent commands."
-
-    for val in "${vals[@]}"; do
+    for val in "${BISU_REQUIRED_EXTERNAL_COMMANDS[@]}"; do
         # Check if the command exists
         if ! command_exists "$val"; then
             ((invalid_commands_count++))
@@ -3786,13 +3718,13 @@ hanging_process() {
 
 # Function to clean files when exit
 exit_with_commands() {
-    if ! is_array "EXIT_WITH_COMMANDS"; then
-        error_exit "Invalid array name 'EXIT_WITH_COMMANDS' provided."
+    if ! is_array "BISU_EXIT_WITH_COMMANDS"; then
+        error_exit "Invalid array name 'BISU_EXIT_WITH_COMMANDS' provided."
     fi
 
     local utility_name=$(current_utility_name)
     log_msg "🕒 ${utility_name}: cleaning up..." "true"
-    for val in "${EXIT_WITH_COMMANDS[@]}"; do
+    for val in "${BISU_EXIT_WITH_COMMANDS[@]}"; do
         val=$(trim "$val")
         if [ -z "$val" ]; then
             continue
@@ -3988,12 +3920,12 @@ import_script() {
 
 # Automatically import required scripts
 load_required_scripts() {
-    array_unique "REQUIRED_SCRIPT_FILES"
-    if ! is_array "REQUIRED_SCRIPT_FILES"; then
-        error_exit "Invalid REQUIRED_SCRIPT_FILES array."
+    array_unique "BISU_REQUIRED_SCRIPTS"
+    if ! is_array "BISU_REQUIRED_SCRIPTS"; then
+        error_exit "Invalid BISU_REQUIRED_SCRIPTS array."
     fi
 
-    for script in "${REQUIRED_SCRIPT_FILES[@]}"; do
+    for script in "${BISU_REQUIRED_SCRIPTS[@]}"; do
         import_script "$script"
     done
 
@@ -4003,7 +3935,7 @@ load_required_scripts() {
 # Execute a command when quit
 exec_when_quit() {
     local command=$(trim "$1")
-    array_unique_push "EXIT_WITH_COMMANDS" "$command" || {
+    array_unique_push "BISU_EXIT_WITH_COMMANDS" "$command" || {
         return 1
     }
     return 0
@@ -4057,7 +3989,29 @@ register_current_command() {
 
     # normalisation of arrays allowed to manually modify them
     normalise_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
+    normalise_array "REQUIRED_EXTERNAL_COMMANDS"
+    array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS"
+    array_unique "BISU_REQUIRED_EXTERNAL_COMMANDS"
+
+    normalise_array "BISU_REQUIRED_SCRIPTS"
+    normalise_array "REQUIRED_SCRIPTS"
+    array_merge "BISU_REQUIRED_SCRIPTS" "REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS"
+    array_unique "BISU_REQUIRED_SCRIPTS"
+
+    normalise_array "BISU_ACTIONS_RO"
     normalise_array "ACTIONS_RO"
+    array_merge "BISU_ACTIONS_RO" "ACTIONS_RO" "BISU_ACTIONS_RO"
+    array_unique "BISU_ACTIONS_RO"
+
+    normalise_array "BISU_AUTORUN"
+    normalise_array "AUTORUN"
+    array_merge "BISU_AUTORUN" "AUTORUN" "BISU_AUTORUN"
+    array_unique "BISU_AUTORUN"
+
+    normalise_array "BISU_EXIT_WITH_COMMANDS"
+    normalise_array "EXIT_WITH_COMMANDS"
+    array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS"
+    array_unique "BISU_EXIT_WITH_COMMANDS"
 
     CURRENT_FILE_PATH=$(normalise_string "$current_file_path")
     CURRENT_COMMAND="$CURRENT_FILE_PATH"
@@ -4070,11 +4024,7 @@ register_current_command() {
         USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
 
-    array_unique_push "AUTORUN" '\"set_signals\"'
-    if atomic_mutex_lock; then
-        array_unique_push "AUTORUN" '\"acquire_lock\"'
-        array_unique_push "EXIT_WITH_COMMANDS" '\"release_lock\"'
-    fi
+    array_unique_push "BISU_AUTORUN" '\"set_signals\"'
 }
 
 # Get args and store them in an associative array
@@ -4139,12 +4089,31 @@ get_args() {
     return 0
 }
 
+# define current action
+set_action() {
+    local action=$(trim "$1")
+    if [[ "$action" == "" ]] || is_valid_var_name "$action"; then
+        CURRENT_ACTION="$action"
+    fi
+    return 0
+}
+
+# set mutex lock
+set_lock() {
+    local force=$(trim "$1")
+    in_array "$force" "true" "false" || force="false"
+
+    if [[ "$force" == "true" ]] || atomic_mutex_lock; then
+        array_unique_push "BISU_AUTORUN" '\"acquire_lock\"'
+        array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"release_lock\"'
+    fi
+}
+
 # check dependencies
 check_dependencies() {
     check_bash_version
     check_bisu_version
-    check_commands_list "BISU_REQUIRED_EXTERNAL_COMMANDS"
-    check_commands_list "REQUIRED_EXTERNAL_COMMANDS"
+    check_commands_list
     load_required_scripts
 }
 
@@ -4158,11 +4127,11 @@ set_signals() {
 
 # Start autorun list
 autorun_start() {
-    if ! is_array "AUTORUN"; then
-        error_exit "Invalid AUTORUN array."
+    if ! is_array "BISU_AUTORUN"; then
+        error_exit "Invalid BISU_AUTORUN array."
     fi
 
-    for command in "${AUTORUN[@]}"; do
+    for command in "${BISU_AUTORUN[@]}"; do
         log_msg "🕒 Autorun command executing: $command" "true"
         eval "$(printf '%s' "$command")" 2>>"$(current_log_file)" || {
             log_msg "❗️ Last execution failure was from: $command (Initialisation Task)" "true"
@@ -4180,7 +4149,7 @@ initialise() {
     register_current_command $(printf '%s ' "$@")
     # order#2 check dependencies
     check_dependencies
-    # order#3 integrate operations needed
+    # order#3 integrate operations
     integrated_ops $(printf '%s ' "$@")
     # order#4 autorun items start
     autorun_start
@@ -4238,11 +4207,25 @@ last_release_date() {
 # Integrated operations
 integrated_ops() {
     get_args
-    local param1=$(arr_get_val 1)
+    local arg1=$(arr_get_val 1)
+    local action="$arg1"
+    if [ -z "$action" ]; then
+        local param1=$(trim "$2")
+        if string_starts_with "$param1" "--"; then
+            param1=$(substr "$param1" 2)
+        elif string_starts_with "$param1" "-"; then
+            param1=$(substr "$param1" 1)
+        fi
+
+        if [ -n "$param1" ] && [ -n param1=$(arr_get_val "$param1") ]; then
+            action="$param1"
+        fi
+        [[ "$action" == "$EMPTY_EXPR" ]] && action=""
+    fi
+
     local option_force=$(arr_get_val "f" "force")
     local option_yes=$(arr_get_val "y" "yes")
     local option_version=$(arr_get_val "v" "version")
-    local action="$param1"
     local force="false"
     local confirmed="false"
     local choice="y"
@@ -4252,18 +4235,14 @@ integrated_ops() {
     local confirm_msg="Are you sure to install $current_filename?"
     local is_matched_action="true"
 
-    [[ -z "$action" ]] && action="$option_force"
-    [[ -z "$action" ]] && [[ "$option_version" == "$EMPTY_EXPR" ]] && action="version"
-    [[ "$action" == "$EMPTY_EXPR" ]] && action=""
-
+    set_action "$action"
     # Read-only actions are not meant to have a mutex lock
-    if [[ "$ATOMIC_MUTEX_LOCK" == "true" ]]; then
-        array_copy "ACTIONS_RO" "actions_ro"
-        array_unique_unshift "actions_ro" "$action"
-        if in_array $(printf '%s ' "$actions_ro"); then
+    if atomic_mutex_lock; then
+        if in_array "$action" $(printf '%s ' "${BISU_ACTIONS_RO[@]}"); then
             ATOMIC_MUTEX_LOCK="false"
         fi
     fi
+    set_lock
 
     case "$action" in
     "v" | "version")
@@ -4354,5 +4333,5 @@ install_script() {
 }
 
 # Initialisation
-initialise $(printf '"%s" ' "$0" "$@")
+initialise $(printf '%s ' "$0" "$@")
 ############################################################## BISU_END ##############################################################
