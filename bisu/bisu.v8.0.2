@@ -1,13 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ############################################### BISU_START: Bash Internal Simple Utils ###############################################
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="8.0.1"
+export BISU_VERSION="8.0.2"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-18Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-20Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -34,7 +34,7 @@ export BISU_FIFO_DIR="/tmp/bisu_fifo"
 export SAFE_FORK_LIMIT=16
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
-    'bash' 'getopt' 'awk' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'mkfifo'
+    'bash' 'getopt' 'awk' 'grep' 'mapfile' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'mkfifo'
 )
 # Required external commands list
 REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
@@ -1524,7 +1524,7 @@ get_file_info() {
         return 1
     fi
 
-    arr_reset || return 1
+    dict_reset || return 1
 
     local filename=""
     local file_ext=""
@@ -1556,14 +1556,14 @@ get_file_info() {
         filename=""
     fi
 
-    arr_set_val "FILE_NAME" "$filename"
-    arr_set_val "FILE_EXT" "$file_ext"
-    arr_set_val "FILE_PATH" "$file_path"
-    arr_set_val "FILE_DIR" "$file_dir"
-    arr_set_val "FILE_EXISTS" "$file_exists"
-    arr_set_val "FILE_IS_DIR" "$file_is_dir"
-    arr_set_val "FILE_IS_FILE" "$file_is_file"
-    arr_set_val "FILE_HAS_EXT" "$file_has_ext"
+    dict_set_val "FILE_NAME" "$filename"
+    dict_set_val "FILE_EXT" "$file_ext"
+    dict_set_val "FILE_PATH" "$file_path"
+    dict_set_val "FILE_DIR" "$file_dir"
+    dict_set_val "FILE_EXISTS" "$file_exists"
+    dict_set_val "FILE_IS_DIR" "$file_is_dir"
+    dict_set_val "FILE_IS_FILE" "$file_is_file"
+    dict_set_val "FILE_HAS_EXT" "$file_has_ext"
 
     return 0
 }
@@ -1611,14 +1611,14 @@ cp_p() {
     fi
 
     get_file_info "$target_path"
-    local filename=$(arr_get_val "FILE_NAME")
-    local file_path=$(arr_get_val "FILE_PATH")
-    local file_ext=$(arr_get_val "FILE_EXT")
-    local file_dir=$(arr_get_val "FILE_DIR")
-    local file_exists=$(arr_get_val "FILE_EXISTS")
-    local file_is_dir=$(arr_get_val "FILE_IS_DIR")
-    local file_is_file=$(arr_get_val "FILE_IS_FILE")
-    local file_has_ext=$(arr_get_val "FILE_HAS_EXT")
+    local filename=$(dict_get_val "FILE_NAME")
+    local file_path=$(dict_get_val "FILE_PATH")
+    local file_ext=$(dict_get_val "FILE_EXT")
+    local file_dir=$(dict_get_val "FILE_DIR")
+    local file_exists=$(dict_get_val "FILE_EXISTS")
+    local file_is_dir=$(dict_get_val "FILE_IS_DIR")
+    local file_is_file=$(dict_get_val "FILE_IS_FILE")
+    local file_has_ext=$(dict_get_val "FILE_HAS_EXT")
 
     target_path="$file_path"
     target_dir="$file_dir"
@@ -1818,12 +1818,16 @@ in_array() {
 array_copy() {
     local array_name=$(trim "$1")
     local var_name=$(trim "$2")
+    in_array "$domain" "local" "global" || domain="local"
 
     if ! is_array "$array_name" || ! is_valid_var_name "$var_name"; then
         return 1
     fi
 
-    eval "$var_name=(\"\${$array_name[@]}\")" &>/dev/null || return 1
+    local -a temp_array=()
+    eval "mapfile -t temp_array < <(printf '%s\0' \"\${${array_name}[@]}\" 2>/dev/null | xargs -0 -n1 printf '%s\n' 2>/dev/null)"
+    eval "$var_name=(\"\${temp_array[@]}\")" &>/dev/null || return 1
+    [[ "$domain" == "global" ]] && declare -ga "$var_name"
 
     return 0
 }
@@ -1841,69 +1845,85 @@ normalise_array() {
 # Function: array_splice
 # Description: To remove elements from an array similar to PHP's array_splice() function.
 array_splice() {
-    # Validate input parameters
+    # Validate minimum arguments
     if [ $# -lt 3 ]; then
         eval "$1=()"
         return 1
     fi
 
-    local array_name=$(trim "$1") # Original array variable name
-    local position=$(trim "$2")   # Start position for removal
-    local quantity=$(trim "$3")   # Number of elements to remove
-    shift 3                       # Shift past first three arguments
+    local array_name=$(trim "$1") # original array name
+    local position=$(trim "$2")   # removal start pos (0-based)
+    local quantity=$(trim "$3")   # removal count
+    shift 3                       # shift to get splice insertion elements
 
-    # Validate position and quantity
-    if ! is_nn_int "$position"; then
+    # Validate position and quantity (position >= 0, quantity >= 0)
+    if ! is_nn_int "$position" || ! is_nn_int "$quantity"; then
         eval "$array_name=()"
         return 1
     fi
 
-    # Retrieve the original array length and elements
+    # Get array length
     eval "local len=\${#$array_name[@]}"
     if [ "$len" -eq 0 ]; then
         eval "$array_name=()"
         return 1
     fi
 
-    eval "local array_str=\"\${$array_name[*]}\""
-    if [ -z "$array_str" ]; then
-        eval "$array_name=()"
-        return 1
+    # Correct negative or out-of-range position:
+    # If position >= len, removal is noop (just assign original array)
+    if [ "$position" -ge "$len" ]; then
+        return 0
     fi
 
-    # Use awk to splice the array with newline as separator
+    # Correct quantity to not exceed array length from position
+    if [ "$((position + quantity))" -gt "$len" ]; then
+        quantity=$((len - position))
+    fi
+
+    # Dump array elements separated by newline (safe for spaces)
+    # Use printf with index expansion
+    eval "local array_dump=\$(printf '%s\n' \"\${$array_name[@]}\")"
+
+    # Use awk to splice the array
+    # awk uses 1-based indexing, so adjust position +1
     local new_array
-    new_array=$(printf '%s\n' "$array_str" | awk -v pos="$position" -v qty="$quantity" '
-        BEGIN { OFS="\n" }
+    new_array=$(printf '%s\n' "$array_dump" | awk -v pos=$((position + 1)) -v qty=$quantity '
         {
-            n = split($0, a, " ");
-            if (pos >= n) exit 1;
-            for (i = 1; i <= n; i++) {
-                if (i < pos + 1 || i >= pos + 1 + qty) {
-                    print a[i]
-                }
-            }
-        }' 2>/dev/null)
+            # Print elements before pos
+            if (NR < pos) print $0;
+            # Skip elements from pos to pos+qty-1
+            else if (NR >= pos + qty) print $0;
+        }
+    ')
 
-    # Check if awk failed or output is empty
-    if [ $? -ne 0 ] || [ -z "$new_array" ]; then
+    # Check awk success and output not empty (empty allowed if all removed)
+    if [ $? -ne 0 ]; then
         eval "$array_name=()"
         return 1
     fi
 
-    # Build the array from newline-separated input
-    local temp_array=()
-    while IFS= read -r line || [ -n "$line" ]; do
-        # Skip empty lines but include last line if not empty
-        [ -z "$line" ] && continue
-        temp_array+=("$line")
-    done <<<"$new_array" || {
-        eval "$array_name=()"
-        return 1
-    }
+    # Assign back to array safely without loop by readarray (bash5 supports readarray)
+    # but for better POSIX compliance, we do this with mapfile/readarray only if available
+    # Otherwise, we fallback to eval with splitting on newline (rare case)
 
-    # Assign back to original array
-    array_copy "temp_array" "$array_name" || return 1
+    # Clear original array first
+    eval "$array_name=()"
+
+    # Use readarray if available for simplicity (bash5 has it)
+    if type readarray >/dev/null 2>&1; then
+        # readarray reads lines into array var
+        # use a temp name to avoid name collision
+        local temp_array
+        IFS= readarray -t temp_array <<<"$new_array"
+        # Assign temp_array back to original array by eval
+        eval "$array_name=(\"\${temp_array[@]}\")"
+    else
+        # fallback: eval split on newline
+        # careful: convert newlines to space-safe elements
+        local IFS=$'\n'
+        eval "$array_name=( $new_array )"
+    fi
+
     return 0
 }
 
@@ -2082,7 +2102,7 @@ array_unique_unshift() {
 }
 
 # Function: array_pop
-# Accepts: global array named 'input_array'
+# Accepts: array's array_name as its naming
 # Returns: last value via stdout, modifies input_array
 # Exits: 0 if success, 1 if failure (empty array)
 array_pop() {
@@ -2090,46 +2110,49 @@ array_pop() {
     local count=$(array_count "$array_name")
 
     if ! is_posi_int "$count"; then
+        printf ''
         return 1
     fi
 
-    array_copy "$array_name" "array" || {
+    local last_index=$((count - 1))
+    local val=$(array_get "$array_name" "$last_index") || {
+        printf ''
         return 1
     }
 
-    count=$((count - 1))
-    array_splice "array" $count 1 || {
-        return 1
-    }
-    array_copy "array" "$array_name" || {
+    array_splice "$array_name" "$last_index" 1 || {
+        printf ''
         return 1
     }
 
+    printf '%s' "$val"
     return 0
 }
 
-# Function: array_shift: Shift first value from global input_array[]
-# OUTPUT: stdout = first value
-# RETURN: 0 on success, 1 if empty
+# Function: array_shift
+# Accepts: array's array_name as its naming
+# Returns: first value via stdout, modifies input_array
+# Exits: 0 if success, 1 if failure (empty array)
 array_shift() {
     local array_name=$(trim "$1")
     local count=$(array_count "$array_name")
 
     if ! is_posi_int "$count"; then
+        printf ''
         return 1
     fi
 
-    array_copy "$array_name" "array" || {
+    local val=$(array_get "$array_name" 0) || {
+        printf ''
         return 1
     }
 
-    array_splice "array" 0 1 || {
-        return 1
-    }
-    array_copy "array" "$array_name" || {
+    array_splice "$array_name" 0 1 || {
+        printf ''
         return 1
     }
 
+    printf '%s' "$val"
     return 0
 }
 
@@ -2176,7 +2199,7 @@ array_unique() {
 }
 
 # Function to dynamically set or update a key-value pair for the common array
-arr_set_val() {
+dict_set_val() {
     local key=$(trim "$1")
     local value=$(trim "$2")
 
@@ -2222,7 +2245,7 @@ arr_set_val() {
 }
 
 # Function to access elements for the common associative array and looping search for the first populated value
-arr_get_val() {
+dict_get_val() {
     local idx search_key
 
     if ! isset "$_CK" || ! is_array "$_CK"; then
@@ -2249,7 +2272,7 @@ arr_get_val() {
 }
 
 # Function to reset the common associative array
-arr_reset() {
+dict_reset() {
     if ! isset "$_CK" || ! is_array "$_CK"; then
         return 1
     fi
@@ -3191,7 +3214,7 @@ yaml_to_array() {
     fi
 
     # Reset the array first
-    arr_reset || return 1
+    dict_reset || return 1
 
     # Read the input line by line
     while IFS=':' read -r key value; do
@@ -3203,7 +3226,7 @@ yaml_to_array() {
         [ -z "$key" ] && continue
 
         # Set the key-value pair
-        arr_set_val "$key" "$value" || return 1
+        dict_set_val "$key" "$value" || return 1
     done <<<"$input" || return 1
 
     return 0
@@ -3220,7 +3243,7 @@ json_to_array() {
     fi
 
     # Reset the array first
-    arr_reset || return 1
+    dict_reset || return 1
 
     # Read the input line by line
     while IFS= read -r line; do
@@ -3245,7 +3268,7 @@ json_to_array() {
             [ -z "$key" ] && continue
 
             # Set the key-value pair
-            arr_set_val "$key" "$value" || return 1
+            dict_set_val "$key" "$value" || return 1
         fi
     done <<<"$input" || return
 
@@ -3410,13 +3433,13 @@ get_url_info() {
         encoded_url="$scheme://$domain$encoded_req_path"
     fi
 
-    arr_reset || return 1
-    arr_set_val "URL_SCHEME" "$scheme"
-    arr_set_val "URL_DOMAIN" "$domain"
-    arr_set_val "UNENCODED_REQ_PATH" "$unencoded_req_path"
-    arr_set_val "UNENCODED_URL" "$unencoded_url"
-    arr_set_val "ENCODED_REQ_PATH" "$encoded_req_path"
-    arr_set_val "ENCODED_URL" "$encoded_url"
+    dict_reset || return 1
+    dict_set_val "URL_SCHEME" "$scheme"
+    dict_set_val "URL_DOMAIN" "$domain"
+    dict_set_val "UNENCODED_REQ_PATH" "$unencoded_req_path"
+    dict_set_val "UNENCODED_URL" "$unencoded_url"
+    dict_set_val "ENCODED_REQ_PATH" "$encoded_req_path"
+    dict_set_val "ENCODED_URL" "$encoded_url"
 
     return 0
 }
@@ -3520,11 +3543,11 @@ reliable_curl() {
     fi
 
     get_url_info "$url"
-    url=$(arr_get_val "ENCODED_URL")
-    local unencoded_req_path=$(arr_get_val "UNENCODED_REQ_PATH")
-    local unencoded_url=$(arr_get_val "UNENCODED_URL")
-    local encoded_req_path=$(arr_get_val "ENCODED_REQ_PATH")
-    local encoded_url=$(arr_get_val "ENCODED_URL")
+    url=$(dict_get_val "ENCODED_URL")
+    local unencoded_req_path=$(dict_get_val "UNENCODED_REQ_PATH")
+    local unencoded_url=$(dict_get_val "UNENCODED_URL")
+    local encoded_req_path=$(dict_get_val "ENCODED_REQ_PATH")
+    local encoded_url=$(dict_get_val "ENCODED_URL")
     local url_params="$unencoded_req_path"
     local url_params_json=$(urlparams_to_json "$url_params")
 
@@ -4046,10 +4069,10 @@ separate_command() {
         return 1
     fi
 
-    arr_reset || return 1
+    dict_reset || return 1
 
-    arr_set_val "CURRENT_COMMAND" "$cmd"
-    arr_set_val "CURRENT_ARGS" "$params"
+    dict_set_val "CURRENT_COMMAND" "$cmd"
+    dict_set_val "CURRENT_ARGS" "$params"
 
     return 0
 }
@@ -4122,7 +4145,7 @@ get_args() {
     eval "set -- $(printf '%s ' "$args")" 2>/dev/null || return 1
 
     # Reset associative array or fail if no args
-    [ $# -gt 0 ] && arr_reset || return 1
+    [ $# -gt 0 ] && dict_reset || return 1
 
     while [ $# -gt 0 ]; do
         param="$1"
@@ -4135,7 +4158,7 @@ get_args() {
             # Multiple short options (-yf → -y + -f)
             while [ -n "$key" ]; do
                 single_opt="${key:0:1}"
-                arr_set_val "$single_opt" "$emptyExpr"
+                dict_set_val "$single_opt" "$emptyExpr"
                 key="${key:1}"
             done
             ;;
@@ -4151,7 +4174,7 @@ get_args() {
             else
                 value="$emptyExpr"
             fi
-            arr_set_val "$key" "$value"
+            dict_set_val "$key" "$value"
             ;;
 
         # Explicit separator "--"
@@ -4163,14 +4186,14 @@ get_args() {
         # Positional arguments
         *)
             pos_index=$((pos_index + 1))
-            arr_set_val "$pos_index" "$param"
+            dict_set_val "$pos_index" "$param"
             ;;
         esac
 
         shift
     done
 
-    arr_set_val "_argc" "$pos_index"
+    dict_set_val "_argc" "$pos_index"
 
     return 0
 }
@@ -4458,10 +4481,10 @@ safe_fork_cleanup() {
     find "$fifo_dir" -type p -exec bash -c '
         for fifo; do
             if ! fuser -s "$fifo" 2>/dev/null; then
-            rm -f -- "$fifo" 2>/dev/null
+                saferm "$fifo" 2>/dev/null
             fi
         done
-        ' bash {} + 2>/dev/null || return 1
+    ' bash {} + 2>/dev/null || return 1
     return 0
 }
 
@@ -4601,7 +4624,7 @@ last_release_date() {
 # Integrate operations
 integrate_ops() {
     get_args
-    local parg1=$(arr_get_val 1)
+    local parg1=$(dict_get_val 1)
 
     local action="$parg1"
     if [ -z "$action" ]; then
@@ -4612,7 +4635,7 @@ integrate_ops() {
             parg1=$(substr "$parg1" 1 1)
         fi
         # recheck to ensure the param
-        if [ -n "$parg1" ] && [ -n parg1=$(arr_get_val "$parg1") ]; then
+        if [ -n "$parg1" ] && [ -n parg1=$(dict_get_val "$parg1") ]; then
             action="$parg1"
         fi
         [[ "$action" == "$EMPTY_EXPR" ]] && action=""
@@ -4621,9 +4644,9 @@ integrate_ops() {
     set_action "$action"
     autorun_start
 
-    local option_force=$(arr_get_val "f" "force")
-    local option_yes=$(arr_get_val "y" "yes")
-    local option_version=$(arr_get_val "v" "version")
+    local option_force=$(dict_get_val "f" "force")
+    local option_yes=$(dict_get_val "y" "yes")
+    local option_version=$(dict_get_val "v" "version")
     local current_file=$(current_file)
     local current_filename=$(current_filename)
     local target_path=$(target_path)
