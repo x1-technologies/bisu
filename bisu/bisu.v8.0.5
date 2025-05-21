@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="8.0.3"
+export BISU_VERSION="8.0.5"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-21Z"}
 # Minimal Bash Version
@@ -1814,6 +1814,30 @@ in_array() {
     return $?
 }
 
+# dump an array's elements into string
+array_dump() {
+    local array_name
+    array_name=$(trim "$1")
+
+    is_array "$array_name" || {
+        printf ''
+        return 1
+    }
+
+    local -a temp_array=()
+    eval "mapfile -t temp_array < <(printf '%s\0' \"\${${array_name}[@]}\" 2>/dev/null | xargs -0 -n1 printf '%s\n' 2>/dev/null)" || {
+        printf ''
+        return 1
+    }
+
+    eval "printf '%s\n' \"\${${temp_array}[@]}\"" 2>/dev/null || {
+        printf ''
+        return 1
+    }
+
+    return 0
+}
+
 # Array values as string
 array_copy() {
     local array_name=$(trim "$1")
@@ -1824,10 +1848,8 @@ array_copy() {
         return 1
     fi
 
-    local -a temp_array=()
-    eval "mapfile -t temp_array < <(printf '%s\0' \"\${${array_name}[@]}\" 2>/dev/null | xargs -0 -n1 printf '%s\n' 2>/dev/null)"
-    eval "$var_name=(\"\${temp_array[@]}\")" &>/dev/null || return 1
-    [[ "$domain" == "global" ]] && declare -ga "$var_name"
+    eval "$var_name=(\"\$(array_dump \"$array_name\")\")" &>/dev/null || return 1
+    [[ "$domain" == "global" ]] && (declare -ga "$var_name" || return 1) &>/dev/null
 
     return 0
 }
@@ -1839,7 +1861,7 @@ normalise_array() {
 }
 
 # Function: array_splice
-# Description: To remove elements from an array similar to PHP's array_splice() function.
+# Description: To remove elements from an array
 array_splice() {
     local array_name=$(trim "$1") # original array name
     local position=$(trim "$2")   # removal start pos (0-based)
@@ -1881,9 +1903,8 @@ array_splice() {
     }
 
     local temp_array
-    IFS= mapfile -t temp_array <<<"$new_array"
-    # Assign temp_array back to original array by eval
-    eval "$array_name=(\"\${temp_array[@]}\")" || {
+    IFS= mapfile -t temp_array <<<"$new_array" &>/dev/null
+    eval "$array_name=(\"\${temp_array[@]}\")" &>/dev/null || {
         eval "$array_name=()"
         return 1
     }
