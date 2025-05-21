@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.0.0"
+export BISU_VERSION="9.1.0"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-21Z"}
 # Minimal Bash Version
@@ -99,7 +99,7 @@ ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# BISU OOP implementation preparation expr
+# BISU's OOP implementation preparation expr
 : | sed -E '' 2>&- && class.sed() { sed -E "$@"; } || class.sed() { sed -r "$@"; }
 
 class.rename() {
@@ -711,7 +711,7 @@ current_lock_file() {
 # Get the variable for requirements if it is set.
 get_importer_var() {
     local var_name=$(str_replace $(strtoupper $(trim "$1")) "-" "_")
-    isset "$var_name" || error_exit "Undefined importer variable: $var_name; Please define it in the importer block <user-customised-variables>."
+    isset "$var_name" || error_exit "Undefined importer variable: $var_name; Please define it in the importer block <user-customized-variables>."
     printf '%s' "${!var_name}"
 }
 
@@ -771,8 +771,8 @@ substr() {
     return 0
 }
 
-# Description: Normalise a string
-normalise_string() {
+# Description: Normalize a string
+normalize_string() {
     local input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
@@ -782,7 +782,7 @@ normalise_string() {
     # Process input using `while IFS` and `awk` for robustness
     while IFS= read -r input_string; do
         # POSIX compliant 'awk' to remove leading/trailing spaces and quotes
-        normalised=$(printf '%s\n' "$input_string" | awk '
+        normalized=$(printf '%s\n' "$input_string" | awk '
             {
                 # Trim leading and trailing whitespace
                 gsub(/^[ \t]+|[ \t]+$/, "", $0);
@@ -793,18 +793,18 @@ normalise_string() {
                 # Replace multiple spaces/tabs with a single space
                 gsub(/[ \t]+/, " ", $0);
                 
-                print $0;  # Return the normalised string
+                print $0;  # Return the normalized string
             }
         ' 2>/dev/null)
 
-        # If the normalised string is empty, return empty
-        if [ -z "$normalised" ]; then
+        # If the normalized string is empty, return empty
+        if [ -z "$normalized" ]; then
             printf ''
             return 1
         fi
 
-        # Output the normalised string
-        printf '%s' "$normalised"
+        # Output the normalized string
+        printf '%s' "$normalized"
     done <<<"$input" || {
         printf ''
         return 1
@@ -849,13 +849,13 @@ string_join() {
     return 0
 }
 
-# Function: normalise_number
+# Function: normalize_number
 # Description: Normalizes a number string by removing unnecessary leading zeros,
 #              trailing zeros after decimal point, and unnecessary decimal point
-# Usage: normalise_number "number_string"
+# Usage: normalize_number "number_string"
 # Returns: Normalized number string, or empty string on failure
 # Exit status: 0 on success, 1 on failure
-normalise_number() {
+normalize_number() {
     # Validate number of arguments
     if [[ $# -ne 1 ]]; then
         printf ''
@@ -1258,7 +1258,7 @@ exec_command() {
     local phrase=$(trim "$1")
     local args=""
     phrase=($(printf '%s ' "$phrase"))
-    normalise_array "phrase"
+    normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
     args=$(trim "$(printf '%s ' "${phrase[@]}")")
@@ -1344,7 +1344,7 @@ file_real_path() {
     *) file="$(pwd)/$file" ;;                             # Convert other relative paths
     esac
 
-    # Normalise redundant slashes and remove `./` safely using POSIX awk
+    # Normalize redundant slashes and remove `./` safely using POSIX awk
     file=$(printf '%s\n' "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}' 2>/dev/null)
 
     # Remove trailing slashes (except root "/") and spaces
@@ -2038,8 +2038,8 @@ array_copy() {
     return 0
 }
 
-# Function: normalise_array
-normalise_array() {
+# Function: normalize_array
+normalize_array() {
     array_splice "$1" 0 0 || return 1
     return 0
 }
@@ -2566,7 +2566,7 @@ compare_version() {
     local constraint=$(trim "$1")
     local version=$(trim "$2")
 
-    # Normalise version input (strip leading 'v' or spaces)
+    # Normalize version input (strip leading 'v' or spaces)
     version="${version//v/}" # Remove 'v' prefix if it exists
     version="${version// /}" # Remove any spaces
 
@@ -2592,7 +2592,7 @@ compare_version() {
             [v]=0 [release]=5
         )
 
-        # Normalise version parts (replace '~' with '0.' and remove '^' since they're not part of the actual version)
+        # Normalize version parts (replace '~' with '0.' and remove '^' since they're not part of the actual version)
         ver1="${ver1//~/0.}"
         ver1="${ver1//^/}"
         ver2="${ver2//~/0.}"
@@ -2723,7 +2723,7 @@ bash_version() {
         # Prefix with 'v' to match the desired format 'vX.X.X'
         printf '%s' "v$version"
     else
-        error_exit "Bash version format not recognised"
+        error_exit "Bash version format not recognized"
     fi
 }
 
@@ -2754,8 +2754,8 @@ check_bisu_version() {
     fi
 }
 
-# Function: normalise_iso_datetime
-normalise_iso_datetime() {
+# Function: normalize_iso_datetime
+normalize_iso_datetime() {
     local input=$(trim "$1")
     if [ -z "$input" ]; then
         printf '%s' "INVALID"
@@ -2773,7 +2773,7 @@ normalise_iso_datetime() {
     local digits_only="$(printf '%s' "$raw" | tr -cd '[:digit:]')"
     local time_part="$(printf '%s' "$raw" | grep -oE '[0-9]{2}:[0-9]{2}(:[0-9]{2})?' 2>/dev/null | head -n1)"
 
-    # Time normalisation
+    # Time normalization
     if [ -n "$time_part" ]; then
         case "$time_part" in
         [0-9][0-9]:[0-9][0-9]) time_part="$time_part:00" ;;
@@ -2835,7 +2835,7 @@ normalise_iso_datetime() {
 # Function: is_valid_datetime
 # Description: Check if the given string is a valid adaptive datetime
 is_valid_datetime() {
-    local datetime=$(normalise_iso_datetime "$1")
+    local datetime=$(normalize_iso_datetime "$1")
 
     [[ "$datetime" == "INVALID" ]] && return 1
 
@@ -2887,7 +2887,7 @@ is_valid_datetime() {
 # Function: gdate
 # Description: function for converting ISO8601 time format to natural language format
 gdate() {
-    local input=$(normalise_iso_datetime "$1")
+    local input=$(normalize_iso_datetime "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
@@ -3534,7 +3534,7 @@ url_is_encoded() {
     return 0 # True, it's encoded
 }
 
-# Normalise a URL and analyse its info
+# Normalize a URL and analyze its info
 get_url_info() {
     local url=$(trim "$1")
 
@@ -3586,18 +3586,18 @@ get_url_info() {
     # Remove extra '?' in the path (only keep the first one)
     path=$(printf '%s\n' "$path" | awk '{if (match($0, /\?.*\?/)) sub(/\?.*/, "?"); print}' 2>/dev/null)
 
-    # Step 6: Output the normalised URL
-    normalised_url="$scheme://$domain$path"
+    # Step 6: Output the normalized URL
+    normalized_url="$scheme://$domain$path"
     if url_is_encoded "$path"; then
         url_is_encoded="true"
         encoded_req_path="$path"
-        encoded_url="$normalised_url"
+        encoded_url="$normalized_url"
         unencoded_req_path=$(urldecode "$path")
         unencoded_url="$scheme://$domain$unencoded_req_path"
     else
         url_is_encoded="false"
         unencoded_req_path="$path"
-        unencoded_url="$normalised_url"
+        unencoded_url="$normalized_url"
         encoded_req_path=$(urlencode "$path")
         encoded_url="$scheme://$domain$encoded_req_path"
     fi
@@ -4012,7 +4012,7 @@ random_string() {
     fi
 
     local uuid_rounds=$(printf '%s' "$byte_length / 32" | bc -l)
-    uuid_rounds=$(normalise_number "$uuid_rounds")
+    uuid_rounds=$(normalize_number "$uuid_rounds")
     uuid_rounds=$(ceil "$uuid_rounds")
     is_posi_int "$uuid_rounds" || {
         printf ''
@@ -4264,33 +4264,33 @@ register_current_command() {
 
     in_array "$DEBUG_MODE" "true" "false" || DEBUG_MODE="false"
 
-    # normalisation of arrays allowed to manually modify them
-    normalise_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
-    normalise_array "REQUIRED_EXTERNAL_COMMANDS"
+    # normalization of arrays allowed to manually modify them
+    normalize_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
+    normalize_array "REQUIRED_EXTERNAL_COMMANDS"
     array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS"
     array_unique "BISU_REQUIRED_EXTERNAL_COMMANDS"
 
-    normalise_array "BISU_REQUIRED_SCRIPTS"
-    normalise_array "REQUIRED_SCRIPTS"
+    normalize_array "BISU_REQUIRED_SCRIPTS"
+    normalize_array "REQUIRED_SCRIPTS"
     array_merge "BISU_REQUIRED_SCRIPTS" "REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS"
     array_unique "BISU_REQUIRED_SCRIPTS"
 
-    normalise_array "BISU_ACTIONS_RO"
-    normalise_array "ACTIONS_RO"
+    normalize_array "BISU_ACTIONS_RO"
+    normalize_array "ACTIONS_RO"
     array_merge "BISU_ACTIONS_RO" "ACTIONS_RO" "BISU_ACTIONS_RO"
     array_unique "BISU_ACTIONS_RO"
 
-    normalise_array "BISU_AUTORUN"
-    normalise_array "AUTORUN"
+    normalize_array "BISU_AUTORUN"
+    normalize_array "AUTORUN"
     array_merge "BISU_AUTORUN" "AUTORUN" "BISU_AUTORUN"
     array_unique "BISU_AUTORUN"
 
-    normalise_array "BISU_EXIT_WITH_COMMANDS"
-    normalise_array "EXIT_WITH_COMMANDS"
+    normalize_array "BISU_EXIT_WITH_COMMANDS"
+    normalize_array "EXIT_WITH_COMMANDS"
     array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS"
     array_unique "BISU_EXIT_WITH_COMMANDS"
 
-    CURRENT_FILE_PATH=$(normalise_string "$current_file_path")
+    CURRENT_FILE_PATH=$(normalize_string "$current_file_path")
     CURRENT_COMMAND="$CURRENT_FILE_PATH"
     CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
     CURRENT_ARGS=$(trim "$current_args")
@@ -4421,7 +4421,7 @@ safe_fork() {
     local phrase=$(trim "$1")
     local args=""
     phrase=($(printf '%s ' "$phrase"))
-    normalise_array "phrase"
+    normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
     args=$(trim "$(printf '%s ' "${phrase[@]}")")
@@ -4599,7 +4599,7 @@ continuous_exec() {
 
             now=$(date +%s)
             elapsed=$((now - start_time))
-            elapsed=$(normalise_number "$elapsed")
+            elapsed=$(normalize_number "$elapsed")
             is_posi_int "$elapsed" || elapsed=0
 
             if [ "$elapsed" -ge "$timeout" ]; then
@@ -4717,7 +4717,7 @@ autorun_start() {
     for command in "${BISU_AUTORUN[@]}"; do
         log_msg "🕒 Autorun command executing: $command" "true"
         eval "$(printf '%s' "$command")" 2>>"$(current_log_file)" || {
-            log_msg "❗️ Last execution failure was from: $command (Initialisation Task)" "true"
+            log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
             continue
         }
         log_msg "✅ Autorun command done: $command" "true"
@@ -4726,8 +4726,8 @@ autorun_start() {
     return 0
 }
 
-# Function to initialise BISU
-initialise() {
+# Function to initialize BISU
+initialize() {
     # order#1 register current command
     register_current_command $(printf '%s ' "$@")
     # order#2 check dependencies
@@ -4739,13 +4739,13 @@ initialise() {
 # Execute a command when quit
 callfunc() {
     local current_args=("$(current_args)")
-    normalise_array "current_args"
+    normalize_array "current_args"
     local action=$(array_get "current_args" 0)
-    action=$(normalise_string "$action")
+    action=$(normalize_string "$action")
     [[ "$action" == "callfunc" ]] || quit
 
     local func=$(array_get "current_args" 1)
-    func=$(normalise_string "$func")
+    func=$(normalize_string "$func")
     local argc=$(array_count "current_args")
     is_posi_int "$argc" || quit
 
@@ -4786,7 +4786,7 @@ current_utility_info_uri() {
 # Get the current utility's last release date
 last_release_date() {
     local last_release_date=$(trim "$LAST_RELEASE_DATE")
-    last_release_date=$(normalise_iso_datetime "$last_release_date")
+    last_release_date=$(normalize_iso_datetime "$last_release_date")
     printf '%s' "$last_release_date"
 }
 
@@ -4921,6 +4921,6 @@ install_script() {
     log_msg "Done."
 }
 
-# Initialisation
-initialise $(printf '%s ' "$0" "$@")
+# Initialization
+initialize $(printf '%s ' "$0" "$@")
 ############################################################## BISU_END ##############################################################
