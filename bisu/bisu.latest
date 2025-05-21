@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="8.0.2"
+export BISU_VERSION="8.0.3"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-20Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-21Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -1834,95 +1834,59 @@ array_copy() {
 
 # Function: normalise_array
 normalise_array() {
-    local array_name=$(trim "$1")
-
-    array_splice "$array_name" 0 0 || return 1
-    array_copy "$array_name" "$array_name" || return 1
-
+    array_splice "$1" 0 0 || return 1
     return 0
 }
 
 # Function: array_splice
 # Description: To remove elements from an array similar to PHP's array_splice() function.
 array_splice() {
-    # Validate minimum arguments
-    if [ $# -lt 3 ]; then
-        eval "$1=()"
-        return 1
-    fi
-
     local array_name=$(trim "$1") # original array name
     local position=$(trim "$2")   # removal start pos (0-based)
     local quantity=$(trim "$3")   # removal count
-    shift 3                       # shift to get splice insertion elements
+    local array_count=$(array_count "$array_name")
+
+    if [ $# -eq 2 ]; then
+        quantity="$position"
+        position=0
+    fi
 
     # Validate position and quantity (position >= 0, quantity >= 0)
-    if ! is_nn_int "$position" || ! is_nn_int "$quantity"; then
+    if ! is_nn_int "$position" || ! is_nn_int "$quantity" || [[ "$array_count" == 0 ]]; then
         eval "$array_name=()"
         return 1
     fi
 
-    # Get array length
-    eval "local len=\${#$array_name[@]}"
-    if [ "$len" -eq 0 ]; then
-        eval "$array_name=()"
-        return 1
-    fi
-
-    # Correct negative or out-of-range position:
-    # If position >= len, removal is noop (just assign original array)
-    if [ "$position" -ge "$len" ]; then
+    if [ "$position" -ge "$array_count" ]; then
         return 0
     fi
 
     # Correct quantity to not exceed array length from position
-    if [ "$((position + quantity))" -gt "$len" ]; then
-        quantity=$((len - position))
+    if [ "$((position + quantity))" -gt "$array_count" ]; then
+        quantity=$((array_count - position))
     fi
 
     # Dump array elements separated by newline (safe for spaces)
-    # Use printf with index expansion
     eval "local array_dump=\$(printf '%s\n' \"\${$array_name[@]}\")"
 
     # Use awk to splice the array
     # awk uses 1-based indexing, so adjust position +1
     local new_array
-    new_array=$(printf '%s\n' "$array_dump" | awk -v pos=$((position + 1)) -v qty=$quantity '
-        {
-            # Print elements before pos
-            if (NR < pos) print $0;
-            # Skip elements from pos to pos+qty-1
-            else if (NR >= pos + qty) print $0;
-        }
-    ')
-
-    # Check awk success and output not empty (empty allowed if all removed)
-    if [ $? -ne 0 ]; then
+    new_array=$(printf '%s\n' "$array_dump" | awk -v pos=$((position + 1)) -v qty=$quantity '{
+        if (NR < pos) print $0;
+        else if (NR >= pos + qty) print $0;
+    }' 2>/dev/null) || {
         eval "$array_name=()"
         return 1
-    fi
+    }
 
-    # Assign back to array safely without loop by readarray (bash5 supports readarray)
-    # but for better POSIX compliance, we do this with mapfile/readarray only if available
-    # Otherwise, we fallback to eval with splitting on newline (rare case)
-
-    # Clear original array first
-    eval "$array_name=()"
-
-    # Use readarray if available for simplicity (bash5 has it)
-    if type readarray >/dev/null 2>&1; then
-        # readarray reads lines into array var
-        # use a temp name to avoid name collision
-        local temp_array
-        IFS= readarray -t temp_array <<<"$new_array"
-        # Assign temp_array back to original array by eval
-        eval "$array_name=(\"\${temp_array[@]}\")"
-    else
-        # fallback: eval split on newline
-        # careful: convert newlines to space-safe elements
-        local IFS=$'\n'
-        eval "$array_name=( $new_array )"
-    fi
+    local temp_array
+    IFS= mapfile -t temp_array <<<"$new_array"
+    # Assign temp_array back to original array by eval
+    eval "$array_name=(\"\${temp_array[@]}\")" || {
+        eval "$array_name=()"
+        return 1
+    }
 
     return 0
 }
