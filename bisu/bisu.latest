@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.1.0"
+export BISU_VERSION="9.1.5"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-21Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-22Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -100,7 +100,7 @@ ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
 # BISU's OOP implementation preparation expr
-: | sed -E '' 2>&- && class.sed() { sed -E "$@"; } || class.sed() { sed -r "$@"; }
+: | sed -E '' 2>&- && class.sed() { sed -E "$@"; } || class.sed() { sed -r "$@"; } &>/dev/null
 
 class.rename() {
     class.copy "$1" "$2"
@@ -782,20 +782,18 @@ normalize_string() {
     # Process input using `while IFS` and `awk` for robustness
     while IFS= read -r input_string; do
         # POSIX compliant 'awk' to remove leading/trailing spaces and quotes
-        normalized=$(printf '%s\n' "$input_string" | awk '
-            {
-                # Trim leading and trailing whitespace
-                gsub(/^[ \t]+|[ \t]+$/, "", $0);
-                
-                # Remove leading and trailing quotes (both single and double)
-                gsub(/^["'\''"]|["'\''"]$/, "", $0);
-                
-                # Replace multiple spaces/tabs with a single space
-                gsub(/[ \t]+/, " ", $0);
-                
-                print $0;  # Return the normalized string
-            }
-        ' 2>/dev/null)
+        normalized=$(printf '%s\n' "$input_string" | awk '{
+            # Trim leading and trailing whitespace
+            gsub(/^[ \t]+|[ \t]+$/, "", $0);
+            
+            # Remove leading and trailing quotes (both single and double)
+            gsub(/^["'\''"]|["'\''"]$/, "", $0);
+            
+            # Replace multiple spaces/tabs with a single space
+            gsub(/[ \t]+/, " ", $0);
+            
+            print $0;  # Return the normalized string
+        }' 2>/dev/null)
 
         # If the normalized string is empty, return empty
         if [ -z "$normalized" ]; then
@@ -923,7 +921,7 @@ normalize_number() {
 # Function: md5_sign
 # Description: According to its naming
 md5_sign() {
-    printf "%s\n" $(trim "$1") | md5sum | awk '{print $1}' 2>/dev/null
+    printf '%s\n' $(trim "$1") | md5sum | awk '{print $1}' 2>/dev/null
 }
 
 # PHP-like function as its naming
@@ -1029,14 +1027,12 @@ strstr() {
     fi
 
     # Use awk to find the substring, POSIX-compliant and robust
-    result=$(printf '%s\n' "$haystack" | awk -v needle="$needle" '
-        {
-            pos = index($0, needle)
-            if (pos > 0) {
-                print substr($0, pos)
-            }
+    result=$(printf '%s\n' "$haystack" | awk -v needle="$needle" '{
+        pos = index($0, needle)
+        if (pos > 0) {
+            print substr($0, pos)
         }
-    ' 2>/dev/null)
+    }' 2>/dev/null)
 
     # If no match found, result will be empty
     if [ -z "$result" ]; then
@@ -1197,6 +1193,35 @@ str_ireplace() {
     done
 
     printf '%s' "$haystack"
+    return 0
+}
+
+# string to array
+str2arr() {
+    local input="$1"
+    local array_name=$(trim "$2")
+    local delim="${3-" "}"
+
+    is_valid_var_name "$array_name" || return 1
+
+    local -n arr_ref="$array_name"
+    local delim_awk
+    case "$delim" in
+    '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|')
+        delim_awk="\\$delim"
+        ;;
+    *)
+        delim_awk="$delim"
+        ;;
+    esac
+
+    # Use awk only once for all logic, no external sed or bash loops
+    mapfile -t arr_ref < <(printf '%s\n' "$input" |
+        awk -v FS="$delim_awk" '{
+            for(i=1; i<=NF; i++) print $i
+            if(length($0) > 0 && substr($0, length($0), 1) == FS) print ""
+        }' 2>/dev/null) &>/dev/null
+
     return 0
 }
 
@@ -1605,7 +1630,7 @@ floor() {
 # Description: According to its naming
 is_file() {
     local filepath=$(trim "$1")
-    [ -n "$filepath" ] && [ -f "$filepath" ] || return 1
+    [[ -n "$filepath" && -f "$filepath" ]] || return 1
     return 0
 }
 
@@ -1669,10 +1694,10 @@ is_top_folder() {
 # Description: According to its naming
 file_exists() {
     local filepath=$(trim "$1")
-    if ! (is_file "$filepath" || is_dir "$filepath"); then
-        return 1
+    if is_file "$filepath" || is_dir "$filepath"; then
+        return 0
     fi
-    return 0
+    return 1
 }
 
 # Get file's extension
@@ -1879,8 +1904,8 @@ saferm() {
     if is_sub_folder_of "$path" "$parent_dir"; then
         if is_file "$path"; then
             rm_command="rm -f"
-        else
-            rm_command="rm -rf"
+        elif is_empty_dir "$path"; then
+            rm_command="rm -r"
         fi
     else
         return 1
@@ -1904,8 +1929,10 @@ saferm() {
 
 # Function to check if a variable is an array
 is_array() {
+    local name=$(trim "$1")
+    is_valid_var_name "$name" || return 1
     # Check if variable is declared as an array (indexed or associative)
-    declare -p "$(trim "$1")" 2>/dev/null | grep -qE 'declare -a|declare -A' &>/dev/null || return 1
+    declare -p "$name" 2>/dev/null | grep -qE 'declare -a|declare -A' &>/dev/null || return 1
     return 0
 }
 
@@ -1960,15 +1987,20 @@ array_count() {
         printf '%s' "0"
         return 1
     }
-    array_copy "$array_name" "arr" || {
-        printf '%s' "0"
-        return 1
-    }
-    awk -v n="${#arr[@]}" 'BEGIN { print n }' 2>/dev/null || {
+
+    declare -n ref="$array_name" 2>/dev/null || {
         printf '%s' "0"
         return 1
     }
 
+    local array_count=$(awk -v n="${#ref[@]}" 'BEGIN { print n }' 2>/dev/null) || {
+        printf '%s' "0"
+        return 1
+    }
+
+    is_nn_int "$array_count" || array_count=0
+
+    printf '%s' "$array_count"
     return 0
 }
 
@@ -2014,33 +2046,34 @@ array_dump() {
         return 1
     }
 
-    eval "printf '%s\n' \"\${${temp_array}[@]}\"" 2>/dev/null || {
+    eval "printf '%s\n' \"\${temp_array[@]}\"" 2>/dev/null || {
         printf ''
         return 1
     }
-
     return 0
 }
 
 # Array values as string
 array_copy() {
     local array_name=$(trim "$1")
-    local var_name=$(trim "$2")
+    local new_array_name=$(trim "$2")
     in_array "$domain" "local" "global" || domain="local"
 
-    if ! is_array "$array_name" || ! is_valid_var_name "$var_name"; then
+    if ! is_array "$array_name" || ! is_valid_var_name "$new_array_name"; then
         return 1
     fi
 
-    eval "$var_name=(\"\$(array_dump \"$array_name\")\")" &>/dev/null || return 1
-    [[ "$domain" == "global" ]] && (declare -ga "$var_name" || return 1) &>/dev/null
+    eval "$array_name=(\"\$(array_dump \"${array_name}\")\")" &>/dev/null || return 1
+    [[ "$domain" == "global" ]] && (declare -ga "$new_array_name" || return 1) &>/dev/null
 
     return 0
 }
 
 # Function: normalize_array
 normalize_array() {
-    array_splice "$1" 0 0 || return 1
+    local array_name=$(trim "$1")
+    declare -n arr_ref=array_name
+    array_splice "arr_ref" 0 0 || return 1
     return 0
 }
 
@@ -2048,8 +2081,9 @@ normalize_array() {
 # Description: To remove elements from an array
 array_splice() {
     local array_name=$(trim "$1") # original array name
-    local position=$(trim "$2")   # removal start pos (0-based)
-    local quantity=$(trim "$3")   # removal count
+    declare -n arr_ref=array_name
+    local position=$(trim "$2") # removal start pos (0-based)
+    local quantity=$(trim "$3") # removal count
     local array_count=$(array_count "$array_name")
 
     if [ $# -eq 2 ]; then
@@ -2063,17 +2097,18 @@ array_splice() {
         return 1
     fi
 
-    if [ "$position" -ge "$array_count" ]; then
+    if [ "$position" -gt "$array_count" ]; then
         return 0
     fi
 
     # Correct quantity to not exceed array length from position
     if [ "$((position + quantity))" -gt "$array_count" ]; then
-        quantity=$((array_count - position))
+        quantity=$((${array_count} - position))
     fi
 
     # Dump array elements separated by newline (safe for spaces)
-    eval "local array_dump=\$(printf '%s\n' \"\${$array_name[@]}\")"
+    local -a array_dump
+    eval "array_dump=(\"\$(array_dump \"${array_name}\")\")" &>/dev/null || return 1
 
     # Use awk to splice the array
     # awk uses 1-based indexing, so adjust position +1
@@ -2086,13 +2121,10 @@ array_splice() {
         return 1
     }
 
-    local temp_array
-    IFS= mapfile -t temp_array <<<"$new_array" &>/dev/null
-    eval "$array_name=(\"\${temp_array[@]}\")" &>/dev/null || {
+    eval "$array_name=(\"\${new_array[@]}\")" &>/dev/null || {
         eval "$array_name=()"
         return 1
     }
-
     return 0
 }
 
@@ -2363,7 +2395,7 @@ array_unique() {
         return 0
     fi
 
-    eval "${array_name}=(\"\$(printf "%s\n" \"\${${array_name}[@]}\" | awk '!a[\$0]++' 2>/dev/null | tr '\n' ' ')\")" || return 1
+    eval "${array_name}=(\"\$(printf '%s\n' \"\${${array_name}[@]}\" | awk '!a[\$0]++' 2>/dev/null | tr '\n' ' ')\")" || return 1
     return 0
 }
 
@@ -4549,6 +4581,7 @@ continuous_exec() {
     local fifo_files_count=$(find "$fifo_dir" -type p -name "${CURRENT_PID}_*" 2>/dev/null | wc -l || printf '%s' "0")
     fifo_files_count=$(trim "$fifo_files_count")
     log_msg "fifo_files_count: '${fifo_files_count}'" "true"
+
     is_nn_int "$fifo_files_count" || {
         return 1
     }
@@ -4658,7 +4691,7 @@ safe_fork_cleanup() {
 }
 
 # exit signal event
-__destruct() {
+on_signal_exit() {
     local exit_code=$?
     stty sane
     is_nn_int "$exit_code" || exit_code=1
@@ -4703,9 +4736,9 @@ check_dependencies() {
 # Set bash signals
 set_signals() {
     local utility_name=$(current_utility_name)
-    log_msg "🕒 ${utility_name}: initialising..." "true"
+    log_msg "🕒 ${utility_name}: initializing..." "true"
     trap 'wait' SIGCHLD
-    trap '__destruct' EXIT SIGINT SIGTERM SIGHUP SIGQUIT
+    trap 'on_signal_exit' EXIT SIGINT SIGTERM SIGHUP SIGQUIT
 }
 
 # Start autorun list
@@ -4738,16 +4771,21 @@ initialize() {
 
 # Execute a command when quit
 callfunc() {
-    local current_args=("$(current_args)")
+    local current_args
+    str2arr "$(current_args)" "current_args"
     normalize_array "current_args"
+
     local action=$(array_get "current_args" 0)
     action=$(normalize_string "$action")
     [[ "$action" == "callfunc" ]] || quit
 
     local func=$(array_get "current_args" 1)
     func=$(normalize_string "$func")
+
     local argc=$(array_count "current_args")
-    is_posi_int "$argc" || quit
+    is_posi_int "$argc" || {
+        error_exit "Failed to pharse args."
+    }
 
     is_func "$func" || {
         error_exit "Function '$func' does not exist."
