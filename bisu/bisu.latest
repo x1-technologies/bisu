@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.1"
+export BISU_VERSION="9.2.2"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-25Z"}
 # Minimal Bash Version
@@ -4701,7 +4701,7 @@ autorun_start() {
 
     for command in "${BISU_AUTORUN[@]}"; do
         log_msg "🕒 Autorun command executing: $command" "true"
-        eval "$(printf '%s' "$command")" 2>>"$(current_log_file)" || {
+        eval "$command" 2>>"$(current_log_file)" || {
             log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
             continue
         }
