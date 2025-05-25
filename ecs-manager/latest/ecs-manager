@@ -33,7 +33,7 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.0"
+export UTILITY_VERSION="3.3.1"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
@@ -851,4 +851,4 @@ action_help() {
     usage
 }
 
-@end_point $@
+@end
