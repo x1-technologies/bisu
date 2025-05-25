@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.5"
+export BISU_VERSION="9.2.6"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-25Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-26Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -385,12 +385,16 @@ output() {
     if [[ "$log_only" == "true" ]]; then
         eval "$(printf '%s ' "$command")" |
             { [[ "$use_newline" == "false" ]] && str_replace "\\n" ' ' || cat; } |
-            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$log_file" &>/dev/null || return 1
+            { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" 2>&1 || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
+            tee -a -- "$log_file" &>/dev/null ||
+            return 1
 
     else
         eval "$(printf '%s ' "$command")" |
             { [[ "$use_newline" == "false" ]] && str_replace "\\n" ' ' || cat; } |
-            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$log_file" || return 1
+            { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" 2>&1 || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
+            { debug_mode_on && tee -a -- "$log_file" 2>&1 || tee -a -- "$log_file" 2>/dev/null; } ||
+            return 1
     fi
 
     return 0
@@ -490,7 +494,7 @@ quit() {
             command="kill -${signal} $pid"
         fi
 
-        exec_command "$command" "true"
+        exec_command "$command" "true" &
 
         trap "$original_sigterm" SIGTERM
     fi
@@ -1296,6 +1300,13 @@ is_root_user() {
     return 0
 }
 
+# debug mode switch checker
+debug_mode_on() {
+    in_array "$DEBUG_MODE" "true" "false" || DEBUG_MODE="false"
+    [[ "$DEBUG_MODE" == "true" ]] || return 1
+    return 0
+}
+
 # Execute command
 exec_command() {
     local phrase=$(trim "$1")
@@ -1312,26 +1323,27 @@ exec_command() {
     local run_in_bg=$(trim "$2")
     local log_file=$(current_log_file)
     in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
-    local show_log=$(trim "$3")
-    in_array "${show_log}" "true" "false" || show_log="true"
+    local logging=$(trim "$3")
+    in_array "${logging}" "true" "false" || logging="true"
 
-    if [[ "$DEBUG_MODE" == "true" ]]; then
-        log_msg "*** Using Debug Mode ***"
-        log_msg "* Raw Command: $phrase"
-        return 0
-    fi
-
-    [[ "$show_log" == "true" ]] && log_msg "🕒 Command executing: $phrase" "true"
+    log_msg "🕒 Command executing: $phrase" "true"
     if [[ "$run_in_bg" == "false" ]]; then
-        eval "$(printf '%s ' "$phrase")" | tee -a -- "$(current_log_file)" || {
+        {
+            { debug_mode_on && eval "$(printf '%s ' "$phrase")" 2>&1 || eval "$(printf '%s ' "$phrase")" 2>/dev/null; } |
+                {
+                    if [[ "$logging" == "true" ]]; then
+                        tee -a -- "$(current_log_file)"
+                    fi
+                }
+        } || {
             log_msg "❗️ Last execution failure was from: $phrase" "true"
             return 1
         }
     else
-        pid=$(safe_fork "$phrase")
+        pid=$(safe_fork "$phrase" "$logging")
     fi
 
-    [[ "$show_log" == "true" ]] && log_msg "✅ Command execution done: $phrase" "true"
+    log_msg "✅ Command execution done: $phrase" "true"
     return 0
 }
 
@@ -4335,8 +4347,6 @@ register_current_command() {
         fi
     done
 
-    in_array "$DEBUG_MODE" "true" "false" || DEBUG_MODE="false"
-
     # normalization of arrays allowed to manually modify them
     normalize_array "BISU_REQUIRED_EXTERNAL_COMMANDS"
     normalize_array "REQUIRED_EXTERNAL_COMMANDS"
@@ -4493,6 +4503,9 @@ safe_fork() {
         return 1
     }
 
+    local logging=$(trim "$2")
+    in_array "${logging}" "true" "false" || logging="true"
+
     local max_forks="$SAFE_FORK_LIMIT"
     is_posi_int "$max_forks" || max_forks=16
 
@@ -4508,13 +4521,31 @@ safe_fork() {
     # -- START FIXED COMMAND EXECUTION BLOCK --
     if is_func "$cmd"; then
         {
-            exec 0</dev/tty 1>/dev/tty 2>/dev/tty
-            eval "$phrase" | tee -a -- "$(current_log_file)"
+            if debug_mode_on; then
+                exec 0</dev/tty 1>/dev/tty 2>/dev/tty
+            else
+                exec 0</dev/tty 1>/dev/tty 2>/dev/null
+            fi
+
+            if [[ "$logging" == "true" ]]; then
+                eval "$phrase" | tee -a -- "$(current_log_file)"
+            else
+                eval "$phrase"
+            fi
         } &
     elif command_exists "$cmd"; then
         {
-            exec 0</dev/tty 1>/dev/tty 2>/dev/tty
-            bash -c "$phrase" | tee -a -- "$(current_log_file)"
+            if debug_mode_on; then
+                exec 0</dev/tty 1>/dev/tty 2>/dev/tty
+            else
+                exec 0</dev/tty 1>/dev/tty 2>/dev/null
+            fi
+
+            if [[ "$logging" == "true" ]]; then
+                bash -c "$phrase" | tee -a -- "$(current_log_file)"
+            else
+                bash -c "$phrase"
+            fi
         } &
     else
         printf ''
@@ -4543,12 +4574,6 @@ continuous_exec() {
     local timeout=$(trim "$3")
     local max_retries=$(trim "$4")
     local op_name=$(trim "$5")
-
-    if [[ "$DEBUG_MODE" == "true" ]]; then
-        log_msg "*** Using Debug Mode ***"
-        log_msg "* Raw Command: $phrase"
-        return 0
-    fi
 
     # while preparation
     is_posi_numeric "$sleep_time" || sleep_time=3.1
@@ -4600,7 +4625,9 @@ continuous_exec() {
             log_msg "The operation [$op_name] failed. Attempting retry $count..."
         }
 
-        pid=$(safe_fork "$phrase") || return 1
+        {
+            pid=$(safe_fork "$phrase") || return 1
+        }
         count=$((count + 1))
 
         while process_is_running "$pid"; do
@@ -4631,7 +4658,7 @@ continuous_exec() {
 
 # cleanup fork on-site
 safe_fork_cleanup() {
-    sleep 0.1
+    return 0
 }
 
 # exit signal event
