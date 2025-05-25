@@ -33,11 +33,11 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.1"
+export UTILITY_VERSION="3.3.2"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-05-25Z"
+export LAST_RELEASE_DATE="2025-05-26Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Debug Switch
@@ -297,10 +297,8 @@ ssh_handle() {
         # Construct SSH command for MOSH connection
         ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
         # Execute the SSH command
-        response=$(exec_command "$ssh_command" 2>/dev/null)
-        if [ $? -ne 0 ]; then
+        response=$(exec_command "$ssh_command") ||
             error_exit "Failed to execute SSH command to retrieve MOSH details."
-        fi
 
         # Extract MOSH connection details
         mosh_key=$(echo "$response" | awk '/MOSH CONNECT/{print $4}')
@@ -313,7 +311,7 @@ ssh_handle() {
         # Export MOSH key and address
         export MOSH_KEY="$mosh_key"
         mosh_server_addr="$HOST_ADDR"
-        if ! exec_command "mosh-client '$mosh_server_addr' '$mosh_server_port'" 2>/dev/null; then
+        if ! exec_command "mosh-client '$mosh_server_addr' '$mosh_server_port'" "true" "false" &>/dev/null; then
             error_exit "Failed to connect to [$HOST_NAME]."
         fi
     else
