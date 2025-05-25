@@ -1,13 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.cc
-## Version: 20250513Z1
+## Version: 20250525Z3
 ## Recommended BISU PATH: /usr/local/sbin/bisu
-## Have a fresh installation for BISU with copy and paste the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
+## Have a fresh installation of BISU by copying and pasting the command below
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=7.12.0"
 export BISU_PATH="/usr/local/sbin/bisu"
+export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install"
 
 ## <required-external-commands>
 export REQUIRED_EXTERNAL_COMMANDS=('vi' 'ssh' 'nc')
@@ -18,7 +18,7 @@ export REQUIRED_SCRIPTS=()
 ## </required-scripts>
 
 ## <actions-read-only>
-export ACTIONS_RO=()
+export ACTIONS_RO=('ls')
 ## </actions-read-only>
 
 ## <auto-run-commands>
@@ -29,24 +29,24 @@ export AUTORUN=()
 export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
-## <user-customised-variables>
+## <user-customized-variables>
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.2.7"
+export UTILITY_VERSION="3.3.0"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-05-13Z"
+export LAST_RELEASE_DATE="2025-05-25Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Debug Switch
 export DEBUG_MODE="false"
-## </user-customised-variables>
+## </user-customized-variables>
 
 ## Import BISU file, need to set at the last
-source "$BISU_PATH" || {
-    printf "Error: Unable to load BISU\n" >&2
+source "$BISU_PATH" 2>/dev/null || {
+    printf "%s\n%s\n" "Error: Unable to load BISU, use the command below to install from the internet." "$BISU_DL_COMMAND"
     exit 1
 }
 ######################################################## BISU Importer End ###########################################################
@@ -78,6 +78,22 @@ export PEM_FILE=""
 export PEM_FILE_DIRS=("$HOME/.ssh")
 # Cache for hostname modification
 export HOSTNAME_BACKUP_FILE="/etc/hostname.backup.default"
+
+# construct function
+__construct() {
+    # Parameters (these can come from the environment or command-line arguments)
+    in_array "${USE_PROXY}" "true" "false" || USE_PROXY="false"
+    in_array "${USE_MOSH}" "true" "false" || USE_MOSH="false"
+    USERNAME="${USERNAME:-"user"}"
+    HOST_ADDR="${HOST_ADDR:-}"
+    HOST_PORT="${HOST_PORT:-22}"
+    MOSH_PORTS="${MOSH_PORTS:-60000:61000}"
+    PROXY_ADDR="${PROXY_ADDR:-}"
+    PROXY_PORT="${PROXY_PORT:-8080}"
+    in_array "${PREFER_PEM}" "true" "false" || PREFER_PEM="true"
+    PEM_FILE="${PEM_FILE:-}"
+    normalize_array "PEM_FILE_DIRS"
+}
 
 # Universal function to generate proxy command
 generate_proxy_param() {
@@ -112,8 +128,6 @@ exact_host_config() {
 
     yaml_to_array "$(cat "$host_config_file")"
     log_msg "Using $host_config_file"
-
-    return 0
 }
 
 # Get host information from the configuration file
@@ -126,16 +140,16 @@ set_host_info() {
     exact_host_config "$host_name"
     HOST_NAME="$host_name"
 
-    local use_proxy=$(arr_get_val "USE_PROXY") && USE_PROXY="$use_proxy"
-    local use_mosh=$(arr_get_val "USE_MOSH") && USE_MOSH="$use_mosh"
-    local username=$(arr_get_val "USERNAME") && USERNAME="$username"
-    local host_addr=$(arr_get_val "HOST_ADDR") && HOST_ADDR="$host_addr"
-    local host_port=$(arr_get_val "HOST_PORT") && HOST_PORT="$host_port"
-    local proxy_addr=$(arr_get_val "PROXY_ADDR") && PROXY_ADDR="$proxy_addr"
-    local proxy_port=$(arr_get_val "PROXY_PORT") && PROXY_PORT="$proxy_port"
-    local mosh_ports=$(arr_get_val "MOSH_PORTS") && MOSH_PORTS="$mosh_ports"
-    local prefer_pem=$(arr_get_val "PREFER_PEM") && PREFER_PEM="$prefer_pem"
-    local pem_file=$(arr_get_val "PEM_FILE") && PEM_FILE=$(eval echo "$pem_file")
+    local use_proxy=$(dict_get_val "USE_PROXY") && USE_PROXY="$use_proxy"
+    local use_mosh=$(dict_get_val "USE_MOSH") && USE_MOSH="$use_mosh"
+    local username=$(dict_get_val "USERNAME") && USERNAME="$username"
+    local host_addr=$(dict_get_val "HOST_ADDR") && HOST_ADDR="$host_addr"
+    local host_port=$(dict_get_val "HOST_PORT") && HOST_PORT="$host_port"
+    local proxy_addr=$(dict_get_val "PROXY_ADDR") && PROXY_ADDR="$proxy_addr"
+    local proxy_port=$(dict_get_val "PROXY_PORT") && PROXY_PORT="$proxy_port"
+    local mosh_ports=$(dict_get_val "MOSH_PORTS") && MOSH_PORTS="$mosh_ports"
+    local prefer_pem=$(dict_get_val "PREFER_PEM") && PREFER_PEM="$prefer_pem"
+    local pem_file=$(dict_get_val "PEM_FILE") && PEM_FILE=$(eval echo "$pem_file")
     PEM_FILE=$(get_pem_file "$PEM_FILE")
 
     # Validate inputs
@@ -219,7 +233,7 @@ get_pem_file() {
         fi
 
         if string_ends_with "$pem_file_dir" "/"; then
-            pem_file_dir=$(trim_suffix "$pem_file_dir" "/")
+            pem_file_dir=$(rtrim "$pem_file_dir" "/")
         fi
 
         if [[ "$pem_file_dir" == "." ]]; then
@@ -238,7 +252,7 @@ get_pem_file() {
 ssh_remote_command() {
     local command=$(trim "$1")
     local ssh_command=$(prep_ssh_command)
-    [[ -n "$command" ]] && ssh_command="$ssh_command bash -c $(printf '%s' "$command")"
+    [[ -n "$command" ]] && ssh_command="$ssh_command bash -c \"$(printf "%s " "$command")\""
     echo "$ssh_command"
 }
 
@@ -285,7 +299,7 @@ ssh_handle() {
         # Execute the SSH command
         response=$(exec_command "$ssh_command" 2>/dev/null)
         if [ $? -ne 0 ]; then
-            error_log "Failed to execute SSH command to retrieve MOSH details."
+            error_exit "Failed to execute SSH command to retrieve MOSH details."
         fi
 
         # Extract MOSH connection details
@@ -293,7 +307,7 @@ ssh_handle() {
         mosh_server_port=$(echo "$response" | awk '/MOSH CONNECT/{print $3}')
 
         if [ -z "$mosh_key" ] || [ -z "$mosh_server_port" ] && [[ "$DEBUG_MODE" == "false" ]]; then
-            error_log "Failed to retrieve MOSH connection details."
+            error_exit "Failed to retrieve MOSH connection details."
         fi
 
         # Export MOSH key and address
@@ -571,14 +585,14 @@ rename() {
 
 #shortcut for remove
 remove() {
-    local param1=$(arr_get_val 1)
-    local param2=$(arr_get_val 2)
+    local param1=$(dict_get_val 1)
+    local param2=$(dict_get_val 2)
     local option_force=""
     local force="false"
     local host_path="$param2"
 
     get_args
-    option_force=$(arr_get_val "f" "force")
+    option_force=$(dict_get_val "f" "force")
 
     if [[ -n "$option_force" ]]; then
         force="true"
@@ -670,14 +684,14 @@ gen_ed25519_key() {
     fi
 
     get_file_info "$key_path"
-    local filename=$(arr_get_val "FILE_NAME")
-    local file_path=$(arr_get_val "FILE_PATH")
-    local file_ext=$(arr_get_val "FILE_EXT")
-    local file_dir=$(arr_get_val "FILE_DIR")
-    local file_exists=$(arr_get_val "FILE_EXISTS")
-    local file_is_dir=$(arr_get_val "FILE_IS_DIR")
-    local file_is_file=$(arr_get_val "FILE_IS_FILE")
-    local file_has_ext=$(arr_get_val "FILE_HAS_EXT")
+    local filename=$(dict_get_val "FILE_NAME")
+    local file_path=$(dict_get_val "FILE_PATH")
+    local file_ext=$(dict_get_val "FILE_EXT")
+    local file_dir=$(dict_get_val "FILE_DIR")
+    local file_exists=$(dict_get_val "FILE_EXISTS")
+    local file_is_dir=$(dict_get_val "FILE_IS_DIR")
+    local file_is_file=$(dict_get_val "FILE_IS_FILE")
+    local file_has_ext=$(dict_get_val "FILE_HAS_EXT")
 
     if [ -z "$filename" ]; then
         filename="$default_filename"
@@ -780,115 +794,61 @@ usage() {
     exit 0
 }
 
-# Main function to collect parameters and invoke SSH/MOSH handler
-main() {
-    # Parameters (these can come from the environment or command-line arguments)
-    in_array "${USE_PROXY}" "true" "false" || USE_PROXY="false"
-    in_array "${USE_MOSH}" "true" "false" || USE_MOSH="false"
-    USERNAME="${USERNAME:-"user"}"
-    HOST_ADDR="${HOST_ADDR:-}"
-    HOST_PORT="${HOST_PORT:-22}"
-    MOSH_PORTS="${MOSH_PORTS:-60000:61000}"
-    PROXY_ADDR="${PROXY_ADDR:-}"
-    PROXY_PORT="${PROXY_PORT:-8080}"
-    in_array "${PREFER_PEM}" "true" "false" || PREFER_PEM="true"
-    PEM_FILE="${PEM_FILE:-}"
-
-    get_args
-    local param1=$(arr_get_val 1)
-    local param2=$(arr_get_val 2)
-    local param3=$(arr_get_val 3)
-    local param4=$(arr_get_val 4)
-    local option_force=$(arr_get_val "f" "force")
-    local option_help=$(arr_get_val "h" "help")
-    local action="$param1"
-
-    if [ -n "$option_force" ] && [[ "$option_force" != "$EMPTY_EXPR" ]]; then
-        if [[ "$param1" != "rm" ]]; then
-            param3="$param2"
-            param2="$param1"
-            param1="$option_force"
-        else
-            param2="$option_force"
-        fi
-    fi
-
-    [ -n "$option_help" ] && {
-        param1="help"
-    }
-
-    action="$param1"
-
-    case "$action" in
-    "connect")
-        # Call the SSH/MOSH handler with the parameters
-        set_host_info "$param2"
-        continuous_exec "ssh_handle connect" 3.1 -1 5 "ecs-connection"
-        ;;
-    "set-hostname")
-        # Call the SSH/MOSH handler with the parameters
-        set_host_info "$param2"
-        ssh_handle "set-hostname"
-        ;;
-    "ls" | "list")
-        # Call the SSH/MOSH handler with the parameters
-        list_hosts "$param2"
-        ;;
-    "create")
-        # Call the SSH/MOSH handler with the parameters
-        create "$param2"
-        ;;
-    "edit")
-        # Call the SSH/MOSH handler with the parameters
-        set_title "$param2"
-        edit "$param2"
-        ;;
-    "rename")
-        # Call the SSH/MOSH handler with the parameters
-        rename "$param2" "$param3"
-        ;;
-    "rm")
-        # Call the SSH/MOSH handler with the parameters
-        remove
-        ;;
-    "rm-fp")
-        # Call the SSH/MOSH handler with the parameters
-        remove_known_host "$param2"
-        ;;
-    "rsync")
-        # Call the SSH/MOSH handler with the parameters
-        ssh_handle "rsync" "$param2" "$param3"
-        ;;
-    "remote-command")
-        # Call the SSH/MOSH handler with the parameters
-        set_host_info "$param2"
-        ssh_handle "remote-command" "$param2" "$param3"
-        ;;
-    "genkey")
-        # Generate a pair of regular ed25519 keys
-        gen_ed25519_key "$param2" "$param3" "$param4"
-        ;;
-    "reg-pubkey")
-        set_host_info "$param2"
-        reg_pubkey_remotely "$param3"
-        ;;
-    "force")
-        error_exit "option -f/--force must be used with the action 'install' or 'rm'."
-        ;;
-    "help" | "--help" | "h" | "-h" | "usage" | "")
-        usage
-        ;;
-    *)
-        local msg
-        if [[ -n "$action" ]]; then
-            msg="Unintelligible action '$action'; Please type 'help' for more info."
-        else
-            msg="Unintelligible option; Please type 'help' for more info."
-        fi
-        error_exit "$msg"
-        ;;
-    esac
+action_connect() {
+    set_host_info "$2"
+    continuous_exec "ssh_handle connect" 3 -1 5 "ecs-connection"
 }
 
-# Execute the main function
-main "$@"
+action_set_hostname() {
+    set_host_info "$2"
+    ssh_handle "set-hostname"
+}
+
+action_ls() {
+    list_hosts "$2"
+}
+
+action_edit() {
+    set_title "$2"
+    edit "$2"
+}
+
+action_rename() {
+    rename "$2" "$3"
+}
+
+action_rm() {
+    remove
+}
+
+action_rm_fp() {
+    remove_known_host "$2"
+}
+
+action_rsync() {
+    ssh_handle "rsync" "$2" "$3"
+}
+
+action_remote_command() {
+    set_host_info "$2"
+    ssh_handle "remote-command" "$2" "$3"
+}
+
+action_genkey() {
+    gen_ed25519_key "$2" "$3" "$4"
+}
+
+action_reg_pubkey() {
+    set_host_info "$2"
+    reg_pubkey_remotely "$3"
+}
+
+action_force() {
+    error_exit "option -f/--force must be used with the action 'install' or 'rm'."
+}
+
+action_help() {
+    usage
+}
+
+@end_point $@
