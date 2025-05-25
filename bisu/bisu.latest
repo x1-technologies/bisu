@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.0"
+export BISU_VERSION="9.2.1"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-25Z"}
 # Minimal Bash Version
@@ -505,7 +505,7 @@ quit() {
 
 # Dump
 dump() {
-    printf '%s' "$@"
+    printf '%s ' "$@"
     quit
 }
 
@@ -4197,6 +4197,7 @@ atomic_mutex_lock() {
     if in_array "$CURRENT_ACTION" $(printf '%s ' "${BISU_ACTIONS_RO[@]}"); then
         atomic_mutex_lock="false"
     fi
+
     in_array "$atomic_mutex_lock" "true" "false" || atomic_mutex_lock="false"
     [[ "$atomic_mutex_lock" == "true" ]] || return 1
 
@@ -4377,11 +4378,6 @@ register_current_command() {
         USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
     }
 
-    if atomic_mutex_lock; then
-        array_unique_push "BISU_AUTORUN" '\"acquire_lock\"'
-        array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"release_lock\"'
-        log_msg "🔒 Lock set." "true"
-    fi
     array_unique_push "BISU_AUTORUN" '\"set_signals\"'
     array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"safe_fork_cleanup\"'
 }
@@ -4695,6 +4691,12 @@ set_signals() {
 autorun_start() {
     if ! is_array "BISU_AUTORUN"; then
         error_exit "Invalid BISU_AUTORUN array."
+    fi
+
+    if atomic_mutex_lock; then
+        array_unique_push "BISU_AUTORUN" '\"acquire_lock\"'
+        array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"release_lock\"'
+        log_msg "🔒 Lock set." "true"
     fi
 
     for command in "${BISU_AUTORUN[@]}"; do
