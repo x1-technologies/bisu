@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.1.6"
+export BISU_VERSION="9.2.0"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-22Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-25Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -325,6 +325,7 @@ isset() {
 trim() {
     local str="$1"
     local chars="${2:-[:space:]}" # default POSIX space class
+    [ $# -ne 0 ] || str=$(cat)
 
     printf '%s\n' "$str" | awk -v chars="[$chars]" '
     {
@@ -339,6 +340,7 @@ trim() {
 ltrim() {
     local str="$1"
     local chars="${2:-[:space:]}" # default POSIX space class
+    [ $# -ne 0 ] || str=$(cat)
 
     printf '%s\n' "$str" | awk -v chars="[$chars]" '
     {
@@ -352,6 +354,7 @@ ltrim() {
 rtrim() {
     local str="$1"
     local chars="${2:-[:space:]}" # default POSIX space class
+    [ $# -ne 0 ] || str=$(cat)
 
     printf '%s\n' "$str" | awk -v chars="[$chars]" '
     {
@@ -377,22 +380,21 @@ output() {
     local use_newline=$(trim "$2")
     in_array "$use_newline" "true" "false" || use_newline="true"
     local log_only=$(trim "$3")
-    in_array "${log_only}" "true" "false" || log_only="false"
+    in_array "$log_only" "true" "false" || log_only="false"
     local log_file="$(current_log_file)"
 
-    local command="printf"
-    if [[ "$use_newline" == "true" ]]; then
-        command+=" '%b\\n' \"$message\""
-    else
-        command+=" '%b' \"$message\""
-    fi
+    local command
+    command="printf '%b\\n' \"$message\""
 
     if [[ "$log_only" == "true" ]]; then
         eval "$(printf '%s ' "$command")" |
+            { [[ "$use_newline" == "false" ]] && str_replace "\\n" ' ' || cat; } |
             fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$log_file" &>/dev/null || return 1
+
     else
         eval "$(printf '%s ' "$command")" |
-            fold -s -w "$LINE_BREAK_LENGTH" 2>&1 | tee -a -- "$log_file" || return 1
+            { [[ "$use_newline" == "false" ]] && str_replace "\\n" ' ' || cat; } |
+            fold -s -w "$LINE_BREAK_LENGTH" | tee -a -- "$log_file" || return 1
     fi
 
     return 0
@@ -432,6 +434,19 @@ process_is_running() {
     local pid=$(trim "$1")
     is_nn_int "$pid" || return 1
     kill -0 "$pid" &>/dev/null || return 1
+    return 0
+}
+
+# count processes number by running command
+processes_count() {
+    local cmd=$(trim "$1")
+    local count=$(ps aux | grep -c "$cmd" 2>/dev/null) || {
+        printf '0'
+        return 1
+    }
+    count=$(trim "$count")
+    is_nn_int "$count" || count=0
+    printf '%s' "$count"
     return 0
 }
 
@@ -490,7 +505,7 @@ quit() {
 
 # Dump
 dump() {
-    output "$(printf '%s ' "$@")"
+    printf '%s' "$@"
     quit
 }
 
@@ -773,37 +788,18 @@ substr() {
 
 # Description: Normalize a string
 normalize_string() {
-    local input=$(trim "$1")
-    [ -n "$input" ] || {
-        printf ''
-        return 0
-    }
+    local input
+    if [ $# -eq 0 ]; then
+        input="$(cat)"
+    else
+        input="$*"
+    fi
 
-    # Process input using `while IFS` and `awk` for robustness
-    while IFS= read -r input_string; do
-        # POSIX compliant 'awk' to remove leading/trailing spaces and quotes
-        normalized=$(printf '%s\n' "$input_string" | awk '{
-            # Trim leading and trailing whitespace
-            gsub(/^[ \t]+|[ \t]+$/, "", $0);
-            
-            # Remove leading and trailing quotes (both single and double)
-            gsub(/^["'\''"]|["'\''"]$/, "", $0);
-            
-            # Replace multiple spaces/tabs with a single space
-            gsub(/[ \t]+/, " ", $0);
-            
-            print $0;  # Return the normalized string
-        }' 2>/dev/null)
-
-        # If the normalized string is empty, return empty
-        if [ -z "$normalized" ]; then
-            printf ''
-            return 1
-        fi
-
-        # Output the normalized string
-        printf '%s' "$normalized"
-    done <<<"$input" || {
+    awk '{
+        sub(/[ \t]+$/, "")
+        gsub(/[ \t]+/, " ")
+        print
+    }' <<<"$input" 2>/dev/null || {
         printf ''
         return 1
     }
@@ -814,36 +810,25 @@ normalize_string() {
 # Function: string_join
 string_join() {
     local array_name=$(trim "$1")
-    local quoter=$(trim "$2")
+    local sep="$2"
+    local -n arr_ref="$array_name"
 
-    is_array "$array_name" || {
+    array_is_available "$array_name" || {
         printf ''
         return 1
     }
 
-    local args_count=$(array_count "$array_name")
-    is_posi_int "$args_count" || {
+    # Join using awk: read lines from printf, accumulate with sep, no explicit loop in bash
+    printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
+    {
+        if (NR == 1) out = $0;
+        else out = out sep $0;
+    }
+    END { print out }' 2>/dev/null || {
         printf ''
         return 1
     }
 
-    local params=""
-    local param=""
-
-    if [[ "$args_count" == 1 ]]; then
-        param=$(printf '%s' "$(array_get "current_args" 0)")
-        param="${quoter}${param}${quoter}"
-        return 0
-    fi
-
-    if is_posi_int "$argc"; then
-        for ((i = 0; i < $argc; i++)); do
-            param=$(array_get "current_args" $i)
-            params+=" ${quoter}${param}${quoter}"
-        done
-    fi
-
-    printf '%s' "$params"
     return 0
 }
 
@@ -994,14 +979,13 @@ strlen() {
         length=0
     else
         # Use parameter expansion to count characters, POSIX-compliant
-        length=${#input}
+        length=${#input} 2>/dev/null
     fi
 
-    # Validate length is non-negative (should always be true, but for robustness)
-    if [ "$length" -lt 0 ] 2>/dev/null; then
+    is_nn_int "$length" || {
         printf '%s' "0"
         return 1
-    fi
+    }
 
     # Output length or empty string on failure
     printf '%s' "$length"
@@ -1136,6 +1120,23 @@ string_ends_with() {
     return 0
 }
 
+# continuous spaces count
+cspaces_count() {
+    local input="$1"
+    [[ "$input" =~ [[:space:]]+ ]] || {
+        printf '0'
+        return 1
+    }
+    local count=$(printf '%s' "$input" | grep -o ' ' | wc -l 2>/dev/null) || {
+        printf '0'
+        return 1
+    }
+    count=$(trim "$count")
+    is_nn_int "$count" || count=0
+    printf '%s' "$count"
+    return 0
+}
+
 # str_replace
 # Replace all occurrences of a string with another string.
 # Usage:
@@ -1143,25 +1144,34 @@ string_ends_with() {
 # Returns:
 #   0 if successful, 1 if an error occurs.
 str_replace() {
-    # Fail safely if missing arguments
-    [ "$#" -lt 3 ] && {
+    [ "$#" -lt 2 ] && {
         printf ''
         return 1
     }
 
-    local haystack="$1"
-    shift
+    if [ "$#" -lt 3 ]; then
+        local haystack
+        haystack=$(cat)
+    else
+        local haystack="$1"
+        shift
+    fi
 
+    local cspaces=""
     while [ "$#" -gt 1 ]; do
         local needle="$1" replace="$2"
         shift 2
-        [ -z "$needle" ] && continue # Skip empty search terms
+        [ -z "$needle" ] && continue
+        local cspaces_count=$(cspaces_count "$replace")
+        cspaces=$(printf '%*s' $cspaces_count '')
 
-        # Perform replacement using awk (safe handling of special characters)
-        haystack=$(awk -v n="$needle" -v r="$replace" 'BEGIN { ORS=""; } { gsub(n, r); print }' <<<"$haystack" 2>/dev/null)
+        haystack=$(awk -v needle="$needle" -v replace="$replace" -v ORS="$cspaces" '
+            BEGIN { IGNORECASE=0 }
+            { gsub(needle, replace); print }
+        ' <<<"$haystack" 2>/dev/null)
     done
 
-    printf '%s' "$haystack"
+    printf '%s ' "$haystack"
     return 0
 }
 
@@ -1172,34 +1182,39 @@ str_replace() {
 # Returns:
 #   0 if successful, 1 if an error occurs.
 str_ireplace() {
-    # Fail safely if missing arguments
-    [ "$#" -lt 3 ] && {
+    [ "$#" -lt 2 ] && {
         printf ''
         return 1
     }
 
-    local haystack="$1"
-    shift
+    if [ "$#" -lt 3 ]; then
+        local haystack
+        haystack=$(cat)
+    else
+        local haystack="$1"
+        shift
+    fi
 
+    local cspaces=""
     while [ "$#" -gt 1 ]; do
         local needle="$1" replace="$2"
         shift 2
-        [ -z "$needle" ] && continue # Skip empty search terms
+        [ -z "$needle" ] && continue
+        local cspaces_count=$(cspaces_count "$replace")
+        cspaces=$(printf '%*s' $cspaces_count '')
 
-        # Perform case-insensitive replacement using awk (safe handling of special characters)
-        haystack=$(awk -v n="$needle" -v r="$replace" 'BEGIN { ORS=""; } { 
-            IGNORECASE=1; 
-            gsub(n, r); 
-            print 
-        }' <<<"$haystack" 2>/dev/null)
+        haystack=$(awk -v needle="$needle" -v replace="$replace" -v ORS="$cspaces" '
+            BEGIN { IGNORECASE=0 }
+            { gsub(needle, replace); print }
+        ' <<<"$haystack" 2>/dev/null)
     done
 
-    printf '%s' "$haystack"
+    printf '%s ' "$haystack"
     return 0
 }
 
 # string to array
-str2arr() {
+string_to_array() {
     local input="$1"
     local array_name=$(trim "$2")
     local delim="${3-" "}"
@@ -1289,7 +1304,7 @@ is_root_user() {
 exec_command() {
     local phrase=$(trim "$1")
     local args=""
-    str2arr "$phrase" "phrase"
+    string_to_array "$phrase" "phrase"
     normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
@@ -1779,6 +1794,17 @@ get_file_info() {
     dict_set_val "FILE_IS_FILE" "$file_is_file"
     dict_set_val "FILE_HAS_EXT" "$file_has_ext"
 
+    return 0
+}
+
+# files count
+files_count() {
+    local file_dir=$(trim "$1")
+    local pattern=$(trim "$2")
+    local files_count=$(find "$file_dir" -type p -name "*" 2>/dev/null | wc -l)
+    files_count=$(trim "$files_count")
+    is_nn_int "$files_count" || files_count=0
+    printf '%s' "$files_count"
     return 0
 }
 
@@ -4445,7 +4471,7 @@ safe_callfunc() {
         # Check function existence
         if is_func "$fn_name"; then
             # Call function and capture exit
-            printf '%s' "$(eval "${fn_name} $(printf '%s ' "$@")")" || {
+            printf '%s' "$(eval "${fn_name} $(printf '%q ' "$@")")" || {
                 printf ''
                 return 1
             }
@@ -4462,19 +4488,13 @@ safe_callfunc() {
 # return $pid
 safe_fork() {
     local phrase=$(trim "$1")
-    str2arr "$phrase" "phrase"
+    string_to_array "$phrase" "phrase"
     normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
     local args=""
     args=$(trim "$(printf '%s ' "${phrase[@]}")")
     phrase="$(printf "%s %s" "$cmd" "$args")"
-
-    if [[ "$DEBUG_MODE" == "true" ]]; then
-        log_msg "*** Using Debug Mode ***"
-        log_msg "* Raw Command: $phrase"
-        return 0
-    fi
 
     is_executable "$cmd" || {
         printf ''
@@ -4484,79 +4504,42 @@ safe_fork() {
     local max_forks="$SAFE_FORK_LIMIT"
     is_posi_int "$max_forks" || max_forks=16
 
-    local fifo_dir="$BISU_FIFO_DIR"
-    fifo_dir=$(rtrim "$fifo_dir" "/")
-    mkdir_p "$fifo_dir" || {
+    local processes_count=$(processes_count "$phrase")
+    if [ "$processes_count" -ge "$max_forks" ]; then
         printf ''
-        return 1
-    }
+        exit
+    fi
 
-    local fifo=$(md5_sign "bisu_fifo_$CURRENT_PID")
-    local random_string=$(random_string 6)
-    local stdout_fifo="${fifo_dir}/${fifo}_${random_string}_stdout.fifo"
-    local stderr_fifo="${fifo_dir}/${fifo}_${random_string}_stderr.fifo"
+    # The FIFO logic remains intact but unused for output redirection now,
+    # can be optionally cleaned up later if desired.
 
-    local fifo_files_count=$(find "$fifo_dir" -type p -name "${fifo}_*" 2>/dev/null | wc -l || printf '%s' "0")
-    fifo_files_count=$(trim "$fifo_files_count")
-
-    is_nn_int "$fifo_files_count" || {
-        printf ''
-        return 1
-    }
-
-    [ "$fifo_files_count" -lt "$max_forks" ] || {
-        printf ''
-        return 1
-    }
-
-    # Create FIFOs if not exist
-    [ -p "$stdout_fifo" ] || mkfifo "$stdout_fifo" 2>/dev/null || {
-        printf ''
-        return 1
-    }
-    [ -p "$stderr_fifo" ] || mkfifo "$stderr_fifo" 2>/dev/null || {
-        printf ''
-        return 1
-    }
-
-    # Start background readers for stdout and stderr FIFOs to prevent blocking
-    {
-        while IFS= read -r line; do printf '%s\n' "$line" >&1; done <"$stdout_fifo"
-    } &
-    local stdout_reader_pid=$!
-    disown "$stdout_reader_pid"
-
-    {
-        while IFS= read -r line; do printf '%s\n' "$line" >&2; done <"$stderr_fifo"
-    } &
-    local stderr_reader_pid=$!
-    disown "$stderr_reader_pid"
-
-    # Launch command with redirected stdout and stderr to FIFOs
+    # -- START FIXED COMMAND EXECUTION BLOCK --
     if is_func "$cmd"; then
         {
-            exec 0</dev/tty
-            eval "$phrase" >"$stdout_fifo" 2>"$stderr_fifo" | tee -a -- "$(current_log_file)" &>/dev/null
+            exec 0</dev/tty 1>/dev/tty 2>/dev/tty
+            eval "$phrase" | tee -a -- "$(current_log_file)"
         } &
     elif command_exists "$cmd"; then
         {
-            exec 0</dev/tty
-            bash -c "$phrase" >"$stdout_fifo" 2>"$stderr_fifo" | tee -a -- "$(current_log_file)" &>/dev/null
+            exec 0</dev/tty 1>/dev/tty 2>/dev/tty
+            bash -c "$phrase" | tee -a -- "$(current_log_file)"
         } &
     else
         printf ''
         return 1
     fi
+    # -- END FIXED COMMAND EXECUTION BLOCK --
 
     local pid=$!
-    disown "%+" &>/dev/null
+    disown %+ &>/dev/null
 
     is_posi_int "$pid" || {
         printf ''
         return 1
     }
 
-    # Return PID of forked process
+    in_array "$fifo_exists" "true" "false" || fifo_exists="false"
+    [[ "$fifo_exists" == "true" ]] && printf '\n' >&3
     printf '%s' "$pid"
     return 0
 }
@@ -4662,7 +4645,6 @@ safe_fork_cleanup() {
 # exit signal event
 on_signal_exit() {
     local exit_code=$?
-    stty sane
     is_nn_int "$exit_code" || exit_code=1
     revert_title
 
@@ -4740,7 +4722,7 @@ initialize() {
 # Execute a command when quit
 callfunc() {
     local current_args
-    str2arr "$(current_args)" "current_args"
+    string_to_array "$(current_args)" "current_args"
     normalize_array "current_args"
 
     local action=$(array_get "current_args" 0)
@@ -4758,9 +4740,8 @@ callfunc() {
     is_func "$func" || {
         error_exit "Function '$func' does not exist."
     }
-
     array_splice "current_args" 0 2
-    local params=$(string_join "current_args" '"')
+    local params=$(string_join "current_args" ' ')
     local result="$(safe_callfunc "$func" $(printf '%s ' "$params"))" || error_exit "Function '$func' does not exist."
     result="$(trim "$result")"
     if [ -n "$result" ]; then
