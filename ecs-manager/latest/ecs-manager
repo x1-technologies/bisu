@@ -33,7 +33,7 @@ export EXIT_WITH_COMMANDS=()
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.2"
+export UTILITY_VERSION="3.3.5"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
@@ -79,7 +79,8 @@ export PEM_FILE_DIRS=("$HOME/.ssh")
 # Cache for hostname modification
 export HOSTNAME_BACKUP_FILE="/etc/hostname.backup.default"
 
-# construct function
+@class EcsManager
+@def
 __construct() {
     # Parameters (these can come from the environment or command-line arguments)
     in_array "${USE_PROXY}" "true" "false" || USE_PROXY="false"
@@ -96,6 +97,7 @@ __construct() {
 }
 
 # Universal function to generate proxy command
+@def
 generate_proxy_param() {
     local use_proxy=$(trim "$USE_PROXY")
     local proxy_ip_addr=$(trim "$PROXY_ADDR")
@@ -109,6 +111,7 @@ generate_proxy_param() {
 }
 
 # Set extra PEM file directories
+@def
 set_pem_file_dir() {
     local pem_file_dir=$(trim "$1")
     if ! is_dir "$pem_file_dir"; then
@@ -118,6 +121,7 @@ set_pem_file_dir() {
 }
 
 # Get host configuration from the configuration file
+@def
 exact_host_config() {
     local host_name=$(trim "$1")
     local host_config_file="$HOSTS_INFO_DIR/$host_name.yml"
@@ -131,13 +135,14 @@ exact_host_config() {
 }
 
 # Get host information from the configuration file
+@def
 set_host_info() {
     local host_name=$(trim "$1")
     if [ -z "$host_name" ]; then
         error_exit "Host name is required."
     fi
 
-    exact_host_config "$host_name"
+    $this.exact_host_config "$host_name"
     HOST_NAME="$host_name"
 
     local use_proxy=$(dict_get_val "USE_PROXY") && USE_PROXY="$use_proxy"
@@ -150,7 +155,7 @@ set_host_info() {
     local mosh_ports=$(dict_get_val "MOSH_PORTS") && MOSH_PORTS="$mosh_ports"
     local prefer_pem=$(dict_get_val "PREFER_PEM") && PREFER_PEM="$prefer_pem"
     local pem_file=$(dict_get_val "PEM_FILE") && PEM_FILE=$(eval echo "$pem_file")
-    PEM_FILE=$(get_pem_file "$PEM_FILE")
+    PEM_FILE=$($this.get_pem_file "$PEM_FILE")
 
     # Validate inputs
     if ! is_valid_ip "$HOST_ADDR"; then
@@ -171,6 +176,7 @@ set_host_info() {
 }
 
 # Prepare ssh command
+@def
 prep_ssh_command() {
     local set_account=$(trim "$1")
     in_array "$set_account" "true" "false" || set_account="true"
@@ -204,7 +210,7 @@ prep_ssh_command() {
     fi
 
     if [[ "$use_proxy" == "true" ]]; then
-        local proxy_command="$(printf '%s' "$(generate_proxy_param)")"
+        local proxy_command="$(printf '%s' "$($this.generate_proxy_param)")"
         [[ -z "$ssh_command" ]] || ssh_command+=" "
         ssh_command+="$proxy_command"
     fi
@@ -213,6 +219,7 @@ prep_ssh_command() {
 }
 
 # Get the PEM file path
+@def
 get_pem_file() {
     local pem_file="$PEM_FILE"
 
@@ -249,22 +256,25 @@ get_pem_file() {
 }
 
 # Prepare command for the remote via ssh protocol
+@def
 ssh_remote_command() {
     local command=$(trim "$1")
-    local ssh_command=$(prep_ssh_command)
+    local ssh_command=$($this.prep_ssh_command)
     [[ -n "$command" ]] && ssh_command="$ssh_command bash -c \"$(printf "%s " "$command")\""
     echo "$ssh_command"
 }
 
 # Execute command from the remote via ssh protocol
+@def
 remote_exec_command() {
     local command=$(trim "$1")
-    local ssh_command=$(ssh_remote_command "$command")
+    local ssh_command=$($this.ssh_remote_command "$command")
     exec_command "$ssh_command" "false" || return 1
     return 0
 }
 
 # Unified function for SSH and MOSH command execution
+@def
 ssh_handle() {
     local operation=$(trim "$1")
     operation="${operation:-"connect"}"
@@ -295,7 +305,7 @@ ssh_handle() {
         fi
 
         # Construct SSH command for MOSH connection
-        ssh_command="ssh -p$HOST_PORT $(generate_proxy_param) $USERNAME@$HOST_ADDR $params"
+        ssh_command="ssh -p$HOST_PORT $($this.generate_proxy_param) $USERNAME@$HOST_ADDR $params"
         # Execute the SSH command
         response=$(exec_command "$ssh_command") ||
             error_exit "Failed to execute SSH command to retrieve MOSH details."
@@ -319,9 +329,9 @@ ssh_handle() {
         if [[ "$operation" == "set-hostname" ]]; then
             local remote_set_hostname="test -f /etc/hostname.backup.default || cp /etc/hostname /etc/hostname.backup.default && hostnamectl set-hostname $HOST_NAME"
             log_msg "Setting the hostname..."
-            remote_exec_command "$remote_set_hostname"
+            $this.remote_exec_command "$remote_set_hostname"
         elif [[ "$operation" == "connect" ]]; then
-            remote_exec_command
+            $this.remote_exec_command
         elif [[ "$operation" == "rsync" ]]; then
             log_msg "Starting rsync..."
             local dest1=$(trim "$2")
@@ -352,25 +362,25 @@ ssh_handle() {
             local rsync_dest
 
             if [[ "$dest1_type" == "local" && "$dest2_type" != "local" ]]; then
-                set_host_info "$dest2_type"
+                $this.set_host_info "$dest2_type"
                 dest1_path=$(file_real_path "$dest1_path" "true")
                 if [[ -z "$dest1_path" ]]; then
                     error_exit "Invalid path of dest1."
                 fi
                 rsync_source="$dest1_path"
                 rsync_dest="$USERNAME@$HOST_ADDR:$dest2_path"
-                ssh_command=$(prep_ssh_command "false")
+                ssh_command=$($this.prep_ssh_command "false")
                 ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_source\" \"$rsync_dest\""
                 exec_command "$(printf '%s' "$ssh_command")"
             elif [[ "$dest1_type" != "local" && "$dest2_type" == "local" ]]; then
-                set_host_info "$dest1_type"
+                $this.set_host_info "$dest1_type"
                 dest2_path=$(file_real_path "$dest2_path")
                 if [[ -z "$dest2_path" ]]; then
                     error_exit "Invalid path of dest2."
                 fi
                 rsync_source="$USERNAME@$HOST_ADDR:$dest1_path"
                 rsync_dest="$dest2_path"
-                ssh_command=$(prep_ssh_command "false")
+                ssh_command=$($this.prep_ssh_command "false")
                 ssh_command="rsync -e \"$ssh_command\" -avpgolrzP \"$rsync_source\" \"$rsync_dest\""
                 exec_command "$(printf '%s' "$ssh_command")"
             else
@@ -381,9 +391,9 @@ ssh_handle() {
             if [[ -z "$remote_command" ]]; then
                 error_exit "Please input a command for the remote running."
             fi
-            remote_exec_command "$remote_command"
+            $this.remote_exec_command "$remote_command"
         else
-            usage
+            $this.usage
         fi
 
         log_msg "Done."
@@ -391,6 +401,7 @@ ssh_handle() {
 }
 
 # Function to list hosts
+@def
 list_hosts() {
     local sub_folder parent_dir host_config_dir
 
@@ -456,6 +467,7 @@ list_hosts() {
 }
 
 # shortcut for creation
+@def
 create() {
     local host_path=$(trim "$1")
     local host_config_dir="$HOSTS_INFO_DIR"
@@ -515,6 +527,7 @@ EOF
 }
 
 #shortcut for vi
+@def
 edit() {
     local hostname=$(trim "$1")
     local host_config_dir="$HOSTS_INFO_DIR"
@@ -542,6 +555,7 @@ edit() {
     vi "$host_config_path" 2>/dev/null
 }
 
+@def
 rename() {
     local hostname=$(trim "$1")
     local new_hostname=$(trim "$2")
@@ -582,6 +596,7 @@ rename() {
 }
 
 #shortcut for remove
+@def
 remove() {
     local param1=$(dict_get_val 1)
     local param2=$(dict_get_val 2)
@@ -647,13 +662,14 @@ remove() {
 }
 
 # remove hosts fingerprints
+@def
 remove_known_host() {
     local param1=$(trim "$1")
     local ip_addr=""
     if is_valid_ip "$param1"; then
         ip_addr="$param1"
     else
-        set_host_info "$param1"
+        $this.set_host_info "$param1"
         ip_addr="$HOST_ADDR"
         is_valid_ip "$ip_addr" || error_exit "Invalid IP Adress."
     fi
@@ -667,6 +683,7 @@ remove_known_host() {
 }
 
 # ED25519 key generation
+@def
 gen_ed25519_key() {
     local key_path=$(trim "$1")
     local comment=$(trim "$2")
@@ -758,6 +775,7 @@ gen_ed25519_key() {
 }
 
 # Reg ssh pubkey remotely
+@def
 reg_pubkey_remotely() {
     local pubkey_file=$(trim "$1")
     local temp_file="/tmp/authorized_keys_$(uuidv4)"
@@ -766,11 +784,12 @@ reg_pubkey_remotely() {
     local pubkey=$(trim "$(cat $pubkey_file)")
     local remote_command="mkdir -p /root/.ssh && chmod 700 /root/.ssh; touch /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys && \
         echo '$pubkey' >>/root/.ssh/authorized_keys && cat /root/.ssh/authorized_keys | uniq | tee $temp_file && mv $temp_file /root/.ssh/authorized_keys"
-    remote_exec_command "$remote_command" || error_exit "Failed to reg pubkey: $pubkey_file for [$HOST_NAME]."
+    $this.remote_exec_command "$remote_command" || error_exit "Failed to reg pubkey: $pubkey_file for [$HOST_NAME]."
     log_msg "Done."
 }
 
 # Usage information
+@def
 usage() {
     log_add "  Usage:   $(current_filename) connect <host_name>"
     log_add "           $(current_filename) set-hostname <host_name>"
@@ -791,54 +810,63 @@ usage() {
     log_flush
     exit 0
 }
+@class.end
+
+__initialize() {
+    EcsManager.new ecsManager
+}
+
+action_default() {
+    $ecsManager.usage
+}
 
 action_connect() {
-    set_host_info "$2"
-    continuous_exec "ssh_handle connect" 3 -1 5 "ecs-connection"
+    $ecsManager.set_host_info "$2"
+    continuous_exec "$ecsManager.ssh_handle connect" 3 -1 5 "ecs-connection"
 }
 
 action_set_hostname() {
-    set_host_info "$2"
-    ssh_handle "set-hostname"
+    $ecsManager.set_host_info "$2"
+    $ecsManager.ssh_handle "set-hostname"
 }
 
 action_ls() {
-    list_hosts "$2"
+    $ecsManager.list_hosts "$2"
 }
 
 action_edit() {
     set_title "$2"
-    edit "$2"
+    $ecsManager.edit "$2"
 }
 
 action_rename() {
-    rename "$2" "$3"
+    $ecsManager.rename "$2" "$3"
 }
 
 action_rm() {
-    remove
+    $ecsManager.remove
 }
 
 action_rm_fp() {
-    remove_known_host "$2"
+    $ecsManager.remove_known_host "$2"
 }
 
 action_rsync() {
-    ssh_handle "rsync" "$2" "$3"
+    $ecsManager.ssh_handle "rsync" "$2" "$3"
 }
 
 action_remote_command() {
-    set_host_info "$2"
-    ssh_handle "remote-command" "$2" "$3"
+    $ecsManager.set_host_info "$2"
+    $ecsManager.ssh_handle "remote-command" "$2" "$3"
 }
 
 action_genkey() {
-    gen_ed25519_key "$2" "$3" "$4"
+    $ecsManager.gen_ed25519_key "$2" "$3" "$4"
 }
 
 action_reg_pubkey() {
-    set_host_info "$2"
-    reg_pubkey_remotely "$3"
+    $ecsManager.set_host_info "$2"
+    $ecsManager.reg_pubkey_remotely "$3"
 }
 
 action_force() {
@@ -846,7 +874,7 @@ action_force() {
 }
 
 action_help() {
-    usage
+    $ecsManager.usage
 }
 
 @end
