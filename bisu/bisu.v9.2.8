@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.6"
+export BISU_VERSION="9.2.8"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-26Z"}
 # Minimal Bash Version
@@ -99,8 +99,13 @@ ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# BISU's OOP implementation preparation expr
-: | sed -E '' 2>&- && class.sed() { sed -E "$@"; } || class.sed() { sed -r "$@"; } &>/dev/null
+# BISU's OOP implementation preparation
+{
+    echo | sed -E '' >/dev/null 2>&1 &&
+        class.sed() { sed -E "$@" 2>/dev/null; } ||
+            class.sed() { sed -r "$@" 2>/dev/null; }
+    export -f class.sed >/dev/null 2>&1
+}
 
 class.rename() {
     class.copy "$1" "$2"
@@ -111,15 +116,15 @@ class.copy() {
     if [ "$3" ]; then
         local vars=CLASSES_V_${4//.*/}
 
-        eval "$2() { local this=$3 parent=$3.parent self=$4; $(declare -f $1 |
-            tail -f +4 | # delete local self
-            class.sed 's/\{?this\[(@'${!vars}')\]\}?/'${3#*.}'__\1/g')"
+        eval "$2() { local this=$3 parent=$3.parent self=$4; 
+            $(declare -f $1 | tail -f +4 | # delete local self
+            class.sed 's/\{?this\[(@'${!vars}')\]\}?/'${3#*.}'__\1/g')" >/dev/null 2>&1
     else
         local vars=CLASSES_V_${2//.*/}
 
-        eval "$2() { local self=${2//.*/}; $(declare -f $1 |
-            tail -f +3 |
-            class.sed 's/\{?self\[(@'${!vars}')\]\}?/'${2//.*/}'_static_\1/g')"
+        eval "$2() { local self=${2//.*/}; 
+            $(declare -f $1 | tail -f +3 |
+            class.sed 's/\{?self\[(@'${!vars}')\]\}?/'${2//.*/}'_static_\1/g')" >/dev/null 2>&1
     fi
 }
 
@@ -384,14 +389,13 @@ output() {
 
     if [[ "$log_only" == "true" ]]; then
         eval "$(printf '%s ' "$command")" |
-            { [[ "$use_newline" == "false" ]] && str_replace "\\n" ' ' || cat; } |
+            { [[ "$use_newline" == "false" ]] && rtrim "$(cat)" '\n' || cat; } |
             { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" 2>&1 || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
             tee -a -- "$log_file" &>/dev/null ||
             return 1
-
     else
         eval "$(printf '%s ' "$command")" |
-            { [[ "$use_newline" == "false" ]] && str_replace "\\n" ' ' || cat; } |
+            { [[ "$use_newline" == "false" ]] && rtrim "$(cat)" '\n' || cat; } |
             { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" 2>&1 || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
             { debug_mode_on && tee -a -- "$log_file" 2>&1 || tee -a -- "$log_file" 2>/dev/null; } ||
             return 1
@@ -636,10 +640,12 @@ log_flush() {
         quit 1
     }
 
-    if [[ "$output_buffer" == "true" ]]; then
+    local array_count=$(array_count "_LOG_BUFFER")
+
+    if [[ "$output_buffer" == "true" ]] && [ "$array_count" -gt 0 ]; then
         local content=""
         for log_record in "${_LOG_BUFFER[@]}"; do
-            content+="$log_record\n"
+            content+="${log_record}\n"
         done
 
         output "$content" "false" "$log_only"
@@ -4180,7 +4186,7 @@ exit_with_commands() {
     fi
 
     local utility_name=$(current_utility_name)
-    log_msg "🕒 ${utility_name}: cleaning up..." "true"
+    log_msg "🕒 ${utility_name}: Cleaning up..." "true"
     for val in "${BISU_EXIT_WITH_COMMANDS[@]}"; do
         val=$(trim "$val")
         if [ -z "$val" ]; then
@@ -4682,8 +4688,8 @@ on_signal_exit() {
         action_method="action_default"
     fi
 
-    is_func "__construct" && {
-        __construct $(printf '%s ' "$(current_args)") 2>/dev/null
+    is_func "__initialize" && {
+        __initialize $(printf '%s ' "$(current_args)") 2>/dev/null
     }
 
     is_func "$action_method" || {
@@ -4691,7 +4697,6 @@ on_signal_exit() {
     }
 
     $action_method $(printf '%s ' "$(current_args)")
-    return 0
 }
 
 # check dependencies
@@ -4705,7 +4710,7 @@ check_dependencies() {
 # Set bash signals
 set_signals() {
     local utility_name=$(current_utility_name)
-    log_msg "🕒 ${utility_name}: initializing..." "true"
+    log_msg "🕒 ${utility_name}: Initializing..." "true"
     trap 'wait' SIGCHLD
     trap 'on_signal_exit' EXIT SIGINT SIGTERM SIGHUP SIGQUIT
 }
@@ -4724,10 +4729,12 @@ autorun_start() {
 
     for command in "${BISU_AUTORUN[@]}"; do
         log_msg "🕒 Autorun command executing: $command" "true"
-        eval "$(printf '%s ' "$command")" || {
-            log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
-            continue
-        } | tee -a -- "$(current_log_file)"
+        {
+            eval "$(printf '%s ' "$command")" || {
+                log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
+                continue
+            } | tee -a -- "$(current_log_file)"
+        }
 
         log_msg "✅ Autorun command done: $command" "true"
     done
