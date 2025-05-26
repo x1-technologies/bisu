@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.8"
+export BISU_VERSION="9.2.9"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-26Z"}
 # Minimal Bash Version
@@ -101,9 +101,13 @@ DEBUG_MODE=${DEBUG_MODE:-"false"}
 
 # BISU's OOP implementation preparation
 {
-    echo | sed -E '' >/dev/null 2>&1 &&
-        class.sed() { sed -E "$@" 2>/dev/null; } ||
-            class.sed() { sed -r "$@" 2>/dev/null; }
+    unset -f class.sed >/dev/null 2>&1
+    {
+        echo | sed -E '' >/dev/null 2>&1 &&
+            class.sed() {
+                sed -E "$(printf '%s ' "$@")" 2>/dev/null
+            }
+    }
     export -f class.sed >/dev/null 2>&1
 }
 
@@ -135,7 +139,7 @@ class.var() {
         echo -n ${!name}
     else
         # Assigning values, skipping the equal sign.
-        printf -v $name "${3#=}"
+        printf -v $name "${3#=}" 2>/dev/null
     fi
 }
 
@@ -146,22 +150,21 @@ class.exists() {
 class.append() {
     if [ "$2" ]; then
         local props=CLASSES_V_$CLASS_NAME
-        printf -v $props "%s" "${!props}|$2"
+        local val=${!props}
+        printf -v "$props" "%s" "${val}|$2" 2>/dev/null
     else
         local len=${#BASH_SOURCE[@]}
-        local file="${BASH_SOURCE[$len - 1]}"
-        local line=${BASH_LINENO[$len - 2]}
+        local file="${BASH_SOURCE[$((len - 1))]}"
+        local line=${BASH_LINENO[$((len - 2))]}
 
-        local name=($(
-            awk -F ' *; *| *\\(' \
-                'NR=='$line' {print $2}
-            NR=='$line'+1 {gsub("[ \t]", "", $1);print $1;exit}' \
-                "$file"
-        )
-        )
+        local name=($(awk -F ' *; *| *\\(' -v l="$line" '
+            NR == l {print $2}
+            NR == l + 1 {gsub("[ \t]", "", $1); print $1; exit}
+            ' "$file"))
 
         local methods=CLASSES_M_$CLASS_NAME
-        printf -v $methods "%s" "${!methods} $CLASS_NAME.$1$name"
+        local val=${!methods}
+        printf -v "$methods" "%s" "${val} $CLASS_NAME.$1${name}" 2>/dev/null
     fi
 }
 
@@ -176,17 +179,17 @@ class.append() {
 @return() {
     local name="$1"
     shift
-    printf -v "$name" "$@"
+    printf -v "$name" "$@" 2>/dev/null
 }
 
 @class() {
-    CLASS_NAME=($@)
-    local name vars
+    CLASS_NAME=("$@")
+    local name vars val
 
-    for name in ${CLASS_NAME[@]:1}; do
+    for name in "${CLASS_NAME[@]:1}"; do
         vars=CLASSES_V_$name
-
-        printf -v CLASSES_V_$CLASS_NAME "%s" ${!vars}
+        val=${!vars}
+        printf -v "CLASSES_V_${CLASS_NAME[0]}" "%s" "$val" 2>/dev/null
     done
 }
 
@@ -216,7 +219,7 @@ class.new() {
     done
 
     # Assign the object's name to a variable
-    printf -v $2 $obj
+    printf -v $2 $obj 2>/dev/null
     shift 2
 
     # Call the constructor, if it exists
@@ -225,27 +228,30 @@ class.new() {
 
 @class.end() {
     local methods name parent
-    local parentmethods=()
+    local parentmethods=""
 
     eval "${CLASS_NAME}.new() { class.new $CLASS_NAME \"\$@\"; }"
 
-    if [ ${#CLASS_NAME[@]} -gt 1 ]; then
-        for parent in ${CLASS_NAME[@]:1}; do
+    if [ "${#CLASS_NAME[@]}" -gt 1 ]; then
+        for parent in "${CLASS_NAME[@]:1}"; do
             methods=CLASSES_M_$parent
-
-            parentmethods="$parentmethods ${!methods}"
+            local val=${!methods}
+            parentmethods="${parentmethods} ${val}"
         done
     fi
 
     methods=CLASSES_M_$CLASS_NAME
+    local val=${!methods}
 
-    for name in ${!methods}; do
-        class.rename ${name##*.} $name
+    # Iterate over space-separated method names in val (assuming space-separated strings)
+    for name in $val; do
+        class.rename "${name##*.}" "$name"
     done
 
     unset CLASS_NAME
 
-    printf -v $methods "${!methods} $parentmethods"
+    # Append parentmethods safely
+    printf -v "$methods" "%s" "${val} ${parentmethods}" 2>/dev/null
 }
 
 # Function that destroys the class
@@ -4392,6 +4398,7 @@ register_current_command() {
 
     array_unique_push "BISU_AUTORUN" '\"set_signals\"'
     array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"safe_fork_cleanup\"'
+    array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"@class.gc\"'
 }
 
 # Get args and store them in an associative array
@@ -4582,7 +4589,7 @@ continuous_exec() {
     local op_name=$(trim "$5")
 
     # while preparation
-    is_posi_numeric "$sleep_time" || sleep_time=3.1
+    is_posi_numeric "$sleep_time" || sleep_time=3
     if [[ "$timeout" != "-1" ]] && ! is_posi_int "$timeout"; then
         timeout=15
     fi
@@ -4671,10 +4678,12 @@ safe_fork_cleanup() {
 on_signal_exit() {
     local exit_code=$?
     is_nn_int "$exit_code" || exit_code=1
-    revert_title
+    revert_title &
+    disown %+
 
     if [[ "$LOCK_HELD" -eq 0 ]]; then
-        exit_with_commands
+        exit_with_commands &
+        disown %+
     fi
 }
 
@@ -4850,7 +4859,7 @@ integrate_ops() {
         last_release_date="$(last_release_date)"
         [ -n "$last_release_date" ] && {
             last_release_date="$(gdate "$last_release_date")"
-            version+="; last release on ${last_release_date}"
+            version+=" released on ${last_release_date}"
         }
         [[ "$(current_filename)" == "bisu" ]] || {
             version+="; using bisu framework v${BISU_VERSION}"
