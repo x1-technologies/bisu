@@ -12,7 +12,7 @@ export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sud
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.9"
+export UTILITY_VERSION="3.3.10"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
@@ -892,6 +892,10 @@ action_help() {
 }
 
 action_usage() {
+    $ecsManager.usage
+}
+
+action_doc() {
     $ecsManager.usage
 }
 
