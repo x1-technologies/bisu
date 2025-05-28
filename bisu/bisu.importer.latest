@@ -1,13 +1,27 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.cc
-## Version: 20250525Z3
+## Version: 20250528Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
-## Have a fresh installation of BISU by copying and pasting the command below
 ## Set the required version of BISU
-export THIS_REQUIRED_BISU_VERSION=">=7.12.0"
+export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
 export BISU_PATH="/usr/local/sbin/bisu"
 export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install"
+
+## <user-customised-variables>
+# Set this utility's name
+export UTILITY_NAME=""
+# Set this utility's version number
+export UTILITY_VERSION=""
+# Set this utility's doc URI
+export UTILITY_INFO_URI=""
+# Set this utility's last release date
+export LAST_RELEASE_DATE=""
+# Atomic mutex lock switch for single-threaded utilities
+export ATOMIC_MUTEX_LOCK="true"
+# Debug Switch
+export DEBUG_MODE="false"
+## </user-customised-variables>
 
 ## <required-external-commands>
 export REQUIRED_EXTERNAL_COMMANDS=()
@@ -29,24 +43,17 @@ export AUTORUN=()
 export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
-## <user-customised-variables>
-# Set this utility's name
-export UTILITY_NAME=""
-# Set this utility's version number
-export UTILITY_VERSION=""
-# Set this utility's doc URI
-export UTILITY_INFO_URI=""
-# Set this utility's last release date
-export LAST_RELEASE_DATE=""
-# Atomic mutex lock switch for single-threaded utilities
-export ATOMIC_MUTEX_LOCK="true"
-# Debug Switch
-export DEBUG_MODE="false"
-## </user-customised-variables>
-
 ## Import BISU file, need to set at the last
-source "$BISU_PATH" 2>/dev/null || {
-    printf "%s\n%s\n" "Error: Unable to load BISU, use the command below to install from the internet." "$BISU_DL_COMMAND"
+source "$BISU_PATH" || {
+    command -v "bash" &>/dev/null || {
+        printf '%s\n' "BISU is bash dedicated, using it in another shell is risky."
+        exit 1
+    }
+    [ -f "$BISU_PATH" ] && [[ $(bash -c "${BISU_PATH} installed") == "true" ]] || {
+        printf '%s\n%s\n' "Error: BISU is not correctly installed, please use the command below to fix it." "$BISU_DL_COMMAND"
+        exit 1
+    }
+    printf '%s\n' "Error: Unable to load BISU."
     exit 1
 }
 ######################################################## BISU Importer End ###########################################################
