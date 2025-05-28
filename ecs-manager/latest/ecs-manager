@@ -12,7 +12,7 @@ export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sud
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.8"
+export UTILITY_VERSION="3.3.9"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
@@ -507,7 +507,9 @@ create() {
     local tmpfile="$(mktemp)" || {
         error_exit "Failed to create temp file."
     }
-    exec_when_quit "rm \"$tmpfile\""
+
+    saferm "$tmpfile" "/tmp" "when_quit"
+    saferm "$tmpfile" "/var" "when_quit"
 
     cat >"$tmpfile" <<EOF
 USE_PROXY: false
@@ -841,6 +843,11 @@ action_ls() {
     $ecsManager.list_hosts "$2"
 }
 
+action_create() {
+    set_title "$2"
+    $ecsManager.create "$2"
+}
+
 action_edit() {
     set_title "$2"
     $ecsManager.edit "$2"
@@ -881,6 +888,10 @@ action_force() {
 }
 
 action_help() {
+    $ecsManager.usage
+}
+
+action_usage() {
     $ecsManager.usage
 }
 
