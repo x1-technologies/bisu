@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.13"
+export BISU_VERSION="9.2.15"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-28Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-29Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -179,14 +179,14 @@ class.append() {
     fi
 }
 
-@return() {
+@set() {
     local name="$1"
     shift
     printf -v "$name" "$@" 2>/dev/null 2>&1
 }
 
 @class() {
-    __CLASS_NAME=("$@")
+    export __CLASS_NAME=("$@")
     local name vars val
 
     for name in "${__CLASS_NAME[@]:1}"; do
