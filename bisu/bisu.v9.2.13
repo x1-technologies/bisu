@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.12"
+export BISU_VERSION="9.2.13"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-28Z"}
 # Minimal Bash Version
@@ -44,7 +44,7 @@ export BISU_REQUIRED_SCRIPTS=()
 REQUIRED_SCRIPTS=(${REQUIRED_SCRIPTS[@]:-})
 # Read-only actions avoiding AML lock
 export BISU_ACTIONS_RO=(
-    'version' 'v' 'info' 'usage' 'doc' 'help' 'h' 'callfunc'
+    'version' 'v' 'info' 'usage' 'doc' 'help' 'h' 'callfunc' 'installed'
 )
 # Read-only actions avoiding AML lock for user definitions
 ACTIONS_RO=(${ACTIONS_RO[@]:-})
@@ -4883,6 +4883,9 @@ integrate_ops() {
         ;;
     "info")
         log_msg "For more info please visit $(current_utility_info_uri)"
+        ;;
+    "installed")
+        printf '%s\n' "true"
         ;;
     "install")
         [[ "$current_file" != "$target_path" ]] || {
