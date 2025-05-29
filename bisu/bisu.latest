@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.15"
+export BISU_VERSION="9.2.16"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-29Z"}
 # Minimal Bash Version
@@ -339,14 +339,23 @@ isset() {
 trim() {
     local str="$1"
     local chars="${2:-[:space:]}" # default POSIX space class
+    local ci="$3"
+    in_array "$ci" "true" "false" || ci="false"
+    if [[ "$ci" == "true" ]]; then
+        ci=1
+    else
+        ci=0
+    fi
     [ $# -ne 0 ] || str=$(cat)
 
-    printf '%s\n' "$str" | awk -v chars="[$chars]" '
-    {
-        gsub("^" chars "+", "")
-        gsub(chars "+$", "")
-        print
-    }' 2>/dev/null || return 1
+    str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+        {         
+            gsub("^" chars "+", "")
+            gsub(chars "+$", "")
+            print
+        }
+        ' <<<"$str" 2>/dev/null)
+    printf '%s' "$str"
     return 0
 }
 
@@ -354,13 +363,19 @@ trim() {
 ltrim() {
     local str="$1"
     local chars="${2:-[:space:]}" # default POSIX space class
+    local ci="$3"
+    in_array "$ci" "true" "false" || ci="false"
+    if [[ "$ci" == "true" ]]; then
+        ci=1
+    else
+        ci=0
+    fi
     [ $# -ne 0 ] || str=$(cat)
 
-    printf '%s\n' "$str" | awk -v chars="[$chars]" '
-    {
-        gsub("^" chars "+", "")
-        print
-    }' 2>/dev/null || return 1
+    str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+        { gsub("^" chars "+", ""); print }
+        ' <<<"$str" 2>/dev/null)
+    printf '%s' "$str"
     return 0
 }
 
@@ -368,13 +383,20 @@ ltrim() {
 rtrim() {
     local str="$1"
     local chars="${2:-[:space:]}" # default POSIX space class
+    local ci="$3"
+    in_array "$ci" "true" "false" || ci="false"
+    if [[ "$ci" == "true" ]]; then
+        ci=1
+    else
+        ci=0
+    fi
     [ $# -ne 0 ] || str=$(cat)
 
-    printf '%s\n' "$str" | awk -v chars="[$chars]" '
-    {
-        gsub(chars "+$", "")
-        print
-    }' 2>/dev/null || return 1
+    str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+        { sub(chars "$", ""); print }
+        ' <<<"$str" 2>/dev/null)
+
+    printf '%s' "$str"
     return 0
 }
 
@@ -1199,7 +1221,7 @@ str_replace() {
         ' <<<"$haystack" 2>/dev/null)
     done
 
-    printf '%s ' "$haystack"
+    printf '%s' "$haystack"
     return 0
 }
 
@@ -1237,7 +1259,7 @@ str_ireplace() {
         ' <<<"$haystack" 2>/dev/null)
     done
 
-    printf '%s ' "$haystack"
+    printf '%s' "$haystack"
     return 0
 }
 
