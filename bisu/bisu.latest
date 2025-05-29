@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
 # Define BISU VERSION
-export BISU_VERSION="9.2.16"
+export BISU_VERSION="9.2.18"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-29Z"}
 # Minimal Bash Version
@@ -123,15 +123,19 @@ class.copy() {
     if [ "$3" ]; then
         local vars=CLASSES_V_${4//.*/}
 
-        eval "$2() { local this=$3 parent=$4.parent self=$4;
-            $(declare -f $1 | tail -f +4 | # delete local self
-            class.sed 's/\{?this\[(@'${!vars}')\]\}?/'${3#*.}'__\1/g')" >/dev/null 2>&1
+        eval "$2() {
+            local this=$3 parent=$4.parent self=$4
+            $(declare -f $1 | tail -n +4 |
+            class.sed 's/\{?this\[(@'${!vars}')\]\}?/'${3#*.}'__\1/g')
+        }" >/dev/null 2>&1
     else
         local vars=CLASSES_V_${2//.*/}
 
-        eval "$2() { local self=${2//.*/};
-            $(declare -f $1 | tail -f +3 |
-            class.sed 's/\{?self\[(@'${!vars}')\]\}?/'${2//.*/}'_static_\1/g')" >/dev/null 2>&1
+        eval "$2() {
+            local self=${2//.*/}
+            $(declare -f $1 | tail -n +3 |
+            class.sed 's/\{?self\[(@'${!vars}')\]\}?/'${2//.*/}'_static_\1/g')
+        }" >/dev/null 2>&1
     fi
 }
 
