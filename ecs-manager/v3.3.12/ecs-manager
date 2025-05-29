@@ -12,7 +12,7 @@ export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sud
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.11"
+export UTILITY_VERSION="3.3.12"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
@@ -769,18 +769,18 @@ gen_ed25519_key() {
     esac
 
     log_msg "=========== Preview for the key generation ==========="
-    log_msg "🔑 arg1-Private key file: $pem"
-    log_msg "🔑 arg1-Public  key file: $pem_pub"
-    log_msg "📝 arg2-ed25519 key comment: $comment"
-    log_msg "🔑 arg3-Password (Phrase) is: '$password' $([ -n "$password" ] &&
+    log_msg "🔑 Private key file (arg1): $pem"
+    log_msg "🔑 Public  key file (arg1): $pem_pub"
+    log_msg "📝 ed25519 key comment (arg2): $comment"
+    log_msg "🔑 Password (arg3, Phrase) is: '$password' $([ -n "$password" ] &&
         echo '(Please save it carefully)' || echo '(none, risky)')"
-    log_msg "🔑 arg4-ed25519 key length: ${key_length}bit (RSA Equivalent: ${rsa_equivalent}bit)"
+    log_msg "🔑 ed25519 key length (arg4): ${key_length}bit (RSA Equivalent: ${rsa_equivalent}bit)"
 
     if ! confirm "⚠️ Please check the info above and confirm for the generation:" "y"; then
         error_exit "Aborted."
     fi
 
-    exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$comment\" -N \"$password\"" "false" ||
+    exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$comment\" -N \"$password\"" "false" &>/dev/null ||
         error_exit "Failed to generate ssh key."
     exec_command "chmod 600 \"$temp_pem\"" || error_exit "Failed to generate ssh key."
     exec_command "chmod 600 \"$temp_pem_pub\"" || error_exit "Failed to generate ssh key."
