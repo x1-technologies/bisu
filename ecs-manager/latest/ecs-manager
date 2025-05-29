@@ -12,11 +12,11 @@ export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sud
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.10"
+export UTILITY_VERSION="3.3.11"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-05-28Z"
+export LAST_RELEASE_DATE="2025-05-29Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Debug Switch
@@ -328,7 +328,8 @@ ssh_handle() {
         # Export MOSH key and address
         export MOSH_KEY="$mosh_key"
         mosh_server_addr="$HOST_ADDR"
-        if ! exec_command "mosh-client '$mosh_server_addr' '$mosh_server_port'" "true" "false" &>/dev/null; then
+        if ! (exec_command "mosh-client '$mosh_server_addr' '$mosh_server_port'" "true" "false" &>/dev/null &&
+            unset MOSH_KEY &>/dev/null); then
             error_exit "Failed to connect to [$HOST_NAME]."
         fi
     else
@@ -696,7 +697,7 @@ remove_known_host() {
 gen_ed25519_key() {
     local key_path=$(trim "$1")
     local comment=$(trim "$2")
-    comment=${comment:-"$(whoami)@$(hostname)"}
+    comment=${comment:-"\$(whoami)@\$(hostname)"}
     local password=$(trim "$3")
     local strength=$(trim "$4")
     strength=${strength:-"high"}
@@ -733,7 +734,7 @@ gen_ed25519_key() {
     high) key_length=256 ;;
     extreme) key_length=512 ;;
     *)
-        error_exit "Invalid encryption strength: $strength"
+        error_exit "Invalid encryption strength: $strength; please use them for correction: low/moderate/high/extreme"
         ;;
     esac
 
@@ -746,14 +747,6 @@ gen_ed25519_key() {
     mkdir_p "$temp_dir"
     local temp_pem="$temp_dir/ed25519.pem"
     local temp_pem_pub="$temp_pem.pub"
-
-    exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$comment\" -N \"$password\"" "false" || error_exit "Failed to generate ssh key."
-    exec_command "chmod 600 \"$temp_pem\"" || error_exit "Failed to generate ssh key."
-    exec_command "chmod 600 \"$temp_pem_pub\"" || error_exit "Failed to generate ssh key."
-
-    move_file "$temp_pem" "$pem"
-    move_file "$temp_pem_pub" "$pem_pub"
-    saferm "$temp_dir" "/tmp" "when_quit"
 
     local rsa_equivalent=""
     case "$key_length" in
@@ -775,12 +768,28 @@ gen_ed25519_key() {
         ;;
     esac
 
+    log_msg "=========== Preview for the key generation ==========="
+    log_msg "🔑 arg1-Private key file: $pem"
+    log_msg "🔑 arg1-Public  key file: $pem_pub"
+    log_msg "📝 arg2-ed25519 key comment: $comment"
+    log_msg "🔑 arg3-Password (Phrase) is: '$password' $([ -n "$password" ] &&
+        echo '(Please save it carefully)' || echo '(none, risky)')"
+    log_msg "🔑 arg4-ed25519 key length: ${key_length}bit (RSA Equivalent: ${rsa_equivalent}bit)"
+
+    if ! confirm "⚠️ Please check the info above and confirm for the generation:" "y"; then
+        error_exit "Aborted."
+    fi
+
+    exec_command "ssh-keygen -t ed25519 -a \"$key_length\" -f \"$temp_pem\" -C \"$comment\" -N \"$password\"" "false" ||
+        error_exit "Failed to generate ssh key."
+    exec_command "chmod 600 \"$temp_pem\"" || error_exit "Failed to generate ssh key."
+    exec_command "chmod 600 \"$temp_pem_pub\"" || error_exit "Failed to generate ssh key."
+
+    move_file "$temp_pem" "$pem" || error_exit "Failed to generate ssh key."
+    move_file "$temp_pem_pub" "$pem_pub" || error_exit "Failed to generate ssh key."
+    saferm "$temp_dir" "/tmp" "when_quit"
+
     log_msg "✅ ed25519 key files were successfully generated."
-    log_msg "🔑 ed25519 key length: ${key_length}bit (RSA Equivalent: ${rsa_equivalent}bit)"
-    log_msg "🔑 Private key file: $pem"
-    log_msg "🔑 Public  key file: $pem_pub"
-    log_msg "📝 ed25519 key comment: $comment"
-    log_msg "🔑 Password (Phrase) is: '$password' $([ -n "$password" ] && echo "(Please save it carefully)" || echo "(none)")"
 }
 
 # Reg ssh pubkey remotely
