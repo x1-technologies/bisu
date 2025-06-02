@@ -3,11 +3,11 @@
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install
+## sudo curl -sL https://g.bisu.cc/bisu -o /tmp/bisu && sudo chmod +x /tmp/bisu && sudo /tmp/bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="9.2.18"
+export BISU_VERSION="9.2.19"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-05-29Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-06-02Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
