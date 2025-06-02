@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.cc
-## Version: 20250528Z2
+## Version: 20250602Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
 export BISU_PATH="/usr/local/sbin/bisu"
-export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install"
+export BISU_DL_COMMAND="sudo curl -sL https://g.bisu.cc/bisu -o /tmp/bisu && sudo chmod +x /tmp/bisu && sudo /tmp/bisu -f install"
 
 ## <user-customized-variables>
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.12"
+export UTILITY_VERSION="3.3.15"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-05-29Z"
+export LAST_RELEASE_DATE="2025-06-02Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Debug Switch
@@ -43,7 +43,7 @@ export AUTORUN=()
 export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
-## Import BISU file, need to set at the last
+## Import BISU file
 source "$BISU_PATH" 2>/dev/null || {
     command -v "bash" &>/dev/null || {
         printf '%s\n' "BISU is bash dedicated, using it in another shell is risky."
@@ -611,21 +611,24 @@ remove() {
     local param1=$(dict_get_val 1)
     local param2=$(dict_get_val 2)
     local option_force=""
-    local force="false"
+    local option_yes=""
     local host_path="$param2"
 
     get_args
     option_force=$(dict_get_val "f" "force")
 
     if [[ -n "$option_force" ]]; then
-        force="true"
         if [[ "$option_force" == "rm" ]]; then
             param2="$param1"
-            param1="$option_force"
+            param1="rm"
         elif [[ "$option_force" != "$EMPTY_EXPR" ]]; then
             param2="$option_force"
         fi
+
+        option_force="true"
     fi
+
+    in_array "$option_force" "true" "false" || option_force="false"
 
     host_path="$param2"
     if [[ "$host_path" == "$EMPTY_EXPR" ]]; then
@@ -648,7 +651,7 @@ remove() {
     fi
 
     if [ -d "$host_config_path" ]; then
-        if [[ $(trim $(ls "$host_config_path")) != "" ]] && [ "$force" == "false" ]; then
+        if [[ $(trim $(ls "$host_config_path")) != "" ]] && [[ "$option_force" == "false" ]]; then
             error_exit "The folder is not empty, please use -f if you want to forcefully remove it."
         fi
         is_dir="true"
@@ -664,7 +667,7 @@ remove() {
         error_exit "There is no specified host."
     fi
 
-    if confirm "Please act this carefully, recheck and press 'y' or 'n' to continue." "n"; then
+    if [[ "$option_force" == "true" ]] || confirm "Please act this carefully, recheck and press 'y' or 'n' to continue." "n"; then
         saferm "$host_config_path" "$HOSTS_INFO_DIR"
     else
         error_exit "Aborted."
