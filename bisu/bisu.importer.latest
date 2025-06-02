@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.cc
-## Version: 20250528Z2
+## Version: 20250602Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
 export BISU_PATH="/usr/local/sbin/bisu"
-export BISU_DL_COMMAND="sudo curl -sL https://go2.vip/bisu-file -o ./bisu && sudo chmod 755 ./bisu && sudo ./bisu -yf install"
+export BISU_DL_COMMAND="sudo curl -sL https://g.bisu.cc/bisu -o /tmp/bisu && sudo chmod +x /tmp/bisu && sudo /tmp/bisu -f install"
 
-## <user-customised-variables>
+## <user-customized-variables>
 # Set this utility's name
 export UTILITY_NAME=""
 # Set this utility's version number
@@ -21,7 +21,7 @@ export LAST_RELEASE_DATE=""
 export ATOMIC_MUTEX_LOCK="true"
 # Debug Switch
 export DEBUG_MODE="false"
-## </user-customised-variables>
+## </user-customized-variables>
 
 ## <required-external-commands>
 export REQUIRED_EXTERNAL_COMMANDS=()
@@ -43,7 +43,7 @@ export AUTORUN=()
 export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
-## Import BISU file, need to set at the last
+## Import BISU file
 source "$BISU_PATH" 2>/dev/null || {
     command -v "bash" &>/dev/null || {
         printf '%s\n' "BISU is bash dedicated, using it in another shell is risky."
