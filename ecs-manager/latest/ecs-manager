@@ -12,11 +12,11 @@ export BISU_DL_COMMAND="sudo curl -sL https://g.bisu.cc/bisu -o /tmp/bisu && sud
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.15"
+export UTILITY_VERSION="3.3.16"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
-export LAST_RELEASE_DATE="2025-06-02Z"
+export LAST_RELEASE_DATE="2025-06-22Z"
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Debug Switch
@@ -209,11 +209,11 @@ prep_ssh_command() {
 
     # Apply PEM file if preferred
     if [[ "$PREFER_PEM" == "true" ]]; then
-        log_msg "Connecting to [$HOST_NAME] via SSH with PEM..."
+        log_msg "Connecting to [$HOST_NAME] via SSH with PEM..." "true"
         [[ -z "$ssh_command" ]] || ssh_command+=" "
         ssh_command+="-i '$PEM_FILE'"
     else
-        log_msg "Connecting to [$HOST_NAME] via SSH..."
+        log_msg "Connecting to [$HOST_NAME] via SSH..." "true"
     fi
 
     if [[ "$use_proxy" == "true" ]]; then
