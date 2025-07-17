@@ -3,11 +3,11 @@
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## sudo curl -sL https://g.bisu.cc/bisu -o /tmp/bisu && sudo chmod +x /tmp/bisu && sudo /tmp/bisu -f install
+## curl -sL https://g.bisu.cc/bisu -o $TMP/bisu && chmod +x $TMP/bisu && $TMP/bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="9.2.19"
+export BISU_VERSION="9.3.0"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-06-02Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-17Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -26,15 +26,18 @@ export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
 export LINE_BREAK_LENGTH=160
+# Set $HOME
+HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
 # awk prefix
 export AWK_PREFIX="awk"
 # fifo dir
-export BISU_FIFO_DIR="/tmp/bisu_fifo"
+export BISU_FIFO_DIR="$TMP/bisu_fifo"
 # fork limit for per process
 export SAFE_FORK_LIMIT=16
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
-    'bash' 'getopt' 'awk' 'sed' 'grep' 'mapfile' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'mkfifo'
+    'bash' 'getopt' 'awk' 'sed' 'grep' 'mapfile' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq'
+    'mkfifo'
 )
 # Required external commands list
 REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
@@ -59,13 +62,14 @@ EXIT_WITH_COMMANDS=(${EXIT_WITH_COMMANDS[@]:-})
 # Global Variables
 export ROOT_LOCK_FILE_DIR="/var/run"
 export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
-export LOCK_FILE_DIR="/tmp"
+export LOCK_FILE_DIR="$TMP"
 export LOCK_ID=""
 export LOCK_FILE=""
-export CURRENT_LOG_FILE_DIR=""                  # Current Log file dir
-export ROOT_LOG_FILE_DIR="/var/log"             # Root Log file dir
-export USER_LOG_FILE_DIR="$HOME/.local/var/log" # User Log file dir
-export TARGET_PATH_PREFIX="/usr/local/sbin"     # Default target path for moving scripts
+export CURRENT_LOG_FILE_DIR=""                                         # Current Log file dir
+export ROOT_LOG_FILE_DIR="/var/log"                                    # Root Log file dir
+export USER_LOG_FILE_DIR="$HOME/.local/var/log"                        # User Log file dir
+export TARGET_PATH_PREFIX="/usr/local/sbin"                            # Default target path for moving scripts
+export TERMUX_TARGET_PATH_PREFIX="/data/data/com.termux/files/usr/bin" # Android Termux target path for moving scripts
 # Current Process ID
 export CURRENT_PID=""
 # The current file path
@@ -444,8 +448,8 @@ output() {
     else
         eval "$(printf '%s ' "$command")" |
             { [[ "$use_newline" == "false" ]] && rtrim "$(cat)" '\n' || cat; } |
-            { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" 2>&1 || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
-            { debug_mode_on && tee -a -- "$log_file" 2>&1 || tee -a -- "$log_file" 2>/dev/null; } ||
+            { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
+            { debug_mode_on && tee -a -- "$log_file" || tee -a -- "$log_file" 2>/dev/null; } ||
             return 1
     fi
 
@@ -1980,7 +1984,7 @@ move_file() {
 saferm() {
     local path=$(trim "$1")
     local parent_dir=$(trim "$2")
-    parent_dir=${parent_dir:-"/tmp"}
+    parent_dir=${parent_dir:-"$TMP"}
     local timing=$(trim "$3")
     timing=${timing:-"immediately"}
     local rm_command=""
@@ -3923,6 +3927,46 @@ http_post() {
     return 0
 }
 
+# Generate a regular nanoid
+nanoid() {
+    local length
+    local having_dash
+    local case_mode="mixed"
+    local alphabet
+    local alpha_len
+    local result=""
+    local i=0
+    local rand byte
+
+    # Parse args: length, having_dash (true|false), case_mode (lowercase|uppercase|mixed)
+    [ "$1" ] && length=$(trim "$1")
+    is_posi_int "$length" || length=21
+    [ "$2" ] && case_mode=$(trim "$2")
+    in_array "$case_mode" "lowercase" "uppercase" "mixed" || case_mode="mixed"
+    [ "$3" ] && having_dash=$(trim "$3")
+    in_array "$having_dash" "true" "false" || having_dash="false"
+
+    # Define alphabet
+    alphabet='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
+    [[ "$having_dash" == "true" ]] && alphabet="-${alphabet}"
+    case "$case_mode" in
+    lowercase) alphabet=$(printf '%s' "$alphabet" | tr 'A-Z' 'a-z') ;;
+    uppercase) alphabet=$(printf '%s' "$alphabet" | tr 'a-z' 'A-Z') ;;
+    esac
+
+    alpha_len=${#alphabet}
+
+    while [ "$i" -lt "$length" ]; do
+        byte=$(dd if=/dev/urandom bs=1 count=1 2>/dev/null | od -An -tu1 2>/dev/null)
+        byte=$(trim "$byte")
+        [ "$byte" ] && [ "$byte" -lt "$alpha_len" ] &&
+            result+="${alphabet:byte:1}" &&
+            i=$((i + 1))
+    done
+
+    printf '%s\n' "$result"
+}
+
 # Generate a secure random UUIDv4 (128 bits)
 uuidv4() {
     local uuidv4=""
@@ -4061,33 +4105,89 @@ base26_decode() {
 
 # Encode a string to Base36
 base36_encode() {
-    local input=$(trim "$1")
-    local result=""
+    local input dec hex rem base36=""
+    input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
-    result=$(printf '%s\n' "$input" | base64 | od -An -t u8 | awk '{ print $1 }' 2>/dev/null | awk '{ printf "%x", $1 }' 2>/dev/null) || {
+
+    # Convert input string to hex string
+    for ((i = 0; i < ${#input}; i++)); do
+        hex+=$(printf '%02x' "'${input:i:1}")
+    done
+
+    # Convert hex to decimal
+    dec=$(echo "ibase=16; $hex" | bc 2>/dev/null)
+    [ -n "$dec" ] || {
         printf ''
         return 1
     }
-    printf '%s' "$result"
+
+    # Convert decimal to base36
+    while [ "$dec" != "0" ]; do
+        rem=$(echo "$dec % 36" | bc)
+        dec=$(echo "$dec / 36" | bc)
+        if ((rem < 10)); then
+            base36="${rem}${base36}"
+        else
+            base36="$(printf '\\x%x' $((87 + rem)))$base36"
+        fi
+    done
+
+    # Handle zero input case
+    [ -z "$base36" ] && base36="0"
+
+    printf '%b' "$base36"
     return 0
 }
 
 # Decode from base36 to original string
 base36_decode() {
-    local input=$(trim "$1")
-    local result=""
+    local input dec=0 len i c ascii val hex="" result=""
+    input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
-    result=$(printf '%s' "$input" | xxd -r -p | base64 --decode) || {
+    if ! printf '%s' "$input" | grep -qE '^[0-9a-z]+$'; then
         printf ''
         return 1
-    }
-    printf '%s' "$result"
+    fi
+
+    len=${#input}
+    for ((i = 0; i < len; i++)); do
+        c=${input:i:1}
+        ascii=$(printf '%d' "'$c")
+        if ((ascii >= 48 && ascii <= 57)); then
+            val=$((ascii - 48))
+        elif ((ascii >= 97 && ascii <= 122)); then
+            val=$((ascii - 87))
+        else
+            printf ''
+            return 1
+        fi
+        dec=$(echo "$dec * 36 + $val" | bc)
+    done
+
+    if [ "$dec" = "0" ]; then
+        printf '\0'
+        return 0
+    fi
+
+    while [ "$dec" != "0" ]; do
+        rem=$(echo "$dec % 16" | bc)
+        dec=$(echo "$dec / 16" | bc)
+        hex="$(printf '%x' "$rem")$hex"
+    done
+
+    ((${#hex} % 2)) && hex="0$hex"
+
+    for ((i = 0; i < ${#hex}; i += 2)); do
+        result+=$(printf '\\x%03o' $((16#${hex:i:2})))
+    done
+
+    printf '%b' "$result"
     return 0
 }
 
@@ -4489,7 +4589,7 @@ get_args() {
         shift
     done
 
-    dict_set_val "_argc" "$pos_index"
+    dict_set_val "_arg${pos_index}" "$param"
 
     return 0
 }
@@ -4558,9 +4658,6 @@ safe_fork() {
         printf ''
         exit
     fi
-
-    # The FIFO logic remains intact but unused for output redirection now,
-    # can be optionally cleaned up later if desired.
 
     # -- START FIXED COMMAND EXECUTION BLOCK --
     if is_func "$cmd"; then
@@ -4774,7 +4871,7 @@ autorun_start() {
             log_msg "🕒 Autorun command executing: $command" "true"
 
             {
-                bash -c "$(printf '%s ' "$command")" || {
+                safe_fork "$(printf '%s ' "$command")" || {
                     log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
                     continue
                 } | tee -a -- "$(current_log_file)"
