@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.cc
-## Version: 20250602Z1
+## Version: 20250718Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
 export BISU_PATH="/usr/local/sbin/bisu"
-export BISU_DL_COMMAND="sudo curl -sL https://g.bisu.cc/bisu -o /tmp/bisu && sudo chmod +x /tmp/bisu && sudo /tmp/bisu -f install"
+export BISU_DL_COMMAND="curl -sL https://g.bisu.cc/bisu -o $TMP/bisu && chmod +x $TMP/bisu && $TMP/bisu -f install"
 
 ## <user-customized-variables>
 # Set this utility's name
