@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.cc
-## Version: 20250602Z1
+## Version: 20250718Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
 export BISU_PATH="/usr/local/sbin/bisu"
-export BISU_DL_COMMAND="sudo curl -sL https://g.bisu.cc/bisu -o /tmp/bisu && sudo chmod +x /tmp/bisu && sudo /tmp/bisu -f install"
+export BISU_DL_COMMAND="curl -sL https://g.bisu.cc/bisu -o $TMP/bisu && chmod +x $TMP/bisu && $TMP/bisu -f install"
 
 ## <user-customized-variables>
 # Set this utility's name
 export UTILITY_NAME="ecs-manager"
 # Set this utility's version number
-export UTILITY_VERSION="3.3.16"
+export UTILITY_VERSION="3.3.17"
 # Set this utility's doc URI
 export UTILITY_INFO_URI="https://bisu.cc/p/ecs-manager"
 # Set this utility's last release date
@@ -161,7 +161,9 @@ set_host_info() {
     local proxy_port=$(dict_get_val "PROXY_PORT") && PROXY_PORT="$proxy_port"
     local mosh_ports=$(dict_get_val "MOSH_PORTS") && MOSH_PORTS="$mosh_ports"
     local prefer_pem=$(dict_get_val "PREFER_PEM") && PREFER_PEM="$prefer_pem"
-    local pem_file=$(dict_get_val "PEM_FILE") && PEM_FILE=$(eval echo "$pem_file")
+    local pem_file=$(dict_get_val "PEM_FILE") && PEM_FILE=$(eval printf '%s ' "$pem_file")
+    local error_msg=""
+
     PEM_FILE=$($this.get_pem_file "$PEM_FILE")
 
     # Validate inputs
@@ -178,7 +180,13 @@ set_host_info() {
     fi
 
     if [[ "$PREFER_PEM" == "true" ]] && ! is_file "$PEM_FILE"; then
-        error_exit "PEM file is required (currently specified as: \"$PEM_FILE\")."
+        if [ -n "$PEM_FILE" ]; then
+            error_msg="PEM file is required (currently specified as: \"$PEM_FILE\")."
+        else
+            error_msg="PEM file is required (currently specified as: (empty))."
+        fi
+
+        error_exit "$error_msg"
     fi
 }
 
@@ -230,12 +238,13 @@ prep_ssh_command() {
 get_pem_file() {
     local pem_file="$PEM_FILE"
 
-    if [[ -z "$pem_file" ]]; then
-        error_exit "Pem File Not Exists"
+    if [ -z "$pem_file" ]; then
+        printf ''
+        return
     fi
 
     if string_starts_with "$pem_file" "/"; then
-        echo "$pem_file"
+        printf '%s ' "$pem_file"
         return
     fi
 
@@ -255,11 +264,11 @@ get_pem_file() {
         fi
 
         if is_file "$pem_file_dir/$pem_file"; then
-            echo "$pem_file_dir/$pem_file"
+            printf '%s ' "$pem_file_dir/$pem_file"
             return
         fi
     done
-    echo "$pem_file_dir/$pem_file"
+    printf '%s ' "$pem_file_dir/$pem_file"
 }
 
 # Prepare command for the remote via ssh protocol
@@ -268,7 +277,7 @@ ssh_remote_command() {
     local command=$(trim "$1")
     local ssh_command=$($this.prep_ssh_command)
     [[ -n "$command" ]] && ssh_command="$ssh_command bash -c \"$(printf "%s " "$command")\""
-    echo "$ssh_command"
+    printf '%s ' "$ssh_command"
 }
 
 # Execute command from the remote via ssh protocol
@@ -318,8 +327,8 @@ ssh_handle() {
             error_exit "Failed to execute SSH command to retrieve MOSH details."
 
         # Extract MOSH connection details
-        mosh_key=$(echo "$response" | awk '/MOSH CONNECT/{print $4}')
-        mosh_server_port=$(echo "$response" | awk '/MOSH CONNECT/{print $3}')
+        mosh_key=$(printf '%s ' "$response" | awk '/MOSH CONNECT/{print $4}')
+        mosh_server_port=$(printf '%s ' "$response" | awk '/MOSH CONNECT/{print $3}')
 
         if [ -z "$mosh_key" ] || [ -z "$mosh_server_port" ] && [[ "$DEBUG_MODE" == "false" ]]; then
             error_exit "Failed to retrieve MOSH connection details."
@@ -443,34 +452,34 @@ list_hosts() {
     relative_path() {
         local target="$1"
         local base="$2"
-        local path=$(echo "$target" | awk -v base="$base" '{print substr($0, length(base) + 2)}')
-        echo $path
+        local path=$(printf '%s ' "$target" | awk -v base="$base" '{print substr($0, length(base) + 2)}')
+        printf '%s ' $path
     }
 
     # Display the current directory at the top
     current_dir=$(relative_path "$host_config_dir" "$parent_dir")
     if [[ -n "$current_dir" ]]; then
-        echo " * [$current_dir]"
+        printf '%s ' " * [$current_dir]"
     fi
 
     # List subdirectories with [folder] prefix
     find "$host_config_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while read -r dir; do
         sub_dir=$(relative_path "$dir" "$parent_dir")
-        echo " + [$sub_dir]"
+        printf '%s ' " + [$sub_dir]"
     done
 
     # List files without extensions in the parent directory
     find "$host_config_dir" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | while read -r file; do
         sub_dir=$(relative_path $(dirname "$file") "$parent_dir")
         file_name=$(basename "$file")
-        file_name=$(echo "$file_name" | awk -F. '{OFS="."; NF--; print $0}')
+        file_name=$(printf '%s ' "$file_name" | awk -F. '{OFS="."; NF--; print $0}')
         string_starts_with "$file_name" "\." && continue
         if [[ -n "$sub_dir" ]]; then
             filename="$sub_dir/$file_name"
         else
             filename="$file_name"
         fi
-        echo " - $filename"
+        printf '%s ' " - $filename"
     done
 }
 
@@ -776,7 +785,7 @@ gen_ed25519_key() {
     log_msg "🔑 Public  key file (arg1): $pem_pub"
     log_msg "📝 ed25519 key comment (arg2): $comment"
     log_msg "🔑 Password (arg3, Phrase) is: '$password' $([ -n "$password" ] &&
-        echo '(Please save it carefully)' || echo '(none, risky)')"
+        printf '%s ' '(Please save it carefully)' || printf '%s ' '(none, risky)')"
     log_msg "🔑 ed25519 key length (arg4): ${key_length}bit (RSA Equivalent: ${rsa_equivalent}bit)"
 
     if ! confirm "⚠️ Please check the info above and confirm for the generation:" "y"; then
@@ -804,7 +813,7 @@ reg_pubkey_remotely() {
     touch "$temp_file"
     local pubkey=$(trim "$(cat $pubkey_file)")
     local remote_command="mkdir -p /root/.ssh && chmod 700 /root/.ssh; touch /root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys && \
-        echo '$pubkey' >>/root/.ssh/authorized_keys && cat /root/.ssh/authorized_keys | uniq | tee $temp_file && mv $temp_file /root/.ssh/authorized_keys"
+        printf '%s ' '$pubkey' >>/root/.ssh/authorized_keys && cat /root/.ssh/authorized_keys | uniq | tee $temp_file && mv $temp_file /root/.ssh/authorized_keys"
     $this.remote_exec_command "$remote_command" || error_exit "Failed to reg pubkey: $pubkey_file for [$HOST_NAME]."
     log_msg "Done."
 }
