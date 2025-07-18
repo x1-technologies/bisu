@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu -o $TMP/bisu && chmod +x $TMP/bisu && $TMP/bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="9.3.0"
+export BISU_VERSION="9.3.1"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-17Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-18Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -792,6 +792,12 @@ get_importer_var() {
 # Description: According to its naming
 target_path() {
     local target_path="$TARGET_PATH_PREFIX"
+    local os_name=$(get_os_name)
+
+    if [[ "$os_name" == "android" ]]; then
+        target_path="$TERMUX_TARGET_PATH_PREFIX"
+    fi
+
     if [ -n "$(current_file)" ]; then
         local current_file=$(current_file)
     else
@@ -1294,13 +1300,18 @@ string_to_array() {
         ;;
     esac
 
-    mapfile -t arr_ref < <(
-        printf '%s\n' "$input" |
-            awk -v FS="$delim_awk" '{
-            for (i = 1; i <= NF; i++) print $i;
-            if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
-        }'
-    ) 2>/dev/null
+    # Prevent empty input leading to mapfile hanging by using printf only if input is non-empty
+    if [ -n "$input" ]; then
+        mapfile -t arr_ref < <(
+            printf '%s\n' "$input" |
+                awk -v FS="$delim_awk" '{
+                for (i = 1; i <= NF; i++) print $i;
+                if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
+            }'
+        ) 2>/dev/null
+    else
+        arr_ref=()
+    fi
 
     return 0
 }
@@ -3135,40 +3146,31 @@ get_os_info() {
         return 0
     }
 
-    uname_s=$(uname -s 2>/dev/null) || {
-        printf ''
-        return 1
-    }
-    uname_s_lc=$(strtolower "$uname_s")
+    local uname_s uname_o kernel_str uname_s_lc os_name='' os_version=''
 
-    # Get kernel version string
-    kernel_str=$(uname -r 2>/dev/null) || {
-        printf ''
-        return 1
-    }
-
-    os_name=""
-    os_version=""
+    uname_s=$(command uname -s 2>/dev/null || :) || return 1
+    uname_o=$(command uname -o 2>/dev/null || :) || :
+    uname_s_lc=$(strtolower "$uname_s" || :) || return 1
+    kernel_str=$(command uname -r 2>/dev/null || :) || return 1
 
     case "$uname_s_lc" in
     linux)
-        # Detect WSL by kernel string containing 'microsoft' (case-insensitive)
-        printf '%s\n' "$kernel_str" | awk 'tolower($0) ~ /microsoft/ { exit 0 } { exit 1 }' 2>/dev/null
-        if [ $? -eq 0 ]; then
+        if printf '%s\n' "$kernel_str" | awk 'BEGIN{IGNORECASE=1} /microsoft/ {exit 0} {exit 1}' 2>/dev/null; then
             os_name="wsl"
+        elif [ -n "$uname_o" ]; then
+            os_name=$(printf '%s' "$uname_o" | awk '{print tolower($0)}' 2>/dev/null || printf "linux")
+        elif [ -r /etc/os-release ]; then
+            . /etc/os-release
+            case "${ID:-}" in
+            ubuntu) os_name="ubuntu" ;;
+            rhel | redhat | redhatenterpriseserver) os_name="redhat" ;;
+            fedora) os_name="fedora" ;;
+            *) os_name="linux" ;;
+            esac
+        elif [ -d "/data/data/com.termux" ] || grep -qi "android" "/proc/version" 2>/dev/null; then
+            os_name="android"
         else
-            # Read /etc/os-release for distro ID
-            if [ -r /etc/os-release ]; then
-                . /etc/os-release
-                case "${ID:-}" in
-                ubuntu) os_name="ubuntu" ;;
-                rhel | redhat | redhatenterpriseserver) os_name="redhat" ;;
-                fedora) os_name="fedora" ;;
-                *) os_name="linux" ;;
-                esac
-            else
-                os_name="linux"
-            fi
+            os_name="linux"
         fi
         ;;
     darwin) os_name="darwin" ;;
@@ -3178,28 +3180,40 @@ get_os_info() {
     *) os_name="unknown" ;;
     esac
 
-    # Extract version as first numeric 1-3 parts with fallback zeros, format vX.Y.Z
     os_version=$(printf '%s' "$kernel_str" |
         awk '{
             match($0, /[0-9]+(\.[0-9]+){0,2}/);
             if (RSTART > 0) {
                 ver = substr($0, RSTART, RLENGTH);
                 split(ver, p, ".");
-                for (i=length(p)+1; i<=3; i++) p[i]=0;
-                for (i=1; i<=3; i++) if (p[i] !~ /^[0-9]+$/) exit 1;
+                for (i = length(p) + 1; i <= 3; i++) p[i] = 0;
+                for (i = 1; i <= 3; i++) if (p[i] !~ /^[0-9]+$/) exit 1;
                 printf "v%d.%d.%d", p[1], p[2], p[3];
                 exit 0;
             }
             exit 1;
-        }' 2>/dev/null) || {
-        printf ''
-        return 1
-    }
+        }' 2>/dev/null || :) || return 1
 
     os_info="$(printf "%s %s" "$os_name" "$os_version")"
     OS_INFO="$os_info"
     printf '%s' "$os_info"
     return 0
+}
+
+# get_os_name
+get_os_name() {
+    local os_info=$(get_os_info)
+    string_to_array "$os_info" "os_info"
+    local os_name=$(array_get "os_info" 0)
+    printf '%s' "$os_name"
+}
+
+# get_os_version
+get_os_version() {
+    local os_info=$(get_os_info)
+    string_to_array "$os_info" "os_info"
+    local os_version=$(array_get "os_info" 1)
+    printf '%s' "$os_version"
 }
 
 # Returns kernel info in format: {name} v{major.minor.patch}
@@ -3210,40 +3224,29 @@ get_kernel_info() {
         return 0
     }
 
-    local kernname kernversion major minor patch version_str
+    local kernname kernversion version_str
 
     kernname=$(uname -s 2>/dev/null || printf '')
-    kernname=$(strtolower "$kernname")
     kernversion=$(uname -r 2>/dev/null || printf '')
+    kernname=$(strtolower "$kernname")
 
     if [ -z "$kernname" ] || [ -z "$kernversion" ]; then
         printf ''
         return 0
     fi
 
-    # Extract strictly numeric semantic version from kernel version string
-    # Examples: "5.19.12-arch1-1" -> 5.19.12
     version_str=$(printf '%s\n' "$kernversion" | awk '
         {
-            match($0, /^[0-9]+\.[0-9]+\.[0-9]+/)
-            if (RSTART != 0) {
+            if (match($0, /^[0-9]+\.[0-9]+\.[0-9]+/)) {
                 print substr($0, RSTART, RLENGTH)
+                exit
+            } else if (match($0, /^[0-9]+\.[0-9]+/)) {
+                print substr($0, RSTART, RLENGTH) ".0"
+                exit
             }
         }' 2>/dev/null)
 
     if [ -z "$version_str" ]; then
-        # fallback: try to get major.minor only
-        version_str=$(printf '%s\n' "$kernversion" | awk '
-            {
-                match($0, /^[0-9]+\.[0-9]+/)
-                if (RSTART != 0) {
-                    print substr($0, RSTART, RLENGTH) ".0"
-                }
-            }' 2>/dev/null)
-    fi
-
-    if [ -z "$version_str" ]; then
-        # failed to parse version number, exit 1 per standard
         printf ''
         return 1
     fi
@@ -3252,6 +3255,22 @@ get_kernel_info() {
     KERNEL_INFO="$kernel_info"
     printf '%s' "$kernel_info"
     return 0
+}
+
+# get_os_name
+get_kernel_name() {
+    local kernel_info=$(get_kernel_info)
+    string_to_array "$kernel_info" "kernel_info"
+    local kernel_name=$(array_get "kernel_info" 0)
+    printf '%s' "$kernel_name"
+}
+
+# get_os_version
+get_kernel_version() {
+    local kernel_info=$(get_kernel_info)
+    string_to_array "$kernel_info" "kernel_info"
+    local kernel_version=$(array_get "kernel_info" 1)
+    printf '%s' "$kernel_version"
 }
 
 # ipv4 validator
@@ -4118,7 +4137,7 @@ base36_encode() {
     done
 
     # Convert hex to decimal
-    dec=$(echo "ibase=16; $hex" | bc 2>/dev/null)
+    dec=$(printf '%s' "ibase=16; $hex" | bc 2>/dev/null)
     [ -n "$dec" ] || {
         printf ''
         return 1
@@ -4126,8 +4145,8 @@ base36_encode() {
 
     # Convert decimal to base36
     while [ "$dec" != "0" ]; do
-        rem=$(echo "$dec % 36" | bc)
-        dec=$(echo "$dec / 36" | bc)
+        rem=$(printf '%s' "$dec % 36" | bc)
+        dec=$(printf '%s' "$dec / 36" | bc)
         if ((rem < 10)); then
             base36="${rem}${base36}"
         else
@@ -4167,7 +4186,7 @@ base36_decode() {
             printf ''
             return 1
         fi
-        dec=$(echo "$dec * 36 + $val" | bc)
+        dec=$(printf '%s' "$dec * 36 + $val" | bc)
     done
 
     if [ "$dec" = "0" ]; then
@@ -4176,8 +4195,8 @@ base36_decode() {
     fi
 
     while [ "$dec" != "0" ]; do
-        rem=$(echo "$dec % 16" | bc)
-        dec=$(echo "$dec / 16" | bc)
+        rem=$(printf '%s' "$dec % 16" | bc)
+        dec=$(printf '%s' "$dec / 16" | bc)
         hex="$(printf '%x' "$rem")$hex"
     done
 
