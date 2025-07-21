@@ -5104,7 +5104,7 @@ install_script() {
     fi
 
     log_msg "Moving $current_filename to path: $target_path"
-    exec_command "mv \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
+    exec_command "cp \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
     log_msg "Done."
 }
 
