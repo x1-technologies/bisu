@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 ######################################################## BISU Importer Start #########################################################
 ## Official Web Site: https://bisu.cc
-## Version: 20250721Z1
+## Version: 20250726Z1
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
 export BISU_PATH="/usr/local/sbin/bisu"
+export TERMUX_BISU_PATH="/data/data/com.termux/files/usr/bin/bisu"
 export BISU_DL_COMMAND="curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install"
 
 ## <user-customized-variables>
@@ -44,7 +45,7 @@ export EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## Import BISU file
-source "$BISU_PATH" 2>/dev/null || {
+source "$BISU_PATH" 2>/dev/null || source "$TERMUX_BISU_PATH" 2>/dev/null || {
     command -v "bash" &>/dev/null || {
         printf '%s\n' "BISU is bash dedicated, using it in another shell is risky."
         exit 1
