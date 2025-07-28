@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="9.3.2"
+export BISU_VERSION="9.3.3"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-21Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-28Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -105,19 +105,62 @@ ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# BISU's OOP implementation preparation
+# OOP implementation
 {
     unset -f class.sed >/dev/null 2>&1
     {
-        printf '%s' | sed -E '' >/dev/null 2>&1 &&
+        printf '' | sed -E '' >/dev/null 2>&1 &&
             class.sed() {
                 sed -E "$(printf '%s ' "$@")" 2>/dev/null
-            }
+            } || exit 1
     }
     export -f class.sed >/dev/null 2>&1
-    export CLASSES_V_MyClass=""
-    export CLASSES_M_MyClass=""
-    export __CLASS_NAME=""
+    export -f class.new >/dev/null 2>&1
+    export -f class.rename >/dev/null 2>&1
+    export -f class.copy >/dev/null 2>&1
+    export -f class.var >/dev/null 2>&1
+    export -f class.exists >/dev/null 2>&1
+    export -f class.append >/dev/null 2>&1
+    export -f @def >/dev/null 2>&1
+    export -f @set >/dev/null 2>&1
+    export -f @class >/dev/null 2>&1
+    export -f @class.end >/dev/null 2>&1
+    export -f @destroy >/dev/null 2>&1
+    export -f @class.gc >/dev/null 2>&1
+    export -f @end >/dev/null 2>&1
+}
+
+class.new() {
+    local file="${BASH_SOURCE[1]}"
+    local line=${BASH_LINENO[1]}
+    local methods=CLASSES_M_$1
+
+    # Choose a unique name for the object.
+    local obj=@:object.f$(md5 <<<"$1 $file $line $RANDOM $(date)")
+
+    # Copy all methods of the object from the class and from parent classes
+    for name in ${!methods}; do
+        local newname=$obj.${name##*.}
+
+        if class.exists $newname; then
+            newname="${newname%.*}.parent.${newname//*./}"
+        fi
+
+        class.copy $name $newname $obj "$1"
+    done
+
+    # Create intercepting functions for properties.
+    local vars=CLASSES_V_$1
+    for name in $(tr '|' ' ' <<<"${!vars}"); do
+        eval "$obj.$name() { class.var \"$obj\" \"$name\" \"\$@\"; }"
+    done
+
+    # Assign the object's name to a variable
+    printf -v $2 $obj 2>/dev/null 2>&1
+    shift 2
+
+    # Call the constructor, if it exists
+    class.exists $obj.__construct && $obj.__construct "$@"
 }
 
 class.rename() {
@@ -204,39 +247,6 @@ class.append() {
         val=${!vars}
         printf -v "CLASSES_V_${__CLASS_NAME[0]}" "%s" "$val" 2>/dev/null 2>&1
     done
-}
-
-class.new() {
-    local file="${BASH_SOURCE[1]}"
-    local line=${BASH_LINENO[1]}
-    local methods=CLASSES_M_$1
-
-    # Choose a unique name for the object.
-    local obj=@:object.f$(md5 <<<"$1 $file $line $RANDOM $(date)")
-
-    # Copy all methods of the object from the class and from parent classes
-    for name in ${!methods}; do
-        local newname=$obj.${name##*.}
-
-        if class.exists $newname; then
-            newname="${newname%.*}.parent.${newname//*./}"
-        fi
-
-        class.copy $name $newname $obj "$1"
-    done
-
-    # Create intercepting functions for properties.
-    local vars=CLASSES_V_$1
-    for name in $(tr '|' ' ' <<<"${!vars}"); do
-        eval "$obj.$name() { class.var \"$obj\" \"$name\" \"\$@\"; }"
-    done
-
-    # Assign the object's name to a variable
-    printf -v $2 $obj 2>/dev/null 2>&1
-    shift 2
-
-    # Call the constructor, if it exists
-    class.exists $obj.__construct && $obj.__construct "$@"
 }
 
 @class.end() {
@@ -1387,7 +1397,7 @@ exec_command() {
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
     args=$(trim "$(printf '%s ' "${phrase[@]}")")
-    phrase="$(printf "%s %s" "$cmd" "$args")"
+    phrase="$(eval printf "%s %s" "$cmd" "$args")"
 
     is_executable "$cmd" || return 1
 
@@ -1400,7 +1410,7 @@ exec_command() {
     log_msg "🕒 Command executing: $phrase" "true"
     if [[ "$run_in_bg" == "false" ]]; then
         {
-            { debug_mode_on && bash -c "$(printf '%s ' "$phrase")" 2>&1 || bash -c "$(printf '%s ' "$phrase")" 2>/dev/null; } |
+            { debug_mode_on && $phrase 2>&1 || $phrase 2>/dev/null; } |
                 {
                     if [[ "$logging" == "true" ]]; then
                         tee -a -- "$(current_log_file)"
@@ -1894,11 +1904,11 @@ mkdir_p() {
 
     # Check if the directory exists, if not, create it
     if ! file_exists "$dir"; then
-        eval "mkdir -p \"$dir\"" || {
+        bash -c "mkdir -p \"$dir\"" || {
             error_log "Failed to mkdir: $dir"
             return 1
         }
-        eval "chmod -R 755 \"$dir\"" || {
+        bash -c "chmod -R 755 \"$dir\"" || {
             error_log "Failed to change permissions for $dir"
             return 1
         }
@@ -1963,7 +1973,7 @@ cp_p() {
     fi
 
     mkdir_p "$target_dir" || return 1
-    eval "$command" || return 1
+    is_executable "$command" && $command &>/dev/null || return 1
 
     # Check if the move was successful
     if [[ $? != 0 ]]; then
@@ -2063,7 +2073,7 @@ sign_array() {
     local array_contents
     local array_md5
 
-    # Use eval to perform indirect referencing of the array by its name
+    # To perform indirect referencing of the array by its name
     array_copy "$array_name" "array_contents" || {
         printf ''
         return 1
@@ -2151,8 +2161,8 @@ array_dump() {
     # Stream array elements using mapfile + xargs only if it works, fallback to eval
     local -a temp_array=()
     if ! eval "mapfile -t temp_array < <(printf '%s\0' \"\${${array_name}[@]}\" 2>/dev/null | xargs -0 -n1 printf '%s\n' 2>/dev/null)"; then
-        # Fallback safe eval to get array elements
-        eval "temp_array=(\"\${${array_name}[@]}\")" || {
+        # Fallback safe to get array elements
+        eval "temp_array=(\"\${${array_name}[@]}\")" &>/dev/null || {
             printf ''
             return 1
         }
@@ -2486,19 +2496,11 @@ array_merge() {
         return 1
     fi
 
-    eval "src1_values=(\"\${$src1[@]}\") src2_values=(\"\${$src2[@]}\")
-        dest_values=(\"\${$dest[@]}\")" &>/dev/null || return 1
-
-    for val in "${src1_values[@]}" "${src2_values[@]}"; do
-        found=0
-        for existing in "${dest_values[@]}"; do
-            [ "$val" = "$existing" ] && found=1 && break
-        done
-        [ "$found" -eq 0 ] && dest_values+=("$val")
-    done
-
-    # One final push into destination
-    eval "$dest=(\"\${dest_values[@]}\")" &>/dev/null || return 1
+    eval "printf '%s\n' \"\${$src1[@]}\" \"\${$src2[@]}\" \"\${$dest[@]}\"" |
+        awk '!a[$0]++' | {
+        readarray -t merged || return 1
+        eval "$dest=(\"\${merged[@]}\")"
+    } || return 1
 
     return 0
 }
@@ -2546,7 +2548,7 @@ dict_set_val() {
     if is_posi_int "$array_count"; then
         # Search for existing key and update if found
         for ((i = 0; i < $array_count; i++)); do
-            if eval "[[ \${${_CK}[$i]} == \"$key\" ]]"; then
+            if eval "[[ \${${_CK}[$i]} == \"$key\" ]]" &>/dev/null; then
                 eval "${_CV}[$i]=\"$value\""
                 found=1
                 break
@@ -2650,17 +2652,17 @@ array_to_json() {
 
         # Use awk for processing key-value pairs
         line=$(printf '%s\n' "$line" | awk -v arr="$array_name" '
-        match($0, arr"\\[\"([^\"]+)\"\\]=\"([^\"]+)\"", m) {
-            key = m[1]
-            value = m[2]
+            match($0, arr"\\[\"([^\"]+)\"\\]=\"([^\"]+)\"", m) {
+                key = m[1]
+                value = m[2]
 
-            # Escape quotes in key and value
-            gsub(/"/, "\\\"", key)
-            gsub(/"/, "\\\"", value)
+                # Escape quotes in key and value
+                gsub(/"/, "\\\"", key)
+                gsub(/"/, "\\\"", value)
 
-            # Return key-value pair in JSON format
-            print "\"" key "\": \"" value "\""
-        }
+                # Return key-value pair in JSON format
+                print "\"" key "\": \"" value "\""
+            }
         ' 2>/dev/null)
 
         # If no match, continue to the next line
@@ -4546,7 +4548,7 @@ register_current_command() {
         CURRENT_COMMAND="$CURRENT_COMMAND $CURRENT_ARGS"
     }
     [ -n "$CURRENT_FILE_NAME" ] && {
-        USER_CONF_DIR="$HOME/.local/$CURRENT_FILE_NAME"
+        USER_CONF_DIR="${HOME}/.local/config/${CURRENT_FILE_NAME}"
     }
 
     array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"safe_fork_cleanup\"'
@@ -4690,9 +4692,9 @@ safe_fork() {
             fi
 
             if [[ "$logging" == "true" ]]; then
-                eval "$phrase" | tee -a -- "$(current_log_file)"
+                $phrase | tee -a -- "$(current_log_file)"
             else
-                eval "$phrase"
+                $phrase
             fi
         } &
     elif command_exists "$cmd"; then
@@ -5104,7 +5106,7 @@ install_script() {
     fi
 
     log_msg "Moving $current_filename to path: $target_path"
-    exec_command "cp \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
+    exec_command "mv \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
     log_msg "Done."
 }
 
