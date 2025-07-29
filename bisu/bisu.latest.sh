@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="9.3.4"
+export BISU_VERSION="9.3.5"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-29Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-30Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -1361,7 +1361,7 @@ exec_command() {
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
     args=$(trim "$(printf '%s ' "${phrase[@]}")")
-    phrase="$(eval printf "%s %s" "$cmd" "$args")"
+    phrase="$(printf '%s ' "${cmd} ${args}")"
 
     is_executable "$cmd" || return 1
 
@@ -1374,7 +1374,7 @@ exec_command() {
     log_msg "🕒 Command executing: $phrase" "true"
     if [[ "$run_in_bg" == "false" ]]; then
         {
-            { debug_mode_on && $phrase 2>&1 || $phrase 2>/dev/null; } |
+            { debug_mode_on && eval "$(printf '%s' "$phrase")" 2>&1 || eval "$(printf '%s' "$phrase")" 2>/dev/null; } |
                 {
                     if [[ "$logging" == "true" ]]; then
                         tee -a -- "$(current_log_file)"
@@ -1868,11 +1868,11 @@ mkdir_p() {
 
     # Check if the directory exists, if not, create it
     if ! file_exists "$dir"; then
-        bash -c "mkdir -p \"$dir\"" || {
+        bash -c "mkdir -p \"$dir\"" &>/dev/null || {
             error_log "Failed to mkdir: $dir"
             return 1
         }
-        bash -c "chmod -R 755 \"$dir\"" || {
+        bash -c "chmod -R 755 \"$dir\"" &>/dev/null || {
             error_log "Failed to change permissions for $dir"
             return 1
         }
@@ -1937,13 +1937,10 @@ cp_p() {
     fi
 
     mkdir_p "$target_dir" || return 1
-    is_executable "$command" && $command &>/dev/null || return 1
-
-    # Check if the move was successful
-    if [[ $? != 0 ]]; then
+    bash -c "$command" &>/dev/null || {
         error_log "$failure_msg"
         return 1
-    fi
+    }
 
     return 0
 }
@@ -4629,7 +4626,7 @@ safe_fork() {
     array_splice "phrase" 0 1
     local args=""
     args=$(trim "$(printf '%s ' "${phrase[@]}")")
-    phrase="$(printf "%s %s" "$cmd" "$args")"
+    phrase="$(printf '%s ' "${cmd} ${args}")"
 
     is_executable "$cmd" || {
         printf ''
@@ -4648,7 +4645,6 @@ safe_fork() {
         exit
     fi
 
-    # -- START FIXED COMMAND EXECUTION BLOCK --
     if is_func "$cmd"; then
         {
             if debug_mode_on; then
@@ -4658,9 +4654,9 @@ safe_fork() {
             fi
 
             if [[ "$logging" == "true" ]]; then
-                $phrase | tee -a -- "$(current_log_file)"
+                eval "$(printf '%s' "$phrase")" | tee -a -- "$(current_log_file)"
             else
-                $phrase
+                eval "$(printf '%s' "$phrase")"
             fi
         } &
     elif command_exists "$cmd"; then
@@ -4672,16 +4668,12 @@ safe_fork() {
             fi
 
             if [[ "$logging" == "true" ]]; then
-                bash -c "$phrase" | tee -a -- "$(current_log_file)"
+                bash -c "$(printf '%s' "$phrase")" | tee -a -- "$(current_log_file)"
             else
-                bash -c "$phrase"
+                bash -c "$(printf '%s' "$phrase")"
             fi
         } &
-    else
-        printf ''
-        return 1
     fi
-    # -- END FIXED COMMAND EXECUTION BLOCK --
 
     local pid=$!
     disown %+ &>/dev/null
