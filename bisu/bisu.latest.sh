@@ -5,9 +5,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="9.3.3"
+export BISU_VERSION="9.3.4"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-28Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-29Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -39,7 +39,7 @@ export SAFE_FORK_LIMIT=16
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
     'bash' 'getopt' 'awk' 'sed' 'grep' 'mapfile' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq'
-    'mkfifo'
+    'mkfifo' 'whoami' 'hostname'
 )
 # Required external commands list
 REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
@@ -94,6 +94,10 @@ export ERROR_MSG_PREFIX="Error:-( "
 export QUITTING_FLAG=0
 # Lock held
 export LOCK_HELD=0
+# Machine's current username
+export UNIX_USERNAME=""
+# Machine's hostname
+export UNIX_HOSTNAME=""
 # Set this utility's name
 UTILITY_NAME=${UTILITY_NAME:-"bisu"}
 # Set this utility's version number
@@ -133,94 +137,83 @@ DEBUG_MODE=${DEBUG_MODE:-"false"}
 class.new() {
     local file="${BASH_SOURCE[1]}"
     local line=${BASH_LINENO[1]}
-    local methods=CLASSES_M_$1
+    local methods_var="CLASSES_M_$1"
+    local -n methods_ref="$methods_var"
+    local obj="@:object.f$(md5sum <<<"$1 $file $line $RANDOM $(date +%s%N)" | awk '{print $1}')"
 
-    # Choose a unique name for the object.
-    local obj=@:object.f$(md5 <<<"$1 $file $line $RANDOM $(date)")
-
-    # Copy all methods of the object from the class and from parent classes
-    for name in ${!methods}; do
+    for name in ${methods_ref}; do
         local newname=$obj.${name##*.}
-
-        if class.exists $newname; then
-            newname="${newname%.*}.parent.${newname//*./}"
-        fi
-
-        class.copy $name $newname $obj "$1"
+        class.exists "$newname" && newname="${newname%.*}.parent.${newname//*./}"
+        class.copy "$name" "$newname" "$obj" "$1"
     done
 
-    # Create intercepting functions for properties.
-    local vars=CLASSES_V_$1
-    for name in $(tr '|' ' ' <<<"${!vars}"); do
+    local vars_var="CLASSES_V_$1"
+    local -n vars_ref="$vars_var"
+    for name in ${vars_ref//|/ }; do
         eval "$obj.$name() { class.var \"$obj\" \"$name\" \"\$@\"; }"
     done
 
-    # Assign the object's name to a variable
-    printf -v $2 $obj 2>/dev/null 2>&1
+    printf -v "$2" "%s" "$obj"
     shift 2
-
-    # Call the constructor, if it exists
-    class.exists $obj.__construct && $obj.__construct "$@"
+    class.exists "$obj.__construct" && "$obj.__construct" "$@"
 }
 
 class.rename() {
     class.copy "$1" "$2"
-    unset -f $1
+    unset -f "$1"
 }
 
 class.copy() {
     if [ "$3" ]; then
-        local vars=CLASSES_V_${4//.*/}
-
-        eval "$2() {
-            local this=$3 parent=$4.parent self=$4
-            $(declare -f $1 | tail -n +4 |
-            class.sed 's/\{?this\[(@'${!vars}')\]\}?/'${3#*.}'__\1/g')
-        }" >/dev/null 2>&1
+        local vars_var="CLASSES_V_${4//.*/}"
+        local -n keys="$vars_var"
+        local func_body
+        func_body="$(declare -f "$1")"
+        func_body="${func_body#*\{}"
+        func_body="${func_body%$'\n}'}"
+        func_body="$(class.sed "s/{?this\[(@${keys[*]})\]}?/${3#*.}__\\1/g" <<<"$func_body")"
+        eval "$2() {"$'\n'"local this=\"$3\" parent=\"$4.parent\" self=\"$4\""$'\n'"$func_body"$'\n'"}"
     else
-        local vars=CLASSES_V_${2//.*/}
-
-        eval "$2() {
-            local self=${2//.*/}
-            $(declare -f $1 | tail -n +3 |
-            class.sed 's/\{?self\[(@'${!vars}')\]\}?/'${2//.*/}'_static_\1/g')
-        }" >/dev/null 2>&1
+        local vars_var="CLASSES_V_${2//.*/}"
+        local -n keys="$vars_var"
+        local func_body
+        func_body="$(declare -f "$1")"
+        func_body="${func_body#*\{}"
+        func_body="${func_body%$'\n}'}"
+        func_body="$(class.sed "s/{?self\[(@${keys[*]})\]}?/${2//.*/}_static_\\1/g" <<<"$func_body")"
+        eval "$2() {"$'\n'"local self=\"${2//.*/}\""$'\n'"$func_body"$'\n'"}"
     fi
 }
 
 class.var() {
-    local name=${1#*.}__$2
-
+    local name="${1#*.}__$2"
     if [ -z "$3" ]; then
         printf '%s' "${!name}"
     else
-        # Assigning values, skipping the equal sign.
-        printf -v $name "${3#=}" 2>/dev/null 2>&1
+        printf -v "$name" "%s" "${3#=}"
     fi
 }
 
 class.exists() {
-    typeset -F | grep -qF "$1" >/dev/null 2>&1
+    typeset -F "$1" >/dev/null 2>&1
 }
 
 class.append() {
     if [ "$2" ]; then
-        local props=CLASSES_V_$__CLASS_NAME
-        local val=${!props}
-        printf -v "$props" "%s" "${val}|$2" 2>/dev/null 2>&1
+        local props="CLASSES_V_$__CLASS_NAME"
+        local -n val="$props"
+        val="${val}|$2"
     else
         local len=${#BASH_SOURCE[@]}
         local file="${BASH_SOURCE[$((len - 1))]}"
         local line=${BASH_LINENO[$((len - 2))]}
-
         local name=($(awk -F ' *; *| *\\(' -v l="$line" '
             NR == l {print $2}
             NR == l + 1 {gsub("[ \t]", "", $1); print $1; exit}
-            ' "$file"))
-
-        local methods=CLASSES_M_$__CLASS_NAME
-        local val=${!methods}
-        printf -v "$methods" "%s" "${val} $__CLASS_NAME.$1${name}" 2>/dev/null 2>&1
+        ' "$file"))
+        local methods="CLASSES_M_$__CLASS_NAME"
+        local -n val="$methods"
+        val="${val} $__CLASS_NAME.$1${name}"
     fi
 }
 
@@ -228,92 +221,63 @@ class.append() {
     if [[ "$1" == "static" ]]; then
         class.append
     else
-        class.append public. "$1"
+        class.append "public." "$1"
     fi
 }
 
 @set() {
     local name="$1"
     shift
-    printf -v "$name" "$@" 2>/dev/null 2>&1
+    printf -v "$name" "%s" "$@"
 }
 
 @class() {
     export __CLASS_NAME=("$@")
     local name vars val
-
     for name in "${__CLASS_NAME[@]:1}"; do
-        vars=CLASSES_V_$name
-        val=${!vars}
-        printf -v "CLASSES_V_${__CLASS_NAME[0]}" "%s" "$val" 2>/dev/null 2>&1
+        vars="CLASSES_V_$name"
+        val="${!vars}"
+        printf -v "CLASSES_V_${__CLASS_NAME[0]}" "%s" "$val"
     done
 }
 
 @class.end() {
-    local methods name parent
-    local parentmethods=""
-
-    # Define class constructor
+    local methods_var="CLASSES_M_${__CLASS_NAME[0]}"
+    local -n methods="$methods_var"
     eval "${__CLASS_NAME[0]}.new() { class.new ${__CLASS_NAME[0]} \"\$@\"; }"
 
-    # Append parent methods safely only once
     if [ "${#__CLASS_NAME[@]}" -gt 1 ]; then
         for parent in "${__CLASS_NAME[@]:1}"; do
-            methods=CLASSES_M_$parent
-            local val=${!methods}
-            parentmethods="${parentmethods} ${val}"
+            local parentmethods_var="CLASSES_M_$parent"
+            local -n parentmethods="$parentmethods_var"
+            methods+=" ${parentmethods[*]}"
         done
     fi
 
-    # Fetch current class methods
-    methods=CLASSES_M_${__CLASS_NAME[0]}
-    local val=${!methods}
-
-    # Iterate over space-separated method names in val (assuming space-separated strings)
-    for name in $val; do
+    for name in ${methods}; do
         class.rename "${name##*.}" "$name"
     done
 
-    # Remove __CLASS_NAME variable to avoid pollution
     unset __CLASS_NAME
-
-    # Append parentmethods safely, simulating golang's ordered internal methods
-    printf -v "$methods" "%s" "$(printf '%s ' "${val} ${parentmethods}" | tr ' ' '\n' | sort -u | tr '\n' ' ')" 2>/dev/null 2>&1
+    methods="$(printf '%s\n' ${methods} | sort -u | tr '\n' ' ')"
+    printf -v "$methods_var" "%s" "$methods"
 }
 
-# Function that destroys the class
 @destroy() {
-    # Call the destructor, if it exists
-    class.exists $1.__destruct && $1.__destruct
-
-    # Remove all function names of the object
-    for name in $(typeset -F | grep -o " $1[^ ]*"); do
+    class.exists "$1.__destruct" && "$1.__destruct"
+    for name in $(typeset -F | awk "/ $1[^ ]*/ {print \$3}"); do
         unset -f "$name"
     done
-
-    # Remove all properties of the object
-    for name in $( (
-        set -o posix
-        set
-    ) | grep -o "^${1//*./}__[^=]*="); do
-        unset ${name%%=}
+    for name in $(set | grep -o "^${1//*./}__[^=]*="); do
+        unset "${name%%=*}"
     done
 }
 
-# Function that searches for unreferenced objects and destroys them
 @class.gc() {
-    # Values of all variables
-    local vars=$(
-        set -o posix
-        set
-    )
-
-    # Search for all objects and check whether they are referenced in variables
-    for name in $(typeset -F | grep -o " @:object\.[^ ]*" 2>/dev/null |
-        cut -d. -f2 | sort -ud 2>/dev/null); do
-        if ! grep -q "@:object.$name$" <<<"$vars"; then
-            @destroy "@:object.$name" &>/dev/null
-        fi
+    local vars
+    vars="$(set)"
+    for name in $(typeset -F | grep -o " @:object\.[^ ]*" 2>/dev/null | cut -d. -f2 | sort -u); do
+        grep -q "@:object.$name\$" <<<"$vars" || @destroy "@:object.$name"
     done
 }
 
@@ -4540,6 +4504,8 @@ register_current_command() {
     array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS"
     array_unique "BISU_EXIT_WITH_COMMANDS"
 
+    UNIX_USERNAME=$(whoami)
+    UNIX_HOSTNAME=$(hostname)
     CURRENT_FILE_PATH=$(normalize_string "$current_file_path")
     CURRENT_COMMAND="$CURRENT_FILE_PATH"
     CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
