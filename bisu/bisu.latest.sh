@@ -5,7 +5,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="9.3.5"
+export BISU_VERSION="9.3.6"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-07-30Z"}
 # Minimal Bash Version
@@ -4855,7 +4855,7 @@ autorun_start() {
                 safe_fork "$(printf '%s ' "$command")" || {
                     log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
                     continue
-                } | tee -a -- "$(current_log_file)"
+                }
             } &
             disown %+ &>/dev/null
 
