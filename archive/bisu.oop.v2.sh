@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Version: v2-20250807Z1
+# Version: v2-20250809Z1
 # ================================================================ Bash OOP Engine Start =======================================================================
 # === Safe sed wrapper ===
 unset -f class.sed >/dev/null 2>&1
 {
     printf '' | sed -E '' >/dev/null 2>&1 &&
-    class.sed() { sed -E "$(printf '%s ' "$@")" 2>/dev/null; } || exit 1
+        class.sed() { sed -E "$(printf '%s ' "$@")" 2>/dev/null; } || exit 1
 }
 export -f class.sed
 
@@ -24,7 +24,8 @@ class.var() {
 class.copy() {
     local source="$1" target="$2" obj="$3" class="$4"
     local func_body="$(declare -f "$source")"
-    func_body="${func_body#*\{}"; func_body="${func_body%$'\n}'}"
+    func_body="${func_body#*\{}"
+    func_body="${func_body%$'\n}'}"
 
     local vars_var="CLASSES_V_${class//.*/}"
     local -n keys="$vars_var"
@@ -39,7 +40,10 @@ class.copy() {
 }
 
 # === Method renamer ===
-class.rename() { class.copy "$1" "$2"; unset -f "$1"; }
+class.rename() {
+    class.copy "$1" "$2"
+    unset -f "$1"
+}
 
 # === Append method or property definition ===
 class.append() {
@@ -86,12 +90,17 @@ class.new() {
 
 # === Class lifecycle macros ===
 @def() { [[ "$1" == "static" ]] && class.append || class.append "public." "$1"; }
-@set() { local name="$1"; shift; printf -v "$name" "%s" "$@"; }
+@set() {
+    local name="$1"
+    shift
+    printf -v "$name" "%s" "$@"
+}
 @class() {
     export __CLASS_NAME=("$@")
     local name vars val
     for name in "${__CLASS_NAME[@]:1}"; do
-        vars="CLASSES_V_$name"; val="${!vars}"
+        vars="CLASSES_V_$name"
+        val="${!vars}"
         printf -v "CLASSES_V_${__CLASS_NAME[0]}" "%s" "$val"
     done
 }
