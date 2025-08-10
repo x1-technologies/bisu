@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: v1-20250809Z1
+# Version: v1-20250810Z1
 # ================================================================ Bash OOP Engine Start =======================================================================
 unset -f class.sed >/dev/null 2>&1
 {
@@ -100,10 +100,10 @@ class.append() {
     fi
 }
 
-@set() {
+@return() {
     local name="$1"
     shift
-    printf -v "$name" "%s" "$@"
+    printf -v "$name" "$@"
 }
 
 @class() {
@@ -157,5 +157,5 @@ class.append() {
 }
 
 # Export functions to ensure availability in defining and importing files
-export -f class.sed class.new class.rename class.copy class.var class.exists class.append @def @set @class @class.end @destroy @class.gc >/dev/null 2>&1
+export -f class.sed class.new class.rename class.copy class.var class.exists class.append @def @return @class @class.end @destroy @class.gc >/dev/null 2>&1
 # ================================================================ Bash OOP Engine End =========================================================================
