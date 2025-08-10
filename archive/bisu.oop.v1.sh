@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: v1-20250810Z1
+# Version: v1-20250810Z2
 # ================================================================ Bash OOP Engine Start =======================================================================
 unset -f class.sed >/dev/null 2>&1
 {
@@ -14,7 +14,19 @@ class.new() {
     local line=${BASH_LINENO[1]}
     local methods_var="CLASSES_M_$1"
     local -n methods_ref="$methods_var"
-    local obj="@:object.f$(md5sum <<<"$1 $file $line $RANDOM $(date +%s%N)" | awk '{print $1}')"
+    local ts=
+    [[ -n $EPOCHSECONDS ]] && {
+        ts=$EPOCHSECONDS
+        [[ $EPOCHREALTIME =~ ^[0-9]+\.(.*)$ ]] && ns=$(printf '%-9s' "${BASH_REMATCH[1]}" | tr ' ' 0) || ns=000000000
+        ts+=${ns}
+    } || { command -v date >/dev/null 2>&1 && {
+        ts=$(date +%s%N 2>/dev/null || true)
+        [[ $ts =~ ^[0-9]{19,}$ ]] && : || {
+            ts=$(date +%s 2>/dev/null || true)
+            [[ $ts =~ ^[0-9]{10}$ ]] && ts=${ts}000000000 || ts=''
+        }
+    } || ts=''; }
+    local obj="@:object.f$(md5sum <<<"${1}-${file}-${line}-${RANDOM}-${ts}" | awk '{print $1}')"
 
     for name in ${methods_ref}; do
         local newname=$obj.${name##*.}
