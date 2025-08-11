@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
-# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283
+# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.1.0"
+export BISU_VERSION="10.2.0"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-11Z"}
 # Minimal Bash Version
@@ -41,8 +41,8 @@ export BISU_FIFO_DIR="$TMPDIR/bisu_fifo"
 export SAFE_FORK_LIMIT=16
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
-    'bash' 'getopt' 'awk' 'sed' 'grep' 'mapfile' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq'
-    'mkfifo' 'whoami' 'hostname'
+    'bash' 'getopt' 'awk' 'sed' 'grep' 'mapfile' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'date'
+    'mkfifo' 'whoami' 'hostname' 'gpg'
 )
 # Required external commands list
 REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
@@ -112,89 +112,48 @@ ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# Version: v1-20250811Z1
+# Version: v7-20250811Z2
 # ================================================================ Bash OOP Engine Start =======================================================================
-unset -f class.sed >/dev/null 2>&1
-{
-    printf '' | sed -E '' >/dev/null 2>&1 &&
-        class.sed() {
-            sed -E "$(printf '%s ' "$@")" 2>/dev/null
-        } || exit 1
+# Wrapper for sed to handle extended regex compatibly across systems.
+class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
+
+class.trim() {
+    printf '%s' "$1"
 }
 
-@valid.name() {
-    local var_name="$1"
-    var_name="${var_name#"${var_name%%[![:space:]]*}"}"
-    var_name="${var_name%"${var_name##*[![:space:]]}"}"
+# Validate if a given string is a valid Bash variable name.
+class.name.valid() {
+    local var_name=$(class.trim "$1")
     if [[ -z "$var_name" || ! "$var_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
         return 1
     fi
     return 0
 }
 
-class.new() {
-    local file="${BASH_SOURCE[1]}"
-    local line=${BASH_LINENO[1]}
-    local methods_var="CLASSES_M_$1"
-    local -n methods_ref="$methods_var"
-    local ts=
-    [[ -n $EPOCHSECONDS ]] && {
-        ts=$EPOCHSECONDS
-        [[ $EPOCHREALTIME =~ ^[0-9]+\.(.*)$ ]] && ns=$(printf '%-9s' "${BASH_REMATCH[1]}" | tr ' ' 0) || ns=000000000
-        ts+=${ns}
-    } || { command -v date >/dev/null 2>&1 && {
-        ts=$(date +%s%N 2>/dev/null || true)
-        [[ $ts =~ ^[0-9]{19,}$ ]] && : || {
-            ts=$(date +%s 2>/dev/null || true)
-            [[ $ts =~ ^[0-9]{10}$ ]] && ts=${ts}000000000 || ts=''
-        }
-    } || ts=''; }
-    local obj="@:object.o$(md5sum <<<"${1}-${file}-${line}-${RANDOM}-${ts}")"
-
-    for name in ${methods_ref}; do
-        local newname=$obj.${name##*.}
-        class.exists "$newname" && newname="${newname%.*}.parent.${newname//*./}"
-        class.copy "$name" "$newname" "$obj" "$1"
-    done
-
-    local vars_var="CLASSES_V_$1"
-    local -n vars_ref="$vars_var"
-    for name in ${vars_ref//|/ }; do
-        eval "$obj.$name() { class.var \"$obj\" \"$name\" \"\$@\"; }"
-    done
-
-    printf -v "$2" "%s" "$obj"
-    shift 2
-    class.exists "$obj.__construct" && "$obj.__construct" "$@"
-}
-
+# Rename a class by copying it and unsetting the original.
 class.rename() {
     class.copy "$1" "$2"
-    unset -f "$1"
+    unset -f "$1" >/dev/null 2>&1
 }
 
+# Copy a class or method definition, handling static or instance contexts.
 class.copy() {
     if [ "$3" ]; then
-        local vars_var="CLASSES_V_${4//.*/}"
-        local -n keys="$vars_var"
-        local func_body
-        func_body="$(declare -f "$1")"
-        func_body="${func_body#*\{}"
-        func_body="${func_body%$'\n}'}"
-        func_body="$(class.sed "s/{?this\[(@${keys[*]})\]}?/${3#*.}__\\1/g" <<<"$func_body")"
-        eval "$2() {"$'\n'"local this=\"$3\" parent=\"$4.parent\" self=\"$4\""$'\n'"$func_body"$'\n'"}"
+        local vars=__BISU_CLASS_V_${4//.*/}
+        # Generate new function with replaced variable references for instance.
+        eval "$2() { local this=\"$3\" parent=\"$3.parent\" self=\"$4\"; $(declare -f "$1" 2>/dev/null 2>&1 |
+            tail -n +2 | # Skip function declaration line
+            class.sed "s/\{?this\[(@${!vars})\]\}?/${3#*.}__\1/g") }"
     else
-        local vars_var="CLASSES_V_${2//.*/}"
-        local -n keys="$vars_var"
-        local func_body
-        func_body="$(declare -f "$1")"
-        func_body="${func_body#*\{}"
-        func_body="${func_body%$'\n}'}"
-        func_body="$(class.sed "s/{?self\[(@${keys[*]})\]}?/${2//.*/}_static_\\1/g" <<<"$func_body")"
-        eval "$2() {"$'\n'"local self=\"${2//.*/}\""$'\n'"$func_body"$'\n'"}"
+        local vars=__BISU_CLASS_V_${2//.*/}
+        # Generate static function with replaced static variable references.
+        eval "$2() { local self=\"${2//.*/}\"; $(declare -f "$1" 2>/dev/null 2>&1 |
+            tail -n +2 | # Skip function declaration line
+            class.sed "s/\{?self\[(@${!vars})\]\}?/${2//.*/}_static_\1/g") }"
     fi
 }
 
+# Get or set a class variable value.
 class.var() {
     local name="${1#*.}__$2"
     if [ -z "$3" ]; then
@@ -204,29 +163,40 @@ class.var() {
     fi
 }
 
+# Check if a class or function exists.
 class.exists() {
-    typeset -F "$1" >/dev/null 2>&1
+    typeset -f "$1" >/dev/null 2>&1
 }
 
+# Append properties or methods to the current class.
 class.append() {
     if [ "$2" ]; then
-        local props="CLASSES_V_$__CLASS_NAME"
-        local -n val="$props"
-        val="${val}|$2"
+        local props=__BISU_CLASS_V_$__BISU_CLASS_NAME
+        printf -v $props "%s" "${!props}|$2"
     else
         local len=${#BASH_SOURCE[@]}
-        local file="${BASH_SOURCE[$((len - 1))]}"
-        local line=${BASH_LINENO[$((len - 2))]}
-        local name=($(awk -F ' *; *| *\\(' -v l="$line" '
-            NR == l {print $2}
-            NR == l + 1 {gsub("[ \t]", "", $1); print $1; exit}
-        ' "$file"))
-        local methods="CLASSES_M_$__CLASS_NAME"
-        local -n val="$methods"
-        val="${val} $__CLASS_NAME.$1${name}"
+        local file="${BASH_SOURCE[$len - 1]}"
+        local line=${BASH_LINENO[$len - 2]}
+
+        local name=($(
+            awk -F ' *; *| *\\(' \
+                'NR=='$line' {print $2}
+                NR=='$line'+1 {gsub("[ \t]", "", $1);print $1;exit}' \
+                "$file" 2>/dev/null
+        ))
+        class.name.valid "$name" || {
+            printf '%s\n' "${ERROR_MSG_PREFIX}Invalid method name of file \"${file}\" at line: ${line}"
+            return 1
+        }
+
+        local methods=__BISU_CLASS_M_$__BISU_CLASS_NAME
+        printf -v $methods "%s" "${!methods} $__BISU_CLASS_NAME.$1$name"
     fi
+
+    return 0
 }
 
+# Define static or public members.
 @def() {
     if [[ "$1" == "static" ]]; then
         class.append
@@ -235,71 +205,126 @@ class.append() {
     fi
 }
 
+# Set a variable with validation.
 @set() {
     local name="$1"
     shift
-    @valid.name "$name" && printf -v "$name" '%s' "$@"
+    class.name.valid "$name" && printf -v "$name" '%s' "$@"
 }
 
+# Return an object with validation.
 @return() {
     local name="$1"
     shift
-    @valid.name "$name" && printf -v "$name" "$@"
+    class.name.valid "$name" && printf -v "$name" "$@"
 }
 
+# Begin class definition, handling inheritance.
 @class() {
-    export __CLASS_NAME=("$@")
-    local name vars val
-    for name in "${__CLASS_NAME[@]:1}"; do
-        vars="CLASSES_V_$name"
-        val="${!vars}"
-        printf -v "CLASSES_V_${__CLASS_NAME[0]}" "%s" "$val"
+    __BISU_CLASS_NAME=("$@")
+    local name vars
+    for name in "${__BISU_CLASS_NAME[@]:1}"; do
+        vars="__BISU_CLASS_V_$name"
+        printf -v "__BISU_CLASS_V_${__BISU_CLASS_NAME[0]}" "%s" "${!vars}"
     done
 }
 
-@class.end() {
-    local methods_var="CLASSES_M_${__CLASS_NAME[0]}"
-    local -n methods="$methods_var"
-    eval "${__CLASS_NAME[0]}.new() { class.new ${__CLASS_NAME[0]} \"\$@\"; }"
+# Create a new object instance.
+class.new() {
+    local file="${BASH_SOURCE[1]}"
+    local line="${BASH_LINENO[1]}"
+    local methods="__BISU_CLASS_M_$1"
+    # Generate unique timestamp for object ID.
+    local ts=""
+    if [ -n "$EPOCHSECONDS" ]; then
+        ts="$EPOCHSECONDS"
+        local ns=""
+        if [[ "$EPOCHREALTIME" =~ ^[0-9]+\.(.*)$ ]]; then
+            ns=$(printf '%-9s' "${BASH_REMATCH[1]}" | tr ' ' 0)
+        else
+            ns="000000000"
+        fi
+        ts+="$ns"
+    else
+        ts=$(date +%s%N 2>/dev/null || true)
+        if ! [[ "$ts" =~ ^[0-9]{19,}$ ]]; then
+            ts=$(date +%s 2>/dev/null || true)
+            if [[ "$ts" =~ ^[0-9]{10}$ ]]; then
+                ts="${ts}000000000"
+            else
+                ts=""
+            fi
+        fi
+    fi
+    # Create unique object name using md5sum.
+    local obj="@:object.o$(md5sum <<<"$1 $file $line $RANDOM $ts" | cut -d' ' -f1)"
+    # Copy methods to object-specific names.
+    for name in ${!methods}; do
+        local newname="$obj.${name##*.}"
+        if class.exists "$newname"; then
+            newname="${newname%.*}.parent.${newname##*.}"
+        fi
+        class.copy "$name" "$newname" "$obj" "$1"
+    done
+    # Define variable accessors for the object.
+    local vars="__BISU_CLASS_V_$1"
+    for name in $(tr '|' ' ' <<<"${!vars}"); do
+        eval "$obj.$name() { class.var \"$obj\" \"$name\" \"\$@\"; }"
+    done
+    printf -v "$2" "%s" "$obj"
+    shift 2
+    # Call constructor if it exists.
+    class.exists "$obj.__construct" && "$obj.__construct" "$@"
+}
 
-    if [ "${#__CLASS_NAME[@]}" -gt 1 ]; then
-        for parent in "${__CLASS_NAME[@]:1}"; do
-            local parentmethods_var="CLASSES_M_$parent"
-            local -n parentmethods="$parentmethods_var"
-            methods+=" ${parentmethods[*]}"
+# End class definition, setting up new and inheriting methods.
+@class.end() {
+    local methods name parent
+    local parentmethods=()
+    eval "${__BISU_CLASS_NAME[0]}.new() { class.new \"${__BISU_CLASS_NAME[0]}\" \"\$@\"; }"
+    if [ "${#__BISU_CLASS_NAME[@]}" -gt 1 ]; then
+        for parent in "${__BISU_CLASS_NAME[@]:1}"; do
+            methods="__BISU_CLASS_M_$parent"
+            parentmethods+=" ${!methods}"
         done
     fi
-
-    for name in ${methods}; do
+    methods="__BISU_CLASS_M_${__BISU_CLASS_NAME[0]}"
+    # Rename methods to final names.
+    for name in ${!methods}; do
         class.rename "${name##*.}" "$name"
     done
-
-    unset __CLASS_NAME
-    methods="$(printf '%s\n' ${methods} | sort -u | tr '\n' ' ')"
-    printf -v "$methods_var" "%s" "$methods"
+    unset "__BISU_CLASS_NAME" >/dev/null 2>&1
+    printf -v "$methods" "%s" "${!methods} $parentmethods"
 }
 
+# Destroy an object, calling destructor and cleaning up.
 @destroy() {
     class.exists "$1.__destruct" && "$1.__destruct"
-    for name in $(typeset -F | awk "/ $1[^ ]*/ {print \$3}"); do
-        unset -f "$name"
+    # Unset object-specific functions.
+    for name in $(typeset -F | grep -o "$1[^ ]*"); do
+        unset -f "$name" >/dev/null 2>&1
     done
-    for name in $(set | grep -o "^${1//*./}__[^=]*="); do
-        unset "${name%%=*}"
+    # Unset object-specific variables.
+    for name in $(
+        set -o posix
+        set | grep -o "^${1//\./}__[^=]*="
+    ); do
+        unset "${name%%=}" >/dev/null 2>&1
     done
 }
 
+# Garbage collect unreferenced objects.
 @class.gc() {
-    local vars
-    vars="$(set)"
-    for name in $(typeset -F | grep -o " @:object\.[^ ]*" 2>/dev/null | cut -d. -f2 | sort -u); do
-        grep -q "@:object.$name\$" <<<"$vars" || @destroy "@:object.$name"
+    local vars=$(
+        set -o posix
+        set
+    )
+    for name in $(typeset -F | grep -o "@:object\.[^ ]*" | cut -d. -f2 | sort -u); do
+        if ! grep -q "=@:object\.$name\$" <<<"$vars" 2>/dev/null; then
+            @destroy "@:object.$name"
+        fi
     done
 }
-
-# Export functions to ensure availability in defining and importing files
-export -f class.sed class.new class.rename class.copy class.var class.exists class.append @def @return @set @valid.name @class @class.end \
-    @destroy @class.gc >/dev/null 2>&1
 # ================================================================ Bash OOP Engine End =========================================================================
 
 # Robust and POSIX-compliant isset function
@@ -353,10 +378,7 @@ trim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    if [[ "$chars" == "[:space:]" ]]; then
-        str="${str#"${str%%[![:space:]]*}"}"
-        str="${str%"${str##*[![:space:]]}"}"
-    else
+    if [[ "$chars" != "[:space:]" ]]; then
         str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
             {
                 gsub("^" chars "+", "")
@@ -383,9 +405,7 @@ ltrim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    if [[ "$chars" == "[:space:]" ]]; then
-        str="${str#"${str%%[![:space:]]*}"}"
-    else
+    if [[ "$chars" != "[:space:]" ]]; then
         str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
             { gsub("^" chars "+", ""); print }
         ' <<<"$str" 2>/dev/null)
@@ -408,9 +428,7 @@ rtrim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    if [[ "$chars" == "[:space:]" ]]; then
-        str="${str%"${str##*[![:space:]]}"}"
-    else
+    if [[ "$chars" != "[:space:]" ]]; then
         str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
             { sub(chars "$", ""); print }
         ' <<<"$str" 2>/dev/null)
@@ -422,7 +440,7 @@ rtrim() {
 
 # Function to validate a variable name
 is_valid_var_name() {
-    @valid.name "$1" || return 1
+    class.name.valid "$1" || return 1
     return 0
 }
 
@@ -437,13 +455,11 @@ time_sec() {
     fi
 
     # GNU date fallback
-    if command -v date >/dev/null 2>&1; then
-        ts=$(date +%s 2>/dev/null || true)
-        # Validate timestamp length (10 digits for seconds)
-        if [[ $ts =~ ^[0-9]{10}$ ]]; then
-            printf '%s\n' "$ts"
-            return 0
-        fi
+    ts=$(date +%s 2>/dev/null || true)
+    # Validate timestamp length (10 digits for seconds)
+    if [[ $ts =~ ^[0-9]{10}$ ]]; then
+        printf '%s\n' "$ts"
+        return 0
     fi
 
     printf ''
@@ -470,24 +486,22 @@ time_ms() {
     fi
 
     # GNU date fallback (Ubuntu, Termux)
-    if command -v date >/dev/null 2>&1; then
-        ts=$(date +%s%N 2>/dev/null || true)
-        # Validate output length for seconds+nanoseconds (>=19 digits)
-        if [[ $ts =~ ^[0-9]{19,}$ ]]; then
-            sec=${ts:0:10}
-            ns=${ts:10:9}
-            ms=$((10#$sec * 1000 + 10#${ns:0:3}))
-            printf '%d\n' "$ms"
-            return 0
-        fi
+    ts=$(date +%s%N 2>/dev/null || true)
+    # Validate output length for seconds+nanoseconds (>=19 digits)
+    if [[ $ts =~ ^[0-9]{19,}$ ]]; then
+        sec=${ts:0:10}
+        ns=${ts:10:9}
+        ms=$((10#$sec * 1000 + 10#${ns:0:3}))
+        printf '%d\n' "$ms"
+        return 0
+    fi
 
-        # POSIX date fallback: seconds only, pad milliseconds zero
-        ts=$(date +%s 2>/dev/null || true)
-        if [[ $ts =~ ^[0-9]{10}$ ]]; then
-            ms=$((10#$ts * 1000))
-            printf '%d\n' "$ms"
-            return 0
-        fi
+    # POSIX date fallback: seconds only, pad milliseconds zero
+    ts=$(date +%s 2>/dev/null || true)
+    if [[ $ts =~ ^[0-9]{10}$ ]]; then
+        ms=$((10#$ts * 1000))
+        printf '%d\n' "$ms"
+        return 0
     fi
 
     printf ''
@@ -513,20 +527,18 @@ time_ns() {
     fi
 
     # GNU date fallback: expects nanoseconds appended to seconds (length >= 19)
-    if command -v date >/dev/null 2>&1; then
-        ts=$(date +%s%N 2>/dev/null || true)
-        # Validate: must be all digits and at least 19 chars (10 for seconds + 9 nanoseconds)
-        if [[ $ts =~ ^[0-9]{19,}$ ]]; then
-            printf '%s\n' "$ts"
-            return 0
-        fi
+    ts=$(date +%s%N 2>/dev/null || true)
+    # Validate: must be all digits and at least 19 chars (10 for seconds + 9 nanoseconds)
+    if [[ $ts =~ ^[0-9]{19,}$ ]]; then
+        printf '%s\n' "$ts"
+        return 0
+    fi
 
-        # POSIX date fallback: seconds only
-        ts=$(date +%s 2>/dev/null || true)
-        if [[ $ts =~ ^[0-9]{10}$ ]]; then
-            printf '%s000000000\n' "$ts" # append zeros for nanoseconds to unify length
-            return 0
-        fi
+    # POSIX date fallback: seconds only
+    ts=$(date +%s 2>/dev/null || true)
+    if [[ $ts =~ ^[0-9]{10}$ ]]; then
+        printf '%s000000000\n' "$ts" # append zeros for nanoseconds to unify length
+        return 0
     fi
 
     printf ''
