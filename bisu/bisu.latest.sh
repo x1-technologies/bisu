@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
-# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153
+# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.0.0"
+export BISU_VERSION="10.1.0"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-08Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-11Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -30,7 +30,7 @@ export DEFAULT_TITLE="-bash"
 # Auto line-break length
 export LINE_BREAK_LENGTH=160
 # Set $TMPDIR
-TMPDIR="${TMPDIR:-/tmp}" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
+TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
 # Set $HOME
 HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
 # awk prefix
@@ -112,53 +112,102 @@ ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# Version: v2-20250807Z1
+# Version: v1-20250811Z1
 # ================================================================ Bash OOP Engine Start =======================================================================
-# === Safe sed wrapper ===
 unset -f class.sed >/dev/null 2>&1
 {
     printf '' | sed -E '' >/dev/null 2>&1 &&
-        class.sed() { sed -E "$(printf '%s ' "$@")" 2>/dev/null; } || exit 1
-}
-export -f class.sed
-
-# === Check if function exists ===
-class.exists() { typeset -F "$1" >/dev/null 2>&1; }
-
-# === Variable manager: for both instance and static ===
-class.var() {
-    local ctx="$1" name="$2" val="$3"
-    local key
-    [[ "$ctx" == *@:* ]] && key="${ctx#*.}__$name" || key="${ctx}_static_$name"
-    [[ -z "$val" ]] && printf '%s' "${!key}" || printf -v "$key" "%s" "${val#=}"
+        class.sed() {
+            sed -E "$(printf '%s ' "$@")" 2>/dev/null
+        } || exit 1
 }
 
-# === Function copier: dynamic rebinding for instance/static ===
-class.copy() {
-    local source="$1" target="$2" obj="$3" class="$4"
-    local func_body="$(declare -f "$source")"
-    func_body="${func_body#*\{}"
-    func_body="${func_body%$'\n}'}"
-
-    local vars_var="CLASSES_V_${class//.*/}"
-    local -n keys="$vars_var"
-
-    if [ "$obj" ]; then
-        func_body="$(class.sed "s/{?this\[(@${keys[*]})\]}?/${obj#*.}__\\1/g" <<<"$func_body")"
-        eval "$target() {"$'\n'"local this=\"$obj\" parent=\"$class.parent\" self=\"$class\""$'\n'"$func_body"$'\n'"}"
-    else
-        func_body="$(class.sed "s/{?self\[(@${keys[*]})\]}?/${class}_static_\\1/g" <<<"$func_body")"
-        eval "$target() {"$'\n'"local self=\"$class\""$'\n'"$func_body"$'\n'"}"
+@valid.name() {
+    local var_name="$1"
+    var_name="${var_name#"${var_name%%[![:space:]]*}"}"
+    var_name="${var_name%"${var_name##*[![:space:]]}"}"
+    if [[ -z "$var_name" || ! "$var_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+        return 1
     fi
+    return 0
 }
 
-# === Method renamer ===
+class.new() {
+    local file="${BASH_SOURCE[1]}"
+    local line=${BASH_LINENO[1]}
+    local methods_var="CLASSES_M_$1"
+    local -n methods_ref="$methods_var"
+    local ts=
+    [[ -n $EPOCHSECONDS ]] && {
+        ts=$EPOCHSECONDS
+        [[ $EPOCHREALTIME =~ ^[0-9]+\.(.*)$ ]] && ns=$(printf '%-9s' "${BASH_REMATCH[1]}" | tr ' ' 0) || ns=000000000
+        ts+=${ns}
+    } || { command -v date >/dev/null 2>&1 && {
+        ts=$(date +%s%N 2>/dev/null || true)
+        [[ $ts =~ ^[0-9]{19,}$ ]] && : || {
+            ts=$(date +%s 2>/dev/null || true)
+            [[ $ts =~ ^[0-9]{10}$ ]] && ts=${ts}000000000 || ts=''
+        }
+    } || ts=''; }
+    local obj="@:object.o$(md5sum <<<"${1}-${file}-${line}-${RANDOM}-${ts}")"
+
+    for name in ${methods_ref}; do
+        local newname=$obj.${name##*.}
+        class.exists "$newname" && newname="${newname%.*}.parent.${newname//*./}"
+        class.copy "$name" "$newname" "$obj" "$1"
+    done
+
+    local vars_var="CLASSES_V_$1"
+    local -n vars_ref="$vars_var"
+    for name in ${vars_ref//|/ }; do
+        eval "$obj.$name() { class.var \"$obj\" \"$name\" \"\$@\"; }"
+    done
+
+    printf -v "$2" "%s" "$obj"
+    shift 2
+    class.exists "$obj.__construct" && "$obj.__construct" "$@"
+}
+
 class.rename() {
     class.copy "$1" "$2"
     unset -f "$1"
 }
 
-# === Append method or property definition ===
+class.copy() {
+    if [ "$3" ]; then
+        local vars_var="CLASSES_V_${4//.*/}"
+        local -n keys="$vars_var"
+        local func_body
+        func_body="$(declare -f "$1")"
+        func_body="${func_body#*\{}"
+        func_body="${func_body%$'\n}'}"
+        func_body="$(class.sed "s/{?this\[(@${keys[*]})\]}?/${3#*.}__\\1/g" <<<"$func_body")"
+        eval "$2() {"$'\n'"local this=\"$3\" parent=\"$4.parent\" self=\"$4\""$'\n'"$func_body"$'\n'"}"
+    else
+        local vars_var="CLASSES_V_${2//.*/}"
+        local -n keys="$vars_var"
+        local func_body
+        func_body="$(declare -f "$1")"
+        func_body="${func_body#*\{}"
+        func_body="${func_body%$'\n}'}"
+        func_body="$(class.sed "s/{?self\[(@${keys[*]})\]}?/${2//.*/}_static_\\1/g" <<<"$func_body")"
+        eval "$2() {"$'\n'"local self=\"${2//.*/}\""$'\n'"$func_body"$'\n'"}"
+    fi
+}
+
+class.var() {
+    local name="${1#*.}__$2"
+    if [ -z "$3" ]; then
+        printf '%s' "${!name}"
+    else
+        printf -v "$name" "%s" "${3#=}"
+    fi
+}
+
+class.exists() {
+    typeset -F "$1" >/dev/null 2>&1
+}
+
 class.append() {
     if [ "$2" ]; then
         local props="CLASSES_V_$__CLASS_NAME"
@@ -178,36 +227,26 @@ class.append() {
     fi
 }
 
-# === Dynamic class creation ===
-class.new() {
-    local file="${BASH_SOURCE[1]}" line=${BASH_LINENO[1]}
-    local methods_var="CLASSES_M_$1" vars_var="CLASSES_V_$1"
-    local -n methods_ref="$methods_var" vars_ref="$vars_var"
-
-    local obj="@:object.f$(md5sum <<<"$1 $file $line $RANDOM $(date +%s%N)" | awk '{print $1}')"
-
-    for m in ${methods_ref}; do
-        local newname=$obj.${m##*.}
-        class.exists "$newname" && newname="${newname%.*}.parent.${newname//*./}"
-        class.copy "$m" "$newname" "$obj" "$1"
-    done
-
-    for name in ${vars_ref//|/ }; do
-        eval "$obj.$name() { class.var \"$obj\" \"$name\" \"\$@\"; }"
-    done
-
-    printf -v "$2" "%s" "$obj"
-    shift 2
-    class.exists "$obj.__construct" && "$obj.__construct" "$@"
+@def() {
+    if [[ "$1" == "static" ]]; then
+        class.append
+    else
+        class.append "public." "$1"
+    fi
 }
 
-# === Class lifecycle macros ===
-@def() { [[ "$1" == "static" ]] && class.append || class.append "public." "$1"; }
 @set() {
     local name="$1"
     shift
-    printf -v "$name" "%s" "$@"
+    @valid.name "$name" && printf -v "$name" '%s' "$@"
 }
+
+@return() {
+    local name="$1"
+    shift
+    @valid.name "$name" && printf -v "$name" "$@"
+}
+
 @class() {
     export __CLASS_NAME=("$@")
     local name vars val
@@ -217,6 +256,7 @@ class.new() {
         printf -v "CLASSES_V_${__CLASS_NAME[0]}" "%s" "$val"
     done
 }
+
 @class.end() {
     local methods_var="CLASSES_M_${__CLASS_NAME[0]}"
     local -n methods="$methods_var"
@@ -239,23 +279,27 @@ class.new() {
     printf -v "$methods_var" "%s" "$methods"
 }
 
-# === Object destruction ===
 @destroy() {
     class.exists "$1.__destruct" && "$1.__destruct"
-    for name in $(typeset -F | awk "/ $1[^ ]*/ {print \$3}"); do unset -f "$name"; done
-    for name in $(set | grep -o "^${1//*./}__[^=]*="); do unset "${name%%=*}"; done
+    for name in $(typeset -F | awk "/ $1[^ ]*/ {print \$3}"); do
+        unset -f "$name"
+    done
+    for name in $(set | grep -o "^${1//*./}__[^=]*="); do
+        unset "${name%%=*}"
+    done
 }
 
-# === Garbage collector for orphaned objects ===
 @class.gc() {
-    local vars="$(set)"
+    local vars
+    vars="$(set)"
     for name in $(typeset -F | grep -o " @:object\.[^ ]*" 2>/dev/null | cut -d. -f2 | sort -u); do
         grep -q "@:object.$name\$" <<<"$vars" || @destroy "@:object.$name"
     done
 }
 
 # Export functions to ensure availability in defining and importing files
-export -f class.sed class.new class.rename class.copy class.var class.exists class.append @def @set @class @class.end @destroy @class.gc >/dev/null 2>&1
+export -f class.sed class.new class.rename class.copy class.var class.exists class.append @def @return @set @valid.name @class @class.end \
+    @destroy @class.gc >/dev/null 2>&1
 # ================================================================ Bash OOP Engine End =========================================================================
 
 # Robust and POSIX-compliant isset function
@@ -309,13 +353,19 @@ trim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-        {         
-            gsub("^" chars "+", "")
-            gsub(chars "+$", "")
-            print
-        }
+    if [[ "$chars" == "[:space:]" ]]; then
+        str="${str#"${str%%[![:space:]]*}"}"
+        str="${str%"${str##*[![:space:]]}"}"
+    else
+        str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+            {
+                gsub("^" chars "+", "")
+                gsub(chars "+$", "")
+                print
+            }
         ' <<<"$str" 2>/dev/null)
+    fi
+
     printf '%s' "$str"
     return 0
 }
@@ -333,9 +383,14 @@ ltrim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-        { gsub("^" chars "+", ""); print }
+    if [[ "$chars" == "[:space:]" ]]; then
+        str="${str#"${str%%[![:space:]]*}"}"
+    else
+        str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+            { gsub("^" chars "+", ""); print }
         ' <<<"$str" 2>/dev/null)
+    fi
+
     printf '%s' "$str"
     return 0
 }
@@ -353,9 +408,13 @@ rtrim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-        { sub(chars "$", ""); print }
+    if [[ "$chars" == "[:space:]" ]]; then
+        str="${str%"${str##*[![:space:]]}"}"
+    else
+        str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+            { sub(chars "$", ""); print }
         ' <<<"$str" 2>/dev/null)
+    fi
 
     printf '%s' "$str"
     return 0
@@ -363,11 +422,115 @@ rtrim() {
 
 # Function to validate a variable name
 is_valid_var_name() {
-    local var_name=$(trim "$1")
-    if [[ -z "$var_name" || ! "$var_name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
-        return 1
-    fi
+    @valid.name "$1" || return 1
     return 0
+}
+
+# get timestamp_sec faster and more robust
+time_sec() {
+    local ts sec
+
+    # Prefer Bash 5+ built-ins for performance and zero external calls
+    if [[ -n $EPOCHSECONDS ]]; then
+        printf '%d\n' "$EPOCHSECONDS"
+        return 0
+    fi
+
+    # GNU date fallback
+    if command -v date >/dev/null 2>&1; then
+        ts=$(date +%s 2>/dev/null || true)
+        # Validate timestamp length (10 digits for seconds)
+        if [[ $ts =~ ^[0-9]{10}$ ]]; then
+            printf '%s\n' "$ts"
+            return 0
+        fi
+    fi
+
+    printf ''
+    return 1
+}
+
+# get timestamp_ms faster and more robust
+time_ms() {
+    local ts sec ns ms
+
+    # Prefer Bash 5+ built-ins for best performance and zero external calls.
+    if [[ -n $EPOCHSECONDS ]]; then
+        sec=$EPOCHSECONDS
+        # Extract fractional nanoseconds padded to 9 digits, else zero
+        if [[ -n $EPOCHREALTIME && $EPOCHREALTIME =~ ^[0-9]+\.(.*)$ ]]; then
+            ns=$(printf '%-9s' "${BASH_REMATCH[1]}" | tr ' ' 0)
+        else
+            ns="000000000"
+        fi
+        # Convert nanoseconds to milliseconds by truncating last 6 digits
+        ms=$((10#${sec} * 1000 + 10#${ns:0:3}))
+        printf '%d\n' "$ms"
+        return 0
+    fi
+
+    # GNU date fallback (Ubuntu, Termux)
+    if command -v date >/dev/null 2>&1; then
+        ts=$(date +%s%N 2>/dev/null || true)
+        # Validate output length for seconds+nanoseconds (>=19 digits)
+        if [[ $ts =~ ^[0-9]{19,}$ ]]; then
+            sec=${ts:0:10}
+            ns=${ts:10:9}
+            ms=$((10#$sec * 1000 + 10#${ns:0:3}))
+            printf '%d\n' "$ms"
+            return 0
+        fi
+
+        # POSIX date fallback: seconds only, pad milliseconds zero
+        ts=$(date +%s 2>/dev/null || true)
+        if [[ $ts =~ ^[0-9]{10}$ ]]; then
+            ms=$((10#$ts * 1000))
+            printf '%d\n' "$ms"
+            return 0
+        fi
+    fi
+
+    printf ''
+    return 1
+}
+
+# get timestamp_ns faster and more robust
+time_ns() {
+    local ts sec ns
+
+    # Use Bash 5+ built-ins if available (preferred, no external call)
+    if [[ -n $EPOCHSECONDS ]]; then
+        sec=$EPOCHSECONDS
+        # Use nanoseconds if fractional part exists, else zero-pad
+        if [[ -n $EPOCHREALTIME && $EPOCHREALTIME =~ ^[0-9]+\.(.*)$ ]]; then
+            ns=$(printf '%-9s' "${BASH_REMATCH[1]}" | tr ' ' 0) # pad right with zeros to 9 digits
+        else
+            ns="000000000"
+        fi
+        ts="${sec}${ns}"
+        printf '%s\n' "$ts"
+        return 0
+    fi
+
+    # GNU date fallback: expects nanoseconds appended to seconds (length >= 19)
+    if command -v date >/dev/null 2>&1; then
+        ts=$(date +%s%N 2>/dev/null || true)
+        # Validate: must be all digits and at least 19 chars (10 for seconds + 9 nanoseconds)
+        if [[ $ts =~ ^[0-9]{19,}$ ]]; then
+            printf '%s\n' "$ts"
+            return 0
+        fi
+
+        # POSIX date fallback: seconds only
+        ts=$(date +%s 2>/dev/null || true)
+        if [[ $ts =~ ^[0-9]{10}$ ]]; then
+            printf '%s000000000\n' "$ts" # append zeros for nanoseconds to unify length
+            return 0
+        fi
+    fi
+
+    printf ''
+    return 1
 }
 
 # BISU file path
@@ -496,7 +659,7 @@ quit() {
             exit $exit_code
         fi
 
-        trap '' SIGTERM
+        trap '' SIGTERM 2>/dev/null
         if [[ "$quit_group" == "true" ]]; then
             command="kill -${signal} -- $pid"
         else
@@ -505,7 +668,7 @@ quit() {
 
         exec_command "$command" "true" &
 
-        trap "$original_sigterm" SIGTERM
+        trap "$original_sigterm" SIGTERM 2>/dev/null
     fi
 
     [[ "$pid" == "$CURRENT_PID" ]] && QUITTING_FLAG=1
@@ -879,41 +1042,39 @@ normalize_number() {
 
     # Use awk for precise number formatting
     result=$(awk -v num="$input" '
-    BEGIN {
-        # Handle special case where input is just a decimal point
-        if (num == ".") {
-            print "0";
-            exit 0;
-        }
-        
-        # Convert input to a number to normalize it
-        numeric_val = num + 0;
-        
-        # Handle integer case specially to avoid decimal point
-        if (int(numeric_val) == numeric_val) {
-            printf "%d", numeric_val;
-        } else {
-            # For decimal numbers, use sprintf to convert to string
-            # and then remove trailing zeros
-            str = sprintf("%.16f", numeric_val);
-            
-            # Remove trailing zeros after decimal point
-            sub(/\.?0+$/, "", str);
-            
-            # Special handling for numbers like .5 to become 0.5
-            if (match(str, /^\./)) {
-                str = "0" str;
+        BEGIN {
+            # Handle special case where input is just a decimal point
+            if (num == ".") {
+                print "0";
+                exit 0;
             }
             
-            print str;
+            # Convert input to a number to normalize it
+            numeric_val = num + 0;
+            
+            # Handle integer case specially to avoid decimal point
+            if (int(numeric_val) == numeric_val) {
+                printf "%d", numeric_val;
+            } else {
+                # For decimal numbers, use sprintf to convert to string
+                # and then remove trailing zeros
+                str = sprintf("%.16f", numeric_val);
+                
+                # Remove trailing zeros after decimal point
+                sub(/\.?0+$/, "", str);
+                
+                # Special handling for numbers like .5 to become 0.5
+                if (match(str, /^\./)) {
+                    str = "0" str;
+                }
+                
+                print str;
+            }
         }
-    }' 2>/dev/null)
-
-    # Check if awk processing succeeded
-    if [[ $? -ne 0 || -z "$result" ]]; then
+    ' 2>/dev/null) || {
         printf ''
         return 1
-    fi
+    }
 
     # Output the normalized number
     printf '%s' "$result"
@@ -2085,7 +2246,7 @@ in_array() {
         END { exit found ? 0 : 1 }
     ' 2>/dev/null || return 1
 
-    return $?
+    return 0
 }
 
 # dump an array's elements into string
@@ -2202,18 +2363,13 @@ array_set() {
     # Ensure array is valid
     is_array "$array_name" || return 1
 
-    # Loop through key-value pairs
     while [[ $# -gt 0 ]]; do
         local key=$(trim "$1")
         local value=$(trim "$2")
         shift 2
 
-        # Skip empty keys or values
-        if [[ -z "$key" || -z "$value" ]]; then
-            continue
-        fi
-
-        eval "$array_name[$key]=\"$value\"" || return 1
+        [[ -z "$key" || -z "$value" ]] && continue
+        eval "$array_name[\"\$key\"]=\"\$value\"" || return 1
     done
 
     return 0
@@ -2223,6 +2379,7 @@ array_set() {
 array_get() {
     local array_name=$(trim "$1")
     shift
+
     is_array "$array_name" || {
         printf ''
         return 0
@@ -2230,10 +2387,9 @@ array_get() {
 
     local key val
     for key in "$@"; do
-        [ -z "$key" ] && continue
-        val=$(eval "printf '%s' \"\${${array_name}[${key}]}\"")
-        [ -z "$val" ] && continue
-
+        [[ -z "$key" ]] && continue
+        val=$(eval "printf '%s' \"\${$array_name[\"\$key\"]}\"")
+        [[ -z "$val" ]] && continue
         printf '%s' "$val"
         return 0
     done
@@ -2399,6 +2555,51 @@ array_unique() {
     fi
 
     eval "${array_name}=(\"\$(printf '%s\n' \"\${${array_name}[@]}\" | awk '!a[\$0]++' 2>/dev/null | tr '\n' ' ')\")" || return 1
+    return 0
+}
+
+# Function: array_pop
+# Accepts: $1 array_name, $2 external value reference
+# Exits: 0 if success, 1 if failure (empty array)
+array_pop() {
+    local array_name=$(trim "$1")
+    local val_ref="$2"
+    local count=$(array_count "$array_name")
+
+    if ! is_posi_int "$count"; then
+        return 1
+    fi
+
+    local last_index=$((count - 1))
+    local val=$(array_get "$array_name" "$last_index") || return 1
+
+    array_splice "$array_name" "$last_index" 1 || {
+        return 1
+    }
+
+    @set "$val_ref" "$val"
+    return 0
+}
+
+# Function: array_shift
+# Accepts: $1 array_name, $2 external value reference
+# Exits: 0 if success, 1 if failure (empty array)
+array_shift() {
+    local array_name=$(trim "$1")
+    local val_ref="$2"
+    local count=$(array_count "$array_name")
+
+    if ! is_posi_int "$count"; then
+        return 1
+    fi
+
+    local val=$(array_get "$array_name" 0) || return 1
+
+    array_splice "$array_name" 0 1 || {
+        return 1
+    }
+
+    @set "$val_ref" "$val"
     return 0
 }
 
@@ -2573,80 +2774,6 @@ array_to_json() {
     printf '%s' "$result"
     return 0
 }
-
-# Array class
-@class Array
-@def data
-
-@def
-copy_from_string() {
-    string_to_array "$1" "this[data]"
-}
-
-@def
-copy_from_array() {
-    array_copy "$1" "this[data]"
-}
-
-@def
-set() {
-    array_set "this[data]" "$1"
-}
-
-@def
-get() {
-    array_get "this[data]" "$1"
-}
-
-@def
-pop() {
-    local array_name="this[data]"
-    local count=$(array_count "$array_name")
-
-    if ! is_posi_int "$count"; then
-        printf ''
-        return 1
-    fi
-
-    local last_index=$((count - 1))
-    local val=$(array_get "$array_name" "$last_index") || {
-        printf ''
-        return 1
-    }
-
-    array_splice "$array_name" "$last_index" 1 || {
-        printf ''
-        return 1
-    }
-
-    printf '%s' "$val"
-    return 0
-}
-
-@def
-shift() {
-    local array_name="this[data]"
-    local count=$(array_count "$array_name")
-
-    if ! is_posi_int "$count"; then
-        printf ''
-        return 1
-    fi
-
-    local val=$(array_get "$array_name" 0) || {
-        printf ''
-        return 1
-    }
-
-    array_splice "$array_name" 0 1 || {
-        printf ''
-        return 1
-    }
-
-    printf '%s' "$val"
-    return 0
-}
-@class.end
 
 # Function: is_valid_version
 # Description: Validates a version number in formats vX.Y.Z, X.Y.Z, X.Y, or X/Y/Z.
@@ -3032,15 +3159,13 @@ gdate() {
     }
 
     # Convert date to timestamp
-    ts=$(date -j -u -f "%Y-%m-%d %H:%M:%S" "$clean 00:00:00" "+%s" 2>/dev/null || date -u -d "$clean" "+%s" 2>/dev/null)
-    [ $? -ne 0 ] || [ -z "$ts" ] && {
+    ts=$(date -j -u -f "%Y-%m-%d %H:%M:%S" "$clean 00:00:00" "+%s" 2>/dev/null || date -u -d "$clean" "+%s" 2>/dev/null) || {
         printf ''
         return 1
     }
 
     # Format the output
-    out=$(date -u -r "$ts" "$fmt" 2>/dev/null || date -u -d "@$ts" "$fmt" 2>/dev/null)
-    [ $? -ne 0 ] || [ -z "$out" ] && {
+    out=$(date -u -r "$ts" "$fmt" 2>/dev/null || date -u -d "@$ts" "$fmt" 2>/dev/null) || {
         printf ''
         return 1
     }
@@ -3080,9 +3205,8 @@ is_valid_filename() {
                     exit 1
                 }
             }
-        }' 2>/dev/null) || {
-        return 1
-    }
+        }
+    ' 2>/dev/null) || return 1
 
     if [ -n "$invalid_chars" ]; then
         return 1
@@ -3400,47 +3524,45 @@ is_valid_json() {
 
     # Use awk to validate JSON structure
     printf '%s\n' "$input" | awk '
-    BEGIN {
-        # Set flags for valid structure
-        inside_object = 0;
-        inside_array = 0;
-        valid = 1;
-    }
-    
-    # Detect opening of JSON object or array
-    /^[[:space:]]*\{/ { inside_object = 1; next }
-    /^[[:space:]]*\[/ { inside_array = 1; next }
-    
-    # Detect closing of JSON object or array
-    /^[[:space:]]*\}/ { if (!inside_object) { valid = 0; exit }; inside_object = 0; next }
-    /^[[:space:]]*\]/ { if (!inside_array) { valid = 0; exit }; inside_array = 0; next }
-
-    # Detect key-value pairs for objects
-    /^[[:space:]]*"[^"]*"[[:space:]]*:[[:space:]]*"/ {
-        # Check if key and value are in the expected format
-        if ($0 !~ /"[[:alnum:]_]+":/) {
-            valid = 0;
-            exit
+        BEGIN {
+            # Set flags for valid structure
+            inside_object = 0;
+            inside_array = 0;
+            valid = 1;
         }
-        next
-    }
+        
+        # Detect opening of JSON object or array
+        /^[[:space:]]*\{/ { inside_object = 1; next }
+        /^[[:space:]]*\[/ { inside_array = 1; next }
+        
+        # Detect closing of JSON object or array
+        /^[[:space:]]*\}/ { if (!inside_object) { valid = 0; exit }; inside_object = 0; next }
+        /^[[:space:]]*\]/ { if (!inside_array) { valid = 0; exit }; inside_array = 0; next }
 
-    # Detect values for arrays
-    /^[[:space:]]*[^,]*[[:space:]]*$/ {
-        next
-    }
-
-    END {
-        if (inside_object || inside_array) {
-            valid = 0;  # Ensures the structure ends properly
+        # Detect key-value pairs for objects
+        /^[[:space:]]*"[^"]*"[[:space:]]*:[[:space:]]*"/ {
+            # Check if key and value are in the expected format
+            if ($0 !~ /"[[:alnum:]_]+":/) {
+                valid = 0;
+                exit
+            }
+            next
         }
-        exit valid;
-    }' 2>/dev/null || {
-        return 1
-    }
 
-    # Return the result of validation
-    return $?
+        # Detect values for arrays
+        /^[[:space:]]*[^,]*[[:space:]]*$/ {
+            next
+        }
+
+        END {
+            if (inside_object || inside_array) {
+                valid = 0;  # Ensures the structure ends properly
+            }
+            exit valid;
+        }
+    ' 2>/dev/null || return 1
+
+    return 0
 }
 
 # Function to convert YAML to JSON
@@ -4510,7 +4632,6 @@ register_current_command() {
         USER_CONF_DIR="${HOME}/.local/config/${CURRENT_FILE_NAME}"
     }
 
-    array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"safe_fork_cleanup\"'
     array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"@class.gc\"'
 }
 
@@ -4533,7 +4654,7 @@ get_args() {
         -[a-zA-Z0-9]*)
             key="${param#-}"
 
-            # Multiple short options (-yf → -y + -f)
+            # Multiple short options (-yf -> -y + -f)
             while [ -n "$key" ]; do
                 single_opt="${key:0:1}"
                 dict_set_val "$single_opt" "$emptyExpr"
@@ -4772,11 +4893,6 @@ continuous_exec() {
     return 1
 }
 
-# cleanup fork on-site
-safe_fork_cleanup() {
-    return 0
-}
-
 # exit signal event
 on_signal_exit() {
     local exit_code=$?
@@ -4811,6 +4927,7 @@ on_signal_exit() {
     }
 
     $action_method $(printf '%s ' "$(current_args)")
+    quit
 }
 
 # check dependencies
