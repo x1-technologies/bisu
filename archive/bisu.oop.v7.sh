@@ -1,4 +1,8 @@
-# Version: v7-20250811Z2
+#!/usr/bin/env bash
+# shellcheck shell=bash
+# shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
+# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179
+# Version: v7-20250811Z3
 # ================================================================ Bash OOP Engine Start =======================================================================
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
@@ -26,16 +30,16 @@ class.rename() {
 class.copy() {
     if [ "$3" ]; then
         local vars=__BISU_CLASS_V_${4//.*/}
-        # Generate new function with replaced variable references for instance.
-        eval "$2() { local this=\"$3\" parent=\"$3.parent\" self=\"$4\"; $(declare -f "$1" 2>/dev/null 2>&1 |
-            tail -n +2 | # Skip function declaration line
-            class.sed "s/\{?this\[(@${!vars})\]\}?/${3#*.}__\1/g") }"
+
+        eval "$2() { local this=$3 parent=$3.parent self=$4; $(declare -f $1 |
+            tail -n +4 | # delete local self
+            class.sed 's/\{?this\[(@'${!vars}')\]\}?/'${3#*.}'__\1/g')"
     else
         local vars=__BISU_CLASS_V_${2//.*/}
-        # Generate static function with replaced static variable references.
-        eval "$2() { local self=\"${2//.*/}\"; $(declare -f "$1" 2>/dev/null 2>&1 |
-            tail -n +2 | # Skip function declaration line
-            class.sed "s/\{?self\[(@${!vars})\]\}?/${2//.*/}_static_\1/g") }"
+
+        eval "$2() { local self=${2//.*/}; $(declare -f $1 |
+            tail -n +3 |
+            class.sed 's/\{?self\[(@'${!vars}')\]\}?/'${2//.*/}'_static_\1/g')"
     fi
 }
 
