@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179
 ################################################################### BISU Importer Start ########################################################################
 ## Official Web Site: https://bisu.cc
-## Version: v9-20250814Z2
+## Version: v9-20250814Z3
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
@@ -25,11 +25,11 @@ export LAST_RELEASE_DATE=""
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="true"
 # Signature verification switch
-export VERIFY_UTILITY_SIG=${VERIFY_UTILITY_SIG:-"false"}
+export VERIFY_UTILITY_SIG="false"
 # GPG Signature algorithm set
-export GPG_SIG_ALGO=${GPG_SIG_ALGO:-"sha256"}
+export GPG_SIG_ALGO="sha256"
 # Style code injection function
-export FUNC_STYLE_CODE_INJECTION=${FUNC_STYLE_CODE_INJECTION:-"__style_code_injection"}
+export FUNC_STYLE_CODE_INJECTION="__style_code_injection"
 # Debug Switch
 export DEBUG_MODE="false"
 ## </user-customized-variables>
