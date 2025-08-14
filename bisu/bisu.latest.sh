@@ -8,7 +8,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.10"
+export BISU_VERSION="10.2.11"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-14Z"}
 # Minimal Bash Version
@@ -91,7 +91,7 @@ export CURRENT_ACTION=""
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
 # Error message prefix
-export ERROR_MSG_PREFIX="[<orange>Error</orange>] "
+export ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # Quitting flag
 export QUITTING_FLAG=0
 # Lock held
@@ -574,14 +574,14 @@ output() {
     # Style tag parsing
     [[ "$message" == *"<"*">"* ]] && {
         # style table
-        declare -A style_code=(
+        declare -A style_codes=(
             [reset]=$'\033[0m' [bold]=$'\033[1m' [dim]=$'\033[2m' [underline]=$'\033[4m'
             [blink]=$'\033[5m' [reverse]=$'\033[7m' [hidden]=$'\033[8m'
-            [black]=$'\033[30m' [red]=$'\033[31m' [green]=$'\033[32m' [yellow]=$'\033[33m' [orange]=$'\033[38;5;166m'
-            [blue]=$'\033[34m' [magenta]=$'\033[35m' [cyan]=$'\033[36m' [white]=$'\033[37m'
-            [bright_black]=$'\033[90m' [bright_red]=$'\033[91m' [bright_green]=$'\033[92m'
-            [bright_yellow]=$'\033[93m' [bright_blue]=$'\033[94m' [bright_magenta]=$'\033[95m'
-            [bright_cyan]=$'\033[96m' [bright_white]=$'\033[97m'
+            [fg_black]=$'\033[30m' [fg_red]=$'\033[31m' [fg_green]=$'\033[32m' [fg_yellow]=$'\033[33m' [fg_orange]=$'\033[38;5;166m'
+            [fg_blue]=$'\033[34m' [fg_magenta]=$'\033[35m' [fg_cyan]=$'\033[36m' [fg_white]=$'\033[37m'
+            [fg_bright_black]=$'\033[90m' [fg_bright_red]=$'\033[91m' [fg_bright_green]=$'\033[92m'
+            [fg_bright_yellow]=$'\033[93m' [fg_bright_blue]=$'\033[94m' [fg_bright_magenta]=$'\033[95m'
+            [fg_bright_cyan]=$'\033[96m' [fg_bright_white]=$'\033[97m'
             [bg_black]=$'\033[40m' [bg_red]=$'\033[41m' [bg_green]=$'\033[42m' [bg_yellow]=$'\033[43m'
             [bg_blue]=$'\033[44m' [bg_magenta]=$'\033[45m' [bg_cyan]=$'\033[46m' [bg_white]=$'\033[47m'
             [bg_bright_black]=$'\033[100m' [bg_bright_red]=$'\033[101m' [bg_bright_green]=$'\033[102m'
@@ -590,7 +590,12 @@ output() {
         )
         # Inject customized style codes
         if is_func "$FUNC_STYLE_CODE_INJECTION"; then
-            safe_callfunc "$FUNC_STYLE_CODE_INJECTION" $(printf '%s ' "$@")
+            local injected_style_codes="$(safe_callfunc "$FUNC_STYLE_CODE_INJECTION" $(printf '%s ' "$@"))"
+            injected_style_codes="$(trim "$injected_style_codes")"
+            [ -n "$injected_style_codes" ] && {
+                injected_style_codes=("$injected_style_codes")
+                array_merge "style_codes" "injected_style_codes"
+            }
         fi
 
         # Stack of open tags: each entry "ttype:name:start_index"
@@ -605,9 +610,9 @@ output() {
         # helper: determine tag type from tag name
         _tag_type() {
             case "$1" in
+            fg_*) echo "fg" ;;
             bg_*) echo "bg" ;;
             bold | dim | underline | blink | reverse | hidden) echo "fx" ;;
-            black | red | green | yellow | orange | blue | magenta | cyan | white | bright_*) echo "fg" ;;
             *) echo "" ;;
             esac
         }
@@ -628,9 +633,9 @@ output() {
                 bg) found_bg="$n" ;;
                 esac
             done
-            [[ -n "$found_fx" ]] && prefix+="${style_code[$found_fx]}"
-            [[ -n "$found_fg" ]] && prefix+="${style_code[$found_fg]}"
-            [[ -n "$found_bg" ]] && prefix+="${style_code[$found_bg]}"
+            [[ -n "$found_fx" ]] && prefix+="${style_codes[$found_fx]}"
+            [[ -n "$found_fg" ]] && prefix+="${style_codes[$found_fg]}"
+            [[ -n "$found_bg" ]] && prefix+="${style_codes[$found_bg]}"
             printf "%s" "$prefix"
         }
 
@@ -668,7 +673,7 @@ output() {
             outer_prefix="$(_outer_prefix_from_stack)"
             if [[ -n "$seg" ]]; then
                 if [[ -n "$outer_prefix" ]]; then
-                    result+="${outer_prefix}${seg}${style_code[reset]}"
+                    result+="${outer_prefix}${seg}${style_codes[reset]}"
                 else
                     result+="$seg"
                 fi
@@ -713,11 +718,11 @@ output() {
                     result="${result:0:start_idx}"
 
                     # If tag name maps to a style, apply style wrapper
-                    if [[ -n "${style_code[$name]}" && -n "$ttype" ]]; then
+                    if [[ -n "${style_codes[$name]}" && -n "$ttype" ]]; then
                         # Build outer-prefix after popping current (to restore outers)
                         outer_prefix="$(_outer_prefix_from_stack)"
                         # Compose: style_of_name + inner + reset + outer_prefix
-                        result+="${style_code[$name]}${inner}${style_code[reset]}${outer_prefix}"
+                        result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer_prefix}"
                     else
                         # Known positional pair but name not a style (or unknown type): remove tag symbols only, keep inner unchanged.
                         result+="${inner}"
@@ -744,7 +749,7 @@ output() {
         outer_prefix="$(_outer_prefix_from_stack)"
         if [[ -n "$seg" ]]; then
             if [[ -n "$outer_prefix" ]]; then
-                result+="${outer_prefix}${seg}${style_code[reset]}"
+                result+="${outer_prefix}${seg}${style_codes[reset]}"
             else
                 result+="$seg"
             fi
