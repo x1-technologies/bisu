@@ -6,11 +6,11 @@
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## curl -sL https://g.bisu.cc/bisu -o ./bisu && chmod +x ./bisu && ./bisu -f install
+## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.5"
+export BISU_VERSION="10.2.10"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-11Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-14Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -91,7 +91,7 @@ export CURRENT_ACTION=""
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
 # Error message prefix
-export ERROR_MSG_PREFIX="Error:-( "
+export ERROR_MSG_PREFIX="[<orange>Error</orange>] "
 # Quitting flag
 export QUITTING_FLAG=0
 # Lock held
@@ -100,6 +100,12 @@ export LOCK_HELD=0
 export UNIX_USERNAME=""
 # Machine's hostname
 export UNIX_HOSTNAME=""
+# BISU File URL
+export BISU_FILE_URL="https://g.bisu.cc/bisu-file"
+# BISU ASC File URL
+export BISU_ASC_FILE_URL="https://g.bisu.cc/bisu-asc-file"
+# BISU Signature verification switch
+export VERIFY_BISU_SIG=${VERIFY_BISU_SIG:-"true"}
 # Set this utility's name
 UTILITY_NAME=${UTILITY_NAME:-"bisu"}
 # Set this utility's version number
@@ -108,6 +114,12 @@ UTILITY_VERSION=${UTILITY_VERSION:-"$BISU_VERSION"}
 UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.cc"}
 # Atomic mutex lock switch for single-threaded utilities
 ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
+# Signature verification switch
+VERIFY_UTILITY_SIG=${VERIFY_UTILITY_SIG:-"false"}
+# GPG Signature algorithm set
+GPG_SIG_ALGO=${GPG_SIG_ALGO:-"sha256"}
+# Style code injection function
+FUNC_STYLE_CODE_INJECTION=${FUNC_STYLE_CODE_INJECTION:-"__style_code_injection"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
@@ -558,6 +570,204 @@ output() {
     local log_only=$(trim "$3")
     in_array "$log_only" "true" "false" || log_only="false"
     local log_file="$(current_log_file)"
+
+    # Style tag parsing
+    [[ "$message" == *"<"*">"* ]] && {
+        # style table
+        declare -A style_code=(
+            [reset]=$'\033[0m' [bold]=$'\033[1m' [dim]=$'\033[2m' [underline]=$'\033[4m'
+            [blink]=$'\033[5m' [reverse]=$'\033[7m' [hidden]=$'\033[8m'
+            [black]=$'\033[30m' [red]=$'\033[31m' [green]=$'\033[32m' [yellow]=$'\033[33m' [orange]=$'\033[38;5;166m'
+            [blue]=$'\033[34m' [magenta]=$'\033[35m' [cyan]=$'\033[36m' [white]=$'\033[37m'
+            [bright_black]=$'\033[90m' [bright_red]=$'\033[91m' [bright_green]=$'\033[92m'
+            [bright_yellow]=$'\033[93m' [bright_blue]=$'\033[94m' [bright_magenta]=$'\033[95m'
+            [bright_cyan]=$'\033[96m' [bright_white]=$'\033[97m'
+            [bg_black]=$'\033[40m' [bg_red]=$'\033[41m' [bg_green]=$'\033[42m' [bg_yellow]=$'\033[43m'
+            [bg_blue]=$'\033[44m' [bg_magenta]=$'\033[45m' [bg_cyan]=$'\033[46m' [bg_white]=$'\033[47m'
+            [bg_bright_black]=$'\033[100m' [bg_bright_red]=$'\033[101m' [bg_bright_green]=$'\033[102m'
+            [bg_bright_yellow]=$'\033[103m' [bg_bright_blue]=$'\033[104m' [bg_bright_magenta]=$'\033[105m'
+            [bg_bright_cyan]=$'\033[106m' [bg_bright_white]=$'\033[107m'
+        )
+        # Inject customized style codes
+        if is_func "$FUNC_STYLE_CODE_INJECTION"; then
+            safe_callfunc "$FUNC_STYLE_CODE_INJECTION" $(printf '%s ' "$@")
+        fi
+
+        # Stack of open tags: each entry "ttype:name:start_index"
+        # ttype is one of: fx, fg, bg, or "" for unknown (we still track to enforce positional pairing)
+        declare -a tag_stack=()
+
+        result="" # built output without tag symbols
+        seg=""    # accumulating plain text segment
+        i=0
+        len=${#message}
+
+        # helper: determine tag type from tag name
+        _tag_type() {
+            case "$1" in
+            bg_*) echo "bg" ;;
+            bold | dim | underline | blink | reverse | hidden) echo "fx" ;;
+            black | red | green | yellow | orange | blue | magenta | cyan | white | bright_*) echo "fg" ;;
+            *) echo "" ;;
+            esac
+        }
+
+        # helper: compute current outer prefix (top of each type in remaining stack)
+        _outer_prefix_from_stack() {
+            local prefix=""
+            # iterate stack left->right to find last occurrence per type
+            local t="" n="" start=""
+            local found_fx="" found_fg="" found_bg=""
+            for entry in "${tag_stack[@]}"; do
+                t="${entry%%:*}"
+                n="${entry#*:}"
+                n="${n%%:*}" # remove possible :start if present
+                case "$t" in
+                fx) found_fx="$n" ;;
+                fg) found_fg="$n" ;;
+                bg) found_bg="$n" ;;
+                esac
+            done
+            [[ -n "$found_fx" ]] && prefix+="${style_code[$found_fx]}"
+            [[ -n "$found_fg" ]] && prefix+="${style_code[$found_fg]}"
+            [[ -n "$found_bg" ]] && prefix+="${style_code[$found_bg]}"
+            printf "%s" "$prefix"
+        }
+
+        # single-pass parse
+        while ((i < len)); do
+            ch="${message:i:1}"
+
+            # ordinary char: accumulate
+            if [[ "$ch" != "<" ]]; then
+                seg+="$ch"
+                ((i++))
+                continue
+            fi
+
+            # encountered '<' — try to read tag up to next '>'
+            j=$((i + 1))
+            tag_content=""
+            while ((j < len)) && [[ "${message:j:1}" != ">" ]]; do
+                tag_content+="${message:j:1}"
+                ((j++))
+            done
+
+            # if no closing '>' found: treat '<' as literal
+            if ((j >= len)); then
+                seg+="$ch"
+                ((i++))
+                continue
+            fi
+
+            # We have a full tag: <tag_content>
+            full_tag="<${tag_content}>"
+            i=$((j + 1)) # advance past '>'
+
+            # Flush accumulated segment with current outer prefix
+            outer_prefix="$(_outer_prefix_from_stack)"
+            if [[ -n "$seg" ]]; then
+                if [[ -n "$outer_prefix" ]]; then
+                    result+="${outer_prefix}${seg}${style_code[reset]}"
+                else
+                    result+="$seg"
+                fi
+                seg=""
+            fi
+
+            # Normalize tag name: first token up to whitespace (names allow letters/digits/underscore/hyphen)
+            raw_tag="$tag_content"
+            # strip leading and trailing spaces
+            raw_tag="${raw_tag#"${raw_tag%%[![:space:]]*}"}"
+            raw_tag="${raw_tag%"${raw_tag##*[![:space:]]}"}"
+            if [[ -z "$raw_tag" ]]; then
+                # Per rule: paired-but-incorrect symbol removal applies only when closed; single empty tag stay literal now
+                seg+="$full_tag"
+                continue
+            fi
+
+            # Check if closing tag
+            if [[ "${raw_tag:0:1}" == "/" ]]; then
+                close_name="${raw_tag:1}"
+                # If no open tag => unmatched closing, treat literal
+                if ((${#tag_stack[@]} == 0)); then
+                    seg+="$full_tag"
+                    continue
+                fi
+
+                # top format: "ttype:name:start"
+                top="${tag_stack[-1]}"
+                unset 'tag_stack[-1]'
+                tag_stack=("${tag_stack[@]}") # reindex
+                ttype="${top%%:*}"
+                rest="${top#*:}"
+                name="${rest%%:*}"
+                start_idx="${rest#*:}"
+
+                # If names match -> positional pairing succeeded
+                if [[ "$name" == "$close_name" ]]; then
+                    # extract inner content that resides in result[start_idx:]
+                    inner_len=$((${#result} - start_idx))
+                    inner="${result:start_idx:inner_len}"
+                    # remove inner from result to replace with styled/kept content
+                    result="${result:0:start_idx}"
+
+                    # If tag name maps to a style, apply style wrapper
+                    if [[ -n "${style_code[$name]}" && -n "$ttype" ]]; then
+                        # Build outer-prefix after popping current (to restore outers)
+                        outer_prefix="$(_outer_prefix_from_stack)"
+                        # Compose: style_of_name + inner + reset + outer_prefix
+                        result+="${style_code[$name]}${inner}${style_code[reset]}${outer_prefix}"
+                    else
+                        # Known positional pair but name not a style (or unknown type): remove tag symbols only, keep inner unchanged.
+                        result+="${inner}"
+                    fi
+                else
+                    # Names mismatch — per rule: remove tag symbols only (keep inner)
+                    inner_len=$((${#result} - start_idx))
+                    inner="${result:start_idx:inner_len}"
+                    result="${result:0:start_idx}${inner}"
+                    # Do NOT reapply any outer prefix here (outer remains as is)
+                fi
+
+                continue
+            fi
+
+            # Opening tag processing
+            tag_name="${raw_tag%%[[:space:]]*}"
+            ttype="$(_tag_type "$tag_name")"
+            tag_stack+=("${ttype}:${tag_name}:${#result}")
+            continue
+        done
+
+        # End of input: flush trailing seg
+        outer_prefix="$(_outer_prefix_from_stack)"
+        if [[ -n "$seg" ]]; then
+            if [[ -n "$outer_prefix" ]]; then
+                result+="${outer_prefix}${seg}${style_code[reset]}"
+            else
+                result+="$seg"
+            fi
+        fi
+
+        # Build a temporary buffer and reinsert at recorded offsets.
+        if ((${#tag_stack[@]})); then
+            tmp_result=""
+            i=0
+            idx_stack=0
+
+            for entry in "${tag_stack[@]}"; do
+                # entry format ttype:name:start
+                name="${entry#*:}"
+                name="${name%%:*}"
+                tmp_result+="<${name}>"
+            done
+            result+="$tmp_result"
+        fi
+
+        # Final mutate
+        message="$result"
+    }
 
     local command
     command="printf '%b\\n' \"$message\""
@@ -3616,6 +3826,126 @@ is_valid_json() {
     return 0
 }
 
+#------------------------------------------------------------------------------
+# Function: gen_sig_file
+# Purpose : Generate a SHA-256 checksum for a file and sign it with GPG,
+#           producing an ASCII-armored signature file (.sha256.asc).
+# Supports algorithms: md5, sha1, ripemd160, sha256, sha384, sha512, sha224.
+#------------------------------------------------------------------------------
+gen_sig_file() {
+    local target_file=$(trim "$1")
+    local algorithm=$(trim "$2")
+    algorithm="${algorithm:-"$GPG_SIG_ALGO"}"
+    algorithm=$(strtolower "$algorithm")
+    local sig_file=$(trim "$3")
+
+    if ! in_array "$algorithm" "md5" "sha1" "ripemd160" "sha256" "sha384" "sha512" "sha224"; then
+        error_exit "Unsupported signature algorithm of '${algorithm}'"
+    fi
+
+    if [ -z "$target_file" ]; then
+        target_file=$(current_file)
+    fi
+
+    if ! is_file "$target_file"; then
+        error_exit "Target file does not exist"
+    fi
+
+    if [ -z "$sig_file" ]; then
+        if [[ "$target_file" != "$(current_file)" ]]; then
+            sig_file="${target_file}.asc"
+        else
+            sig_file="./$(current_filename).asc"
+        fi
+    fi
+
+    # Ensure key exists before signing
+    if ! (
+        gpg --list-secret-keys --with-colons | grep -q '^sec:' ||
+            gpg --batch --generate-key <(
+                cat <<EOF
+        %no-protection
+        Key-Type: default
+        Key-Length: 2048
+        Subkey-Type: default
+        Name-Real: Auto Generated
+        Name-Email: auto@example.com
+        Expire-Date: 0
+EOF
+            ) 2>/dev/null
+    ); then
+        error_exit "No GPG private keys found, please generate a GPG key for your machine."
+    fi
+
+    # Perform signing
+    if ! (gpg --batch --yes --armor --digest-algo "$algorithm" --detach-sign --output "$sig_file" "$target_file" 2>/dev/null); then
+        printf ''
+        return 1
+    fi
+
+    if ! is_file "$sig_file"; then
+        printf ''
+        return 1
+    fi
+
+    printf '%s' "$sig_file"
+    return 0
+}
+
+# verify_sig_file: Verify a GPG signature with maximum robustness
+# Args:
+#   $1 - signature file path
+#   $2 - source file path (optional, current_file() used if omitted)
+# Output:
+#   If technical errors prints "failed";
+#   If detected hash algorithm prints {algo_name}, else "unknown";
+# Returns:
+#   0 = signature valid, 1 = invalid or error
+verify_sig_file() {
+    local sig_file=$(trim "$1")
+    local src_file=$(trim "$2")
+
+    is_file "$sig_file" || {
+        printf "failed"
+        return 1
+    }
+
+    [ -n "$src_file" ] || src_file="$(current_file)"
+
+    is_file "$src_file" || {
+        printf "failed"
+        return 1
+    }
+
+    # Capture both machine-readable and human-readable output
+    local output=$(gpg --status-fd=1 --verify "$sig_file" "$src_file" 2>/dev/null)
+    local status=$?
+
+    # Primary check: GPG exit code
+    [ "$status" -eq 0 ] || {
+        printf "failed"
+        return 1
+    }
+
+    # Secondary check: try to extract hash algorithm from VALIDSIG line
+    # We do not depend on fixed spaces or messages; parse fields instead
+    local hash_id=$(awk '/^\[GNUPG:\] VALIDSIG/ {print $(NF-2)}' <<<"$output")
+
+    local hash_name="unknown"
+    case "$hash_id" in
+    1) hash_name="md5" ;;
+    2) hash_name="sha1" ;;
+    3) hash_name="ripemd160" ;;
+    8) hash_name="sha256" ;;
+    9) hash_name="sha384" ;;
+    10) hash_name="sha512" ;;
+    11) hash_name="sha224" ;;
+    esac
+
+    printf "%s" "$hash_name"
+    return 0
+}
+
 # Function to convert YAML to JSON
 yaml_to_json() {
     local yaml=$(trim "$1")
@@ -4677,6 +5007,22 @@ register_current_command() {
     }
 
     array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"@class.gc\"'
+
+    in_array "$VERIFY_BISU_SIG" "true" "false" || VERIFY_BISU_SIG="false"
+    [[ "$VERIFY_BISU_SIG" == "true" ]] && {
+        local sig_status=$(verify_sig_file "$(bisu_file).asc" "$(bisu_file)")
+        in_array "$sig_status" "failed" "unknown" && {
+            error_exit "Invalid file signature, specific error: signature ${sig_status}"
+        }
+
+    }
+    in_array "$VERIFY_UTILITY_SIG" "true" "false" || VERIFY_UTILITY_SIG="false"
+    [[ "$VERIFY_UTILITY_SIG" == "true" ]] && {
+        local sig_status=$(verify_sig_file "$(current_file).asc" "$(current_file)")
+        in_array "$sig_status" "failed" "unknown" && {
+            error_exit "Invalid file signature, specific error: signature ${sig_status}"
+        }
+    }
 }
 
 # Get args and store them in an associative array
@@ -5208,6 +5554,7 @@ install_script() {
         local uuid=$(uuidv4)
         local target_path=$(target_path)
         local current_file=$(current_file)
+        local bisu_filename=$(bisu_filename)
         local current_filename=$(current_filename)
         local backup_dir="$(user_backup_dir)/$date_str"
         local current_utility_version="$(exec_command "${target_path} callfunc current_utility_version")"
@@ -5221,6 +5568,30 @@ install_script() {
     fi
 
     log_msg "Moving $current_filename to path: $target_path"
+    local is_installing_bisu verify_sig sig_file sig_file_target_path
+    # Is installing BISU
+    if [[ "$current_filename" == "$bisu_filename" ]]; then
+        is_installing_bisu="true"
+    else
+        is_installing_bisu="false"
+    fi
+
+    if [[ "$is_installing_bisu" == "true" ]]; then
+        verify_sig="$VERIFY_BISU_SIG"
+        [[ "$verify_sig" == "true" ]] &&
+            command_exists "curl" && exec_command "curl -sL \"${BISU_ASC_FILE_URL}\" -o \"${current_file}.asc\"" 2>/dev/null
+    else
+        verify_sig="$VERIFY_UTILITY_SIG"
+    fi
+
+    in_array "$verify_sig" "true" "false" || verify_sig="false"
+    if [[ "$verify_sig" == "true" ]]; then
+        sig_file="${current_file}.asc"
+        sig_file_target_path="${target_path}.asc"
+        is_file "$sig_file" && exec_command "mv \"$sig_file\" \"$sig_file_target_path\"" ||
+            error_exit "Failed to install $current_filename"
+    fi
+
     exec_command "mv \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
     log_msg "Done."
 }
