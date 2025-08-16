@@ -8,7 +8,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.30"
+export BISU_VERSION="10.2.40"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-16Z"}
 # Minimal Bash Version
@@ -28,7 +28,7 @@ export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # Default title
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
-export LINE_BREAK_LENGTH=160
+export LINE_BREAK_LENGTH=240
 # Set $TMPDIR
 TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
 # Set $HOME
@@ -1072,7 +1072,14 @@ current_log_file() {
 # Add a log record to buffer
 log_add() {
     local msg="$1"
-    array_push "_LOG_BUFFER" "$msg" || return 1
+    local display_time=$(trim "$2")
+    in_array "$display_time" "true" "false" || display_time="false"
+    if [[ "$display_time" == "true" ]]; then
+        array_push "_LOG_BUFFER" "$(date +'%Y-%m-%d %H:%M:%S') - $msg" || return 1
+    else
+        array_push "_LOG_BUFFER" "$msg" || return 1
+    fi
+
     return 0
 }
 
@@ -1132,7 +1139,40 @@ error_exit() {
     is_posi_int "${status_code}" || status_code=1
 
     [ -n "$msg" ] && {
-        log_msg "${ERROR_MSG_PREFIX}$msg"
+        log_add "${ERROR_MSG_PREFIX}$msg" "true"
+        debug_mode_on && {
+            # Determine parent and current
+            local parent_file="${BASH_SOURCE[0]}"
+            local parent_lineno="${BASH_LINENO[0]}"
+
+            local current_file=""
+            local current_lineno=""
+
+            for i in "${!BASH_SOURCE[@]}"; do
+                src="${BASH_SOURCE[i]}"
+                if [[ "$src" != "$parent_file" ]]; then
+                    current_file="$src"
+                    current_lineno="${BASH_LINENO[i - 1]:-?}"
+                    break
+                fi
+            done
+
+            [[ -z "$current_file" ]] && current_file="$parent_file" && current_lineno="$parent_lineno"
+
+            # For parent file
+            local parent_line_text
+            parent_line_text=$(sed "${parent_lineno}q;d" "$parent_file" 2>/dev/null)
+            local parent_charno
+            parent_charno=$(awk '{match($0,/[^[:space:]]/); print (RSTART?RSTART:1)}' <<<"$parent_line_text")
+            # For current file
+            local current_line_text
+            current_line_text=$(sed "${current_lineno}q;d" "$current_file" 2>/dev/null)
+            local current_charno
+            current_charno=$(awk '{match($0,/[^[:space:]]/); print (RSTART?RSTART:1)}' <<<"$current_line_text")
+            log_add "                              <fg_bright_yellow>(Tracing: ${current_file}:${current_lineno}:${current_charno}, \
+${parent_file}:${parent_lineno}:${parent_charno}</fg_bright_yellow>)"
+        }
+        log_flush
     }
 
     quit $status_code
@@ -1265,6 +1305,29 @@ normalize_string() {
         return 1
     }
 
+    return 0
+}
+
+# string to boolean result with a candidate value
+normalize_bool() {
+    local var_name=$(trim "$1")
+    isset "$var_name" || error_exit "Got an invalid varname when normalizing a bool value"
+    local str="${!var_name}"
+    local candidate=$(trim "$2")
+    local strict_mode=$(trim "$3")
+    in_array "$strict_mode" "true" "false" "0" "1" || strict_mode="true"
+    local result="$str"
+    in_array "$result" "true" "false" "0" "1" || result="$candidate"
+    in_array "$result" "true" "false" "0" "1" || {
+        in_array "$strict_mode" "true" "1" && error_exit "Invalid bool candidate value"
+        return 1
+    }
+    if [[ "$result" == "1" ]]; then
+        result="true"
+    else
+        result="false"
+    fi
+    @set "$var_name" "$result" || return 1
     return 0
 }
 
