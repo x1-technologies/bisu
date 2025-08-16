@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
-# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179
+# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/sbin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.11"
+export BISU_VERSION="10.2.30"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-14Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-16Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
@@ -75,7 +75,7 @@ export USER_LOG_FILE_DIR="$HOME/.local/var/log"                        # User Lo
 export TARGET_PATH_PREFIX="/usr/local/sbin"                            # Default target path for moving scripts
 export TERMUX_TARGET_PATH_PREFIX="/data/data/com.termux/files/usr/bin" # Android Termux target path for moving scripts
 # Current Process ID
-export CURRENT_PID=""
+export CURRENT_PID
 # The current file path
 export CURRENT_FILE_PATH=""
 # The current file name
@@ -129,7 +129,10 @@ DEBUG_MODE=${DEBUG_MODE:-"false"}
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
 
 class.trim() {
-    printf '%s' "$1"
+    local str="$1"
+    str="${str#"${str%%[![:space:]]*}"}" # ltrim
+    str="${str%"${str##*[![:space:]]}"}" # rtrim
+    echo "$str"
 }
 
 # Validate if a given string is a valid Bash variable name.
@@ -372,10 +375,10 @@ isset() {
     return 0
 }
 
-# POSIX-compliant trim functions using gawk (UTF-8 supported)
+# POSIX-compliant trim functions using awk (UTF-8 supported)
 trim() {
     local str="$1"
-    local chars="${2:-[:space:]}" # default POSIX space class
+    local chars="$2" # default POSIX space class
     local ci="$3"
     in_array "$ci" "true" "false" || ci="false"
     if [[ "$ci" == "true" ]]; then
@@ -385,7 +388,10 @@ trim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    if [[ "$chars" != "[:space:]" ]]; then
+    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
+        str="${str#"${str%%[![:space:]]*}"}" # ltrim
+        str="${str%"${str##*[![:space:]]}"}" # rtrim
+    else
         str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
             {
                 gsub("^" chars "+", "")
@@ -395,14 +401,14 @@ trim() {
         ' <<<"$str" 2>/dev/null)
     fi
 
-    printf '%s' "$str"
+    echo "$str"
     return 0
 }
 
-# POSIX-compliant trim functions using gawk (UTF-8 supported)
+# POSIX-compliant trim functions using awk (UTF-8 supported)
 ltrim() {
     local str="$1"
-    local chars="${2:-[:space:]}" # default POSIX space class
+    local chars="$2" # default POSIX space class
     local ci="$3"
     in_array "$ci" "true" "false" || ci="false"
     if [[ "$ci" == "true" ]]; then
@@ -412,20 +418,22 @@ ltrim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    if [[ "$chars" != "[:space:]" ]]; then
+    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
+        str="${str#"${str%%[![:space:]]*}"}" # ltrim
+    else
         str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
             { gsub("^" chars "+", ""); print }
         ' <<<"$str" 2>/dev/null)
     fi
 
-    printf '%s' "$str"
+    echo "$str"
     return 0
 }
 
-# POSIX-compliant trim functions using gawk (UTF-8 supported)
+# POSIX-compliant trim functions using awk (UTF-8 supported)
 rtrim() {
     local str="$1"
-    local chars="${2:-[:space:]}" # default POSIX space class
+    local chars="$2" # default POSIX space class
     local ci="$3"
     in_array "$ci" "true" "false" || ci="false"
     if [[ "$ci" == "true" ]]; then
@@ -435,13 +443,15 @@ rtrim() {
     fi
     [ $# -ne 0 ] || str=$(cat)
 
-    if [[ "$chars" != "[:space:]" ]]; then
+    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
+        str="${str%"${str##*[![:space:]]}"}" # rtrim
+    else
         str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
             { sub(chars "$", ""); print }
         ' <<<"$str" 2>/dev/null)
     fi
 
-    printf '%s' "$str"
+    echo "$str"
     return 0
 }
 
@@ -780,7 +790,7 @@ output() {
     if [[ "$log_only" == "true" ]]; then
         eval "$(printf '%s ' "$command")" |
             { [[ "$use_newline" == "false" ]] && rtrim "$(cat)" '\n' || cat; } |
-            { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" 2>&1 || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
+            { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
             tee -a -- "$log_file" &>/dev/null ||
             return 1
     else
@@ -797,12 +807,17 @@ output() {
 # Function to check if a command is existent
 command_exists() {
     local command=$(trim "$1")
+    local strict_mode=$(trim "$2")
+    in_array "$strict_mode" "true" "false" || strict_mode="false"
     [ -n "$command" ] || return 1
     eval "command -v \"$command\"" &>/dev/null &
     local pid=$!
     wait "$pid"
     local status=$?
-    [ "$status" -eq 0 ] || return 1
+    [ "$status" -eq 0 ] || {
+        [[ "$strict_mode" == "true" ]] && error_exit "$command: command not found"
+        return 1
+    }
     return 0
 }
 
@@ -820,7 +835,7 @@ command_exists_async() {
         # Launch async existence checks for each command
         for i in "${!cmds[@]}"; do
             local c
-            c=$(trim "${cmds[i]}") # Trim whitespace (assumed xargs exists)
+            c=$(trim "${cmds[i]}")
             # Validate trimmed command and check existence
             command_exists "$c" &
             pid=$!
@@ -943,7 +958,7 @@ quit() {
 
 # Dump
 dump() {
-    printf '%s ' "$@"
+    echo "$@" >&1
     quit
 }
 
@@ -1348,9 +1363,129 @@ normalize_number() {
 }
 
 # Function: md5_sign
-# Description: According to its naming
+# Description: Compute SHA1 hash of a string, robust and consistent with md5_sign
 md5_sign() {
-    printf '%s\n' $(trim "$1") | md5sum | awk '{print $1}' 2>/dev/null
+    printf '%s' $(trim "$1") | md5sum 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha1_sign
+# Description: Compute SHA1 hash of a string, robust and consistent with sha1_sign
+sha1_sign() {
+    # Use printf with quotes to preserve spaces and special characters
+    printf '%s' "$(trim "$1")" | sha1sum 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha224_sign
+# Description: Compute SHA224 hash of a string, robust and consistent with sha224_sign
+sha224_sign() {
+    printf '%s' "$(trim "$1")" | sha224sum 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha256_sign
+# Description: Compute SHA256 hash of a string, robust and consistent with sha256_sign
+sha256_sign() {
+    printf '%s' "$(trim "$1")" | sha256sum 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha384_sign
+# Description: Compute SHA384 hash of a string, robust and consistent with sha384_sign
+sha384_sign() {
+    printf '%s' "$(trim "$1")" | sha384sum 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha512_sign
+# Description: Compute SHA512 hash of a string, robust and consistent with sha512_sign
+sha512_sign() {
+    printf '%s' "$(trim "$1")" | sha512sum 2>/dev/null | awk '{print $1}'
+}
+
+# Function: md5_file
+# Description: Sign a md5 hash for a file
+md5_file() {
+    command_exists "md5sum" "true"
+
+    local file=$(trim "$1")
+    is_file "$file" && [ -r "$file" ] || {
+        printf ''
+        return 1
+    }
+
+    md5sum "$file" 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha1_file
+# Description: Generate SHA-1 hash for a file
+sha1_file() {
+    command_exists "sha1sum" "true"
+
+    local file
+    file=$(trim "$1")
+    is_file "$file" && [ -r "$file" ] || {
+        printf ''
+        return 1
+    }
+
+    sha1sum "$file" 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha224_file
+# Description: Generate SHA-224 hash for a file
+sha224_file() {
+    command_exists "sha224sum" "true"
+
+    local file
+    file=$(trim "$1")
+    is_file "$file" && [ -r "$file" ] || {
+        printf ''
+        return 1
+    }
+
+    sha224sum "$file" 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha256_file
+# Description: Generate SHA-256 hash for a file
+sha256_file() {
+    command_exists "sha256sum" "true"
+
+    local file
+    file=$(trim "$1")
+    is_file "$file" && [ -r "$file" ] || {
+        printf ''
+        return 1
+    }
+
+    sha256sum "$file" 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha384_file
+# Description: Generate SHA-384 hash for a file
+sha384_file() {
+    command_exists "sha384sum" "true"
+
+    local file
+    file=$(trim "$1")
+    is_file "$file" && [ -r "$file" ] || {
+        printf ''
+        return 1
+    }
+
+    sha384sum "$file" 2>/dev/null | awk '{print $1}'
+}
+
+# Function: sha512_file
+# Description: Generate SHA-512 hash for a file
+sha512_file() {
+    command_exists "sha512sum" "true"
+
+    local file
+    file=$(trim "$1")
+    is_file "$file" && [ -r "$file" ] || {
+        printf ''
+        return 1
+    }
+
+    sha512sum "$file" 2>/dev/null | awk '{print $1}'
 }
 
 # PHP-like function as its naming
@@ -3784,6 +3919,229 @@ is_valid_email() {
     return 0
 }
 
+# Function: is_valid_url
+# Validates a URL of the form: scheme://[userinfo@]host[:port][/path][?query][#fragment]
+# Returns 0 when valid, 1 when invalid.
+is_valid_url() {
+    local url=$(trim "$1")
+
+    # Trim leading/trailing whitespace
+    url="${url#"${url%%[![:space:]]*}"}"
+    url="${url%"${url##*[![:space:]]}"}"
+
+    # Empty string -> invalid
+    [[ -z "$url" ]] && return 1
+
+    # 1) Scheme (e.g. http, https, ftp) - must be present and followed by "://"
+    if [[ "$url" =~ ^([A-Za-z][A-Za-z0-9+.-]*):// ]]; then
+        local scheme="${BASH_REMATCH[1]}"
+    else
+        return 1
+    fi
+
+    # 2) Split rest into authority (userinfo@host:port) and the path+query+fragment
+    local rest="${url#*://}" # remove scheme:// (first occurrence)
+    local authority path_and_more
+    authority="${rest%%/*}" # up to first slash (or whole string if no slash)
+    if [[ "$rest" == "$authority" ]]; then
+        path_and_more=""
+    else
+        path_and_more="${rest#"$authority"}" # starts with "/" when present, or empty
+    fi
+
+    # 3) Remove optional userinfo (take text after last '@' if present)
+    local hostport
+    if [[ "$authority" == *@* ]]; then
+        hostport="${authority##*@}"
+    else
+        hostport="$authority"
+    fi
+
+    # 4) Extract host (IPv6 bracketed OR hostname/IPv4) and optional port
+    local host port is_ipv6=0
+    if [[ "$hostport" == \[* ]]; then
+        # bracketed IPv6 expected: [IPv6] or [IPv6]:port
+        # first match bracketed portion and the rest (no spaces allowed)
+        if [[ "$hostport" =~ ^(\[[0-9A-Fa-f:.%]+\])([^[:space:]]*)$ ]]; then
+            host="${BASH_REMATCH[1]}" # includes brackets
+            local rest_after="${BASH_REMATCH[2]}"
+            if [[ -z "$rest_after" ]]; then
+                port=""
+            elif [[ "$rest_after" =~ ^:([0-9]{1,5})$ ]]; then
+                port="${BASH_REMATCH[1]}"
+            else
+                return 1
+            fi
+            is_ipv6=1
+        else
+            return 1
+        fi
+    else
+        # non-bracketed authority: host[:port]
+        # ensure not an unbracketed IPv6 (multiple colons would indicate that)
+        local colons="${hostport//[^:]/}"
+        if ((${#colons} > 1)); then
+            return 1
+        fi
+        if [[ "$hostport" == *:* ]]; then
+            host="${hostport%%:*}"
+            port="${hostport#*:}"
+        else
+            host="$hostport"
+            port=""
+        fi
+    fi
+
+    # Host must be non-empty
+    [[ -z "$host" ]] && return 1
+
+    # 5) Host validation
+    if ((is_ipv6)); then
+        # bracketed IPv6: minimal character validation already performed (hex, colons, dots, percent)
+        # (full RFC IPv6 validation is complex; this accepts typical bracketed IPv6 forms)
+        :
+    elif [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        # IPv4 -> check each octet is 0-255
+        IFS='.' read -r o1 o2 o3 o4 <<<"$host"
+        for o in "$o1" "$o2" "$o3" "$o4"; do
+            # numeric check
+            if ! [[ "$o" =~ ^[0-9]+$ ]]; then
+                return 1
+            fi
+            if ((o < 0 || o > 255)); then
+                return 1
+            fi
+        done
+    else
+        # Domain name validation: ASCII labels, at least one dot, TLD 2-63 alpha chars.
+        # (This enforces a conventional public-domain form; adjust if you wish to accept single-label hosts)
+        if ! [[ "$host" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,63}$ ]]; then
+            return 1
+        fi
+    fi
+
+    # 6) Port validation (if present): numeric and within 0-65535
+    if [[ -n "$port" ]]; then
+        if ! [[ "$port" =~ ^[0-9]{1,5}$ ]]; then
+            return 1
+        fi
+        if ((port < 0 || port > 65535)); then
+            return 1
+        fi
+    fi
+
+    # 7) Path/query/fragment must not contain whitespace characters
+    if [[ "$path_and_more" =~ [[:space:]] ]]; then
+        return 1
+    fi
+
+    # All checks passed
+    return 0
+}
+
+# Function: is_valid_uri
+# Validates a generic URI: [scheme:][//authority][path][?query][#fragment]
+# Returns 0 if valid, 1 if invalid.
+is_valid_uri() {
+    local uri=$(trim "$1")
+
+    # Trim leading/trailing whitespace
+    uri="${uri#"${uri%%[![:space:]]*}"}"
+    uri="${uri%"${uri##*[![:space:]]}"}"
+
+    [[ -z "$uri" ]] && return 1
+
+    local scheme authority path_and_more hostport host port is_ipv6=0
+
+    # 1) Extract scheme if present
+    if [[ "$uri" =~ ^([A-Za-z][A-Za-z0-9+.-]*):(.*)$ ]]; then
+        scheme="${BASH_REMATCH[1]}"
+        uri="${BASH_REMATCH[2]}"
+    fi
+
+    # 2) If starts with "//", then authority is present
+    if [[ "$uri" == //* ]]; then
+        local tmp="${uri#//}"      # strip leading //
+        authority="${tmp%%[/?#]*}" # until '/', '?', or '#' or end
+        uri="${tmp#"$authority"}"  # rest after authority
+    else
+        authority=""
+    fi
+
+    # 3) Path/query/fragment (anything left)
+    path_and_more="$uri"
+
+    # 4) Parse authority into host and port (ignore userinfo by dropping up to last '@')
+    if [[ -n "$authority" ]]; then
+        if [[ "$authority" == *@* ]]; then
+            hostport="${authority##*@}"
+        else
+            hostport="$authority"
+        fi
+
+        if [[ "$hostport" == \[* ]]; then
+            # bracketed IPv6
+            if [[ "$hostport" =~ ^(\[[0-9A-Fa-f:.%]+\])(:(.*))?$ ]]; then
+                host="${BASH_REMATCH[1]}"
+                port="${BASH_REMATCH[3]}"
+                is_ipv6=1
+            else
+                return 1
+            fi
+        else
+            # non-bracketed
+            local colons="${hostport//[^:]/}"
+            if ((${#colons} > 1)); then
+                return 1 # reject unbracketed IPv6
+            fi
+            if [[ "$hostport" == *:* ]]; then
+                host="${hostport%%:*}"
+                port="${hostport#*:}"
+            else
+                host="$hostport"
+                port=""
+            fi
+        fi
+    fi
+
+    # 5) Validate host (if authority present)
+    if [[ -n "$authority" ]]; then
+        [[ -z "$host" ]] && return 1
+
+        if ((is_ipv6)); then
+            # Already roughly validated; deeper RFC check omitted for simplicity
+            :
+        elif [[ "$host" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            # IPv4 validation
+            IFS='.' read -r o1 o2 o3 o4 <<<"$host"
+            for o in "$o1" "$o2" "$o3" "$o4"; do
+                if ! [[ "$o" =~ ^[0-9]+$ ]] || ((o < 0 || o > 255)); then
+                    return 1
+                fi
+            done
+        else
+            # Domain validation: must have dot + TLD
+            if ! [[ "$host" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,63}$ ]]; then
+                return 1
+            fi
+        fi
+    fi
+
+    # 6) Validate port
+    if [[ -n "$port" ]]; then
+        if ! [[ "$port" =~ ^[0-9]{1,5}$ ]] || ((port < 0 || port > 65535)); then
+            return 1
+        fi
+    fi
+
+    # 7) Ensure no spaces in path/query/fragment
+    if [[ "$path_and_more" =~ [[:space:]] ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
 # Json validator
 is_valid_json() {
     local input=$(trim "$1")
@@ -3928,7 +4286,7 @@ verify_sig_file() {
 
     # Primary check: GPG exit code
     [ "$status" -eq 0 ] || {
-        printf "failed"
+        printf "incons"
         return 1
     }
 
@@ -4060,150 +4418,201 @@ json_to_array() {
     return 0
 }
 
-# urlencode
-urlencode() {
-    local str=$(trim "$1")
-
-    [ -n "$str" ] || {
-        printf ''
-        return 1
-    } # Empty input -> return empty string
-
-    printf '%s\n' "$str" | awk '
-    BEGIN {
-        # Define safe characters in an associative array for O(1) lookup
-        split("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~", safe_chars, "");
-        for (i in safe_chars) safe_map[safe_chars[i]] = 1;
-    }
-    {
-        output = "";
-        while (length($0) > 0) {
-            c = substr($0, 1, 1);
-            ascii = ord(c);
-            $0 = substr($0, 2);  # Remove first character
-
-            if (ascii < 0 || ascii > 127) {
-                print ""; exit 1;  # Reject non-ASCII input safely
-            }
-
-            if (c in safe_map) {
-                output = output c;  # Safe character, append directly
-            } else {
-                output = output "%" sprintf("%02X", ascii);  # Percent-encoded
-            }
-        }
-        print output;
-    }
-    function ord(c) {
-        return sprintf("%d", c);  # Efficient ASCII conversion
-    }' 2>/dev/null
-
-    return 0
-}
-
-# Decode URL-encoded string
-urldecode() {
-    local str=$(trim "$1")
-    [ -n "$str" ] || {
-        printf ''
-        return 1
-    } # Return empty string if input is empty
-
-    printf '%s\n' "$str" | awk '
-    BEGIN { output = "" }
-    {
-        while (length($0) > 0) {
-            c = substr($0, 1, 1);
-            if (c == "%") {
-                hex = substr($0, 2, 2);
-                if (hex ~ /^[0-9A-Fa-f]{2}$/) {
-                    output = output sprintf("%c", strtonum("0x" hex));  # Decode hex
-                    $0 = substr($0, 4);  # Skip %XX
-                } else {
-                    print ""; exit 1;  # Invalid encoding, fail safely
-                }
-            } else {
-                output = output c;  # Append safe characters directly
-                $0 = substr($0, 2);
-            }
-        }
-        print output;
-    }' 2>/dev/null
-
-    return 0
-}
-
-# Check if a URL is encoded
+# Check if a string contains URL-encoded sequences (%XX)
+#   strict=true  -> the string must be fully URL-encoded
+#   strict=false -> return true if at least one valid %XX exists
+# Returns:
+#   0 -> matches mode requirements
+#   1 -> does not match mode requirements or empty string
 url_is_encoded() {
-    local segment=$(trim "$1")
+    local segment i len c hex strict mode valid_found=false
+    segment=$(trim "$1")
+    mode=$(trim "$2")
+    mode=${mode:-"true"} # default strict mode is true
 
+    # Handle empty input safely
     [ -n "$segment" ] || {
-        printf '%s' "Segment is empty"
         return 1
-    } # Handle empty input safely
+    }
 
-    # Check for correctly formatted percent-encoded sequences
-    if ! printf '%s\n' "$segment" | awk 'BEGIN { valid=1 } /%[0-9A-Fa-f]{2}/ { if (!match($0, /%[0-9A-Fa-f]{2}/)) valid=0 } END { exit !valid }' 2>/dev/null; then
-        return 1 # False, it's not encoded
+    len=${#segment}
+    i=0
+
+    while ((i < len)); do
+        c=${segment:i:1}
+        if [[ $c == "%" ]]; then
+            # Check that there are exactly two characters following '%'
+            if ((i + 2 >= len)); then
+                if [[ $mode == "true" ]]; then
+                    return 1 # invalid: incomplete % sequence in strict mode
+                else
+                    ((i++))
+                    continue
+                fi
+            fi
+
+            hex=${segment:i+1:2}
+
+            # Validate that the two characters are hex digits
+            if [[ $hex =~ ^[0-9A-Fa-f]{2}$ ]]; then
+                valid_found="true"
+            else
+                if [[ $mode == "true" ]]; then
+                    return 1 # invalid %XX in strict mode
+                fi
+            fi
+
+            i=$((i + 3)) # skip over the %XX
+        else
+            ((i++))
+        fi
+    done
+
+    if [[ $mode == false && $valid_found == "true" ]]; then
+        return 0 # at least one valid %XX found
+    elif [[ $mode == false ]]; then
+        return 1 # no valid %XX found
     fi
 
-    return 0 # True, it's encoded
+    return 0 # strict mode success
 }
 
-# Normalize a URL and analyze its info
+# URL-encode a string safely using only POSIX/Bash 5 utilities
+# Usage: urlencode "string"
+urlencode() {
+    local str=$(trim "$1")
+    [ -n "$str" ] || {
+        printf ''
+        return 1
+    }
+
+    local i c hex output=""
+    local ord
+
+    # Iterate over each character in the string
+    for ((i = 0; i < ${#str}; i++)); do
+        c=${str:i:1}
+
+        # Detect non-ASCII characters safely using byte values
+        ord=$(printf '%d' "'$c") # Get ASCII/byte value of the character
+        if ((ord < 32 || ord > 126)); then
+            # Multi-byte UTF-8 handling
+            local utf8_bytes
+            utf8_bytes=$(printf '%s' "$c" | od -An -tx1 | tr -d ' \n')
+            for ((j = 0; j < ${#utf8_bytes}; j += 2)); do
+                hex=${utf8_bytes:j:2}
+                output+="%${hex^^}"
+            done
+            continue
+        fi
+
+        # Unreserved characters remain as-is
+        case "$c" in
+        [A-Za-z0-9.~_-]) output+="$c" ;;
+        # Percent encode everything else
+        *)
+            ord=$(printf '%d' "'$c")
+            output+=$(printf '%%%02X' "$ord")
+            ;;
+        esac
+    done
+
+    printf '%s' "$output"
+    return 0
+}
+
+# URL-decode a string using only POSIX/Bash utilities
+# Usage: urldecode "string"
+urldecode() {
+    local str
+    str=$(trim "$1")
+
+    # Return empty string for empty input
+    [ -n "$str" ] || {
+        printf ''
+        return 1
+    }
+
+    local i c hex output=""
+    i=0
+    while ((i < ${#str})); do
+        c=${str:i:1}
+
+        if [[ $c == "%" ]]; then
+            # Ensure there are two characters after '%'
+            if ((i + 2 >= ${#str})); then
+                printf ''
+                return 1 # Invalid encoding
+            fi
+
+            hex=${str:i+1:2}
+
+            # Validate hex digits
+            if [[ ! $hex =~ ^[0-9A-Fa-f]{2}$ ]]; then
+                printf ''
+                return 1 # Invalid encoding
+            fi
+
+            # Convert hex to character
+            output+=$(printf '\\x%s' "$hex")
+            i=$((i + 3)) # Skip '%XX'
+        else
+            output+="$c"
+            i=$((i + 1))
+        fi
+    done
+
+    # Safely print the decoded string
+    printf '%b' "$output"
+    return 0
+}
+
+# Normalize a URL and analyze its components
 get_url_info() {
-    local url=$(trim "$1")
+    local url scheme domain path remaining_url normalized_url
+    local url_is_encoded unencoded_url unencoded_req_path encoded_url encoded_req_path
 
-    # Step 1: Check if URL has a scheme and extract components using awk
-    local scheme="http"
-    local domain=""
-    local path=""
-    local url_is_encoded=""
-    local unencoded_url=""
-    local unencoded_req_path=""
-    local encoded_url=""
-    local encoded_req_path=""
+    url=$(trim "$1") || return 1
+    [ -n "$url" ] || return 1 # Empty input -> fail gracefully
 
-    # Check if scheme exists and extract scheme and remaining URL
-    if printf '%s\n' "$url" | awk -F "://" '{if (NF > 1) print $1}' | grep -q '[a-zA-Z]' 2>/dev/null; then
-        # Extract scheme and remaining URL
-        scheme=$(printf '%s\n' "$url" | awk -F "://" '{print $1}' 2>/dev/null)
-        remaining_url=$(printf '%s\n' "$url" | awk -F "://" '{print $2}' 2>/dev/null)
+    # Step 1: Extract scheme if present
+    if [[ "$url" =~ ^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/(.*)$ ]]; then
+        scheme="${BASH_REMATCH[1]}"
+        remaining_url="${BASH_REMATCH[2]}"
     else
+        scheme="http"
         remaining_url="$url"
     fi
 
-    # Step 2: Use awk to extract domain and path from the remaining URL
-    while IFS="/" read -r domain_part rest; do
-        domain="$domain_part"
-        path="/$rest"
-    done <<<"$remaining_url"
-
-    # Step 3: Validate scheme (if scheme is present)
-    if [[ -n "$scheme" && ! "$scheme" =~ ^(http|https|ftp)$ ]]; then
-        printf ''
+    # Step 2: Validate scheme (only allow http, https, ftp)
+    if [[ ! "$scheme" =~ ^(http|https|ftp)$ ]]; then
         return 1
     fi
 
-    # Step 4: Validate domain (basic check for alphanumeric and dots/hyphens)
-    if [[ -z "$domain" || ! "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-        printf ''
+    # Step 3: Extract domain and path
+    if [[ "$remaining_url" =~ ^([^/]+)(/.*)?$ ]]; then
+        domain="${BASH_REMATCH[1]}"
+        path="${BASH_REMATCH[2]:-/}" # default to '/' if empty
+    else
         return 1
     fi
 
-    # Step 5: Normalize the path (handle multiple '?' and missing root '/')
-    path=$(printf '%s\n' "$path" | awk '{gsub(/\?/, "&"); print}' 2>/dev/null)
-
-    # If the path is empty or doesn't start with '/', add the root '/'
-    if [ -z "$path" ] || ! string_starts_with "$path" "/"; then
-        path="/$path"
+    # Step 4: Validate domain (basic alphanumeric, dots, hyphens)
+    if [[ ! "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+        return 1
     fi
 
-    # Remove extra '?' in the path (only keep the first one)
-    path=$(printf '%s\n' "$path" | awk '{if (match($0, /\?.*\?/)) sub(/\?.*/, "?"); print}' 2>/dev/null)
+    # Step 5: Normalize path
+    # Ensure leading slash
+    [[ "$path" != /* ]] && path="/$path"
+    # Keep only the first '?' if multiple exist
+    if [[ "$path" =~ ^([^?]*)\?.* ]]; then
+        path="${BASH_REMATCH[1]}?${path#*?}"
+    fi
 
-    # Step 6: Output the normalized URL
     normalized_url="$scheme://$domain$path"
+
+    # Step 6: Determine encoding status
     if url_is_encoded "$path"; then
         url_is_encoded="true"
         encoded_req_path="$path"
@@ -4218,6 +4627,7 @@ get_url_info() {
         encoded_url="$scheme://$domain$encoded_req_path"
     fi
 
+    # Step 7: Set values in dictionary
     dict_reset || return 1
     dict_set_val "URL_SCHEME" "$scheme"
     dict_set_val "URL_DOMAIN" "$domain"
@@ -4229,189 +4639,447 @@ get_url_info() {
     return 0
 }
 
-# Url params to json conversion
-urlparams_to_json() {
+# Convert URL query parameters to JSON
+url_params_to_json() {
     local str=$(trim "$1")
-    string_starts_with "$str" "/" && {
-        str=$(substr "$str" 1)
-    }
+    local key value json first=true
 
+    # Remove leading slash if present
+    string_starts_with "$str" "/" && str="${str:1}"
+
+    # Return empty JSON for empty input
     [ -n "$str" ] || {
         printf '%s' "{}"
         return 1
-    } # Return empty JSON if input is empty
-
-    printf '%s\n' "$str" | awk -F '&' '
-    BEGIN { print "{"; first = 1 }
-    {
-        for (i = 1; i <= NF; i++) {
-            split($i, kv, "=");
-            key = kv[1];
-            value = (length(kv) > 1) ? kv[2] : "";  # Handle key-only params
-
-            # Print comma separator except for first entry
-            if (!first) printf(", ");
-            first = 0;
-
-            # Print key-value pair safely
-            printf("\"%s\": \"%s\"", key, value);
-        }
-    }
-    END { print "}" }' 2>/dev/null || {
-        printf ''
-        return 1
     }
 
-    return 0
-}
+    json="{"
 
-# Convert JSON to URL parameters
-json_to_urlparams() {
-    local str=$(trim "$1")
-    [ -n "$str" ] || {
-        printf ''
-        return 1
-    } # Return empty string if input is empty
+    # Split by '&' and iterate
+    IFS='&' read -r -a params <<<"$str"
+    for param in "${params[@]}"; do
+        # Split key and value by '='
+        IFS='=' read -r key value <<<"$param"
+        key=${key:-""}
+        value=${value:-""}
 
-    printf '%s\n' "$str" | awk '
-    BEGIN { RS=","; gsub(/[{\"}]/, ""); first = 1 }
-    {
-        split($0, kv, ":");
-        key = trim(kv[1]);
-        value = (length(kv) > 1) ? trim(kv[2]) : "";
+        # Escape double quotes and backslashes in key/value
+        key=${key//\\/\\\\}
+        key=${key//\"/\\\"}
+        value=${value//\\/\\\\}
+        value=${value//\"/\\\"}
 
-        # Print separator except for first entry
-        if (!first) printf("&");
-        first = 0;
-
-        # Print key-value pair safely
-        printf("%s=%s", key, value);
-    }' 2>/dev/null || {
-        printf ''
-        return 1
-    }
-
-    return 0
-}
-
-# Reliable curl with retries, POSIX-compliant
-reliable_curl() {
-    local url=$(trim "$1")
-    local method=$(trim "$2")
-    local output_file=$(trim "$3")
-    local data=$(trim "$4")
-    local retries=$(trim "$5")
-    retries=${retries:-3}
-    local retry_interval=$(trim "$6")
-    retry_interval=${retry_interval:-3}
-
-    local status=1
-    local save_option=""
-    local info_option=""
-
-    # Validate inputs
-    if [ -z "$url" ]; then
-        output "URL is required."
-        return 1
-    fi
-
-    if ! is_numeric "$retries"; then
-        output "Invalid retries value."
-        return 1
-    fi
-
-    if [ -n "$output_file" ]; then
-        output_file=$(file_real_path "$output_file")
-        save_option="-o '$output_file'"
-    else
-        save_option="-O"
-    fi
-
-    get_url_info "$url"
-    url=$(dict_get_val "ENCODED_URL")
-    local unencoded_req_path=$(dict_get_val "UNENCODED_REQ_PATH")
-    local unencoded_url=$(dict_get_val "UNENCODED_URL")
-    local encoded_req_path=$(dict_get_val "ENCODED_REQ_PATH")
-    local encoded_url=$(dict_get_val "ENCODED_URL")
-    local url_params="$unencoded_req_path"
-    local url_params_json=$(urlparams_to_json "$url_params")
-
-    if [[ "$DEBUG_MODE" == "true" ]]; then
-        info_option="-SL"
-    else
-        info_option="-sL"
-    fi
-
-    local ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6479.47 Safari/537.36 Edg/130.0.2716.102"
-
-    while [ "$retries" -gt 0 ]; do
-        case "$method" in
-        GET)
-            exec_command "curl $info_option -X GET '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" || return 1
-            ;;
-        POST)
-            exec_command "curl $info_option -X POST '$url' -H '$ua' -H 'Content-Type: text/plain' -d '$url_params_json' $save_option --retry-delay $retry_interval" || return 1
-            ;;
-        *)
-            output "Unsupported method '$method'."
-            return 1
-            ;;
-        esac
-        status=$?
-        if [ "$status" -eq 0 ]; then
-            return 0
+        # Append comma if not first element
+        if [ "$first" = true ]; then
+            first=false
+        else
+            json+=", "
         fi
-        retries=$((retries - 1))
-        if [ "$retries" -gt 0 ]; then
-            output "Last request has failed, retrying... ($retries retries left)"
-        fi
+
+        json+="\"$key\": \"$value\""
     done
 
-    return "$status"
-}
+    json+="}"
 
-# HTTP GET with resume support
-http_get() {
-    # Ensure local variables
-    local url=$(trim "$1")
-    local output_file=$(trim "$2")
-    local retries=$(trim "$3")
-    retries=${retries:-3}
-
-    # Input validation
-    if [ -z "$url" ] || [ -z "$output_file" ]; then
-        output "URL and output file are required."
+    is_valid_json "$json" || {
+        printf ''
         return 1
-    fi
+    }
 
-    if ! reliable_curl "$url" "GET" "$output_file" "" "$retries"; then
-        output "Request failed."
-        return 1
-    fi
-
+    printf '%s' "$json"
     return 0
 }
 
-# HTTP POST with retries
-http_post() {
-    # Ensure local variables
+# Convert JSON object to URL query parameters
+json_to_url_params() {
+    local str=$(trim "$1")
+    local key value param url_params=""
+
+    # Return empty string if input is empty
+    is_valid_json "$str" || {
+        printf ''
+        return 1
+    }
+
+    # Remove surrounding braces if present
+    str="${str#\{}"
+    str="${str%\}}"
+
+    # Split JSON entries by comma
+    IFS=',' read -r -a entries <<<"$str"
+    for entry in "${entries[@]}"; do
+        # Split key and value by ':'
+        key="${entry%%:*}"
+        value="${entry#*:}"
+
+        # Trim spaces and remove surrounding quotes
+        key=$(trim "${key//\"/}")
+        value=$(trim "${value//\"/}")
+
+        # Append '&' if not first parameter
+        [ -n "$url_params" ] && url_params+="&"
+
+        url_params+="$key=$value"
+    done
+
+    printf '%s' "$url_params"
+    return 0
+}
+
+# reliable_curl - robust curl wrapper with retries
+# Returns:
+#   0 -> success (response code: 200)
+#   1 -> failure (
+#       prints internal error code:
+#           5001="command missing", 5002="illegal url", 5005="unreachable network", 5006="unsupported behavior",
+#           5008="permission denied", 5009="command internal panic"
+#   )
+reliable_curl() {
+    # -------------------------------
+    # Public params (caller-visible)
+    # -------------------------------
     local url=$(trim "$1")
     local output_file=$(trim "$2")
-    local data=$(trim "$3")
-    local retries=$(trim "$4")
-    retries=${retries:-3}
+    local method=$(trim "${3:-"GET"}")
+    local data_file=$(trim "$4")
 
-    # Input validation
-    if [ -z "$url" ] || [ -z "$output_file" ]; then
-        output "URL and output file are required."
+    # -------------------------------
+    # Grouped CURL_ global overrides
+    # -------------------------------
+    # All env-configurable behavior lives here for clarity.
+    local headers_array_name="CURL_HEADERS"
+    local CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-30}"
+    is_posi_int "$CURL_CONNECT_TIMEOUT" || CURL_CONNECT_TIMEOUT=30
+    local CURL_CONTINUE="${CURL_CONTINUE:-true}"
+    local CURL_DISPLAY_ERRORS="${CURL_DISPLAY_ERRORS:-"false"}"
+    in_array "$CURL_DISPLAY_ERRORS" "true" "false" || CURL_DISPLAY_ERRORS="false"
+    local CURL_RETRIES="${CURL_RETRIES:-0}"
+    is_nn_int "$CURL_RETRIES" || CURL_RETRIES=0
+    local CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-3}"
+    is_nn_int "$CURL_RETRY_DELAY" || CURL_RETRY_DELAY=3
+    local CURL_RETRY_TIMEOUT="${CURL_RETRY_TIMEOUT:-60}"
+    is_nn_int "$CURL_RETRY_TIMEOUT" || CURL_RETRY_TIMEOUT=60
+    local CURL_USER=$(trim "${CURL_USER:-}")
+    local CURL_PASSWORD=$(trim "${CURL_PASSWORD:-}")
+    local CURL_CERT=$(trim "${CURL_CERT:-}")
+    local CURL_KEY=$(trim "${CURL_KEY:-}")
+    local CURL_KEY_PASSPHRASE=$(trim "${CURL_KEY_PASSPHRASE:-}")
+    local CURL_EXTRA_OPTS=$(trim "${CURL_EXTRA_OPTS:-}")
+    local CURL_RAW_STATUS_CODE=$(trim "${CURL_RAW_STATUS_CODE:-"false"}")
+    in_array "$CURL_RAW_STATUS_CODE" "true" "false" || CURL_RAW_STATUS_CODE="false"
+    local CURL_FILE_HASH_ALGO=$(trim "${CURL_FILE_HASH_ALGO:-}")
+    CURL_FILE_HASH_ALGO=$(strtolower "$CURL_FILE_HASH_ALGO")
+    local CURL_FILE_HASH=$(trim "${CURL_FILE_HASH:-}")
+
+    # ------------------------------------
+    # Internal vars (grouped & validated)
+    # ------------------------------------
+    local -a curl_opts=()           # options to pass to curl as an array
+    local response_code=""          # captured from --write-out
+    local curl_exit=0               # exit status of curl command
+    local scheme=""                 # url scheme (http/https/ftp/sftp)
+    local use_head_for_get=0        # 1 -> send HEAD instead of GET when user omitted output
+    local outdir=""                 # used when creating output dir
+    local retries validated_retries # numeric-checked retry vars
+    local retry_delay validated_retry_delay
+    local retry_max_time validated_retry_max_time
+
+    # Validate numeric CURL_ envs and map to locals with safe fallbacks
+    # retries
+    if [[ "$CURL_RETRIES" =~ ^[0-9]+$ ]]; then
+        validated_retries="$CURL_RETRIES"
+    else
+        validated_retries=2
+    fi
+    # retry delay
+    if [[ "$CURL_RETRY_DELAY" =~ ^[0-9]+$ ]]; then
+        validated_retry_delay="$CURL_RETRY_DELAY"
+    else
+        validated_retry_delay=3
+    fi
+    # retry max time
+    if [[ "$CURL_RETRY_TIMEOUT" =~ ^[0-9]+$ ]]; then
+        validated_retry_max_time="$CURL_RETRY_TIMEOUT"
+    else
+        validated_retry_max_time=60
+    fi
+
+    # ------------------------------
+    # Dependency check
+    # ------------------------------
+    if ! command_exists "curl"; then
+        printf "5001\n"
         return 1
     fi
 
-    if ! reliable_curl "$url" "POST" "$output_file" "$data" "$retries"; then
-        output "Request failed."
+    # ---------------------------------
+    # Basic validation of URL & method
+    # ---------------------------------
+    if ! is_valid_url "$url"; then
+        printf "5002\n"
         return 1
     fi
 
+    scheme="${url%%:*}"
+    case "$scheme" in
+    http | https | ftp | sftp) ;;
+    *)
+        printf "5006\n"
+        return 1
+        ;;
+    esac
+
+    method="${method^^}"
+    case "$method" in
+    GET | POST | PUT | PATCH | DELETE | HEAD | OPTIONS) ;;
+    *)
+        printf "5006\n"
+        return 1
+        ;;
+    esac
+
+    # Validate data file presence/readability for body-bearing methods
+    if [[ -n "$data_file" ]]; then
+        if [[ ! -f "$data_file" || ! -r "$data_file" ]]; then
+            printf "5002\n"
+            return 1
+        fi
+    fi
+
+    # ----------------------
+    # Output-file policy
+    # ----------------------
+    if [ -z "$output_file" ]; then
+        output_file="/dev/null"
+    else
+        outdir=$(dirname -- "$output_file")
+        mkdir_p "$outdir" || {
+            printf "5008\n"
+            return 1
+        }
+    fi
+
+    local expected_sig_string=""
+    if is_file "$output_file" && [[ -n "$CURL_FILE_HASH" ]]; then
+        if [[ "$CURL_FILE_HASH_ALGO" == "md5" ]]; then
+            expected_sig_string=$(md5_file "$output_file")
+        elif [[ "$CURL_FILE_HASH_ALGO" == "sha1" ]]; then
+            expected_sig_string=$(sha1_file "$output_file")
+        elif [[ "$CURL_FILE_HASH_ALGO" == "sha224" ]]; then
+            expected_sig_string=$(sha224_file "$output_file")
+        elif [[ "$CURL_FILE_HASH_ALGO" == "sha256" ]]; then
+            expected_sig_string=$(sha256_file "$output_file")
+        elif [[ "$CURL_FILE_HASH_ALGO" == "sha384" ]]; then
+            expected_sig_string=$(sha384_file "$output_file")
+        elif [[ "$CURL_FILE_HASH_ALGO" == "sha512" ]]; then
+            expected_sig_string=$(sha512_file "$output_file")
+        fi
+
+        if [[ "$expected_sig_string" == "$CURL_FILE_HASH" ]]; then
+            printf "200\n"
+            return 0
+        fi
+    fi
+
+    # ------------------------------------------
+    # Build curl options (associative -> array)
+    # ------------------------------------------
+    # Collect fixed options in a map, then append in deterministic order to preserve behavior.
+    local -A curl_kv=()
+
+    if [[ "$CURL_DISPLAY_ERRORS" == "true" ]]; then
+        curl_kv[silence_flag]="-sS"
+    else
+        curl_kv[silence_flag]="-s"
+    fi
+
+    curl_kv[location_flag]="-L"
+
+    curl_kv[connect_timeout_flag]="--connect-timeout"
+    curl_kv[connect_timeout_value]="$CURL_CONNECT_TIMEOUT"
+
+    curl_kv[retry_flag]="--retry"
+    curl_kv[retry_value]="$validated_retries"
+    curl_kv[retry_delay_flag]="--retry-delay"
+    curl_kv[retry_delay_value]="$validated_retry_delay"
+    curl_kv[retry_connrefused_flag]="--retry-connrefused"
+    curl_kv[retry_max_time_flag]="--retry-max-time"
+    curl_kv[retry_max_time_value]="$validated_retry_max_time"
+
+    curl_kv[write_out_flag]="--write-out"
+    curl_kv[write_out_value]="%{response_code}"
+
+    if [[ "$use_head_for_get" -eq 1 || "$method" == "HEAD" ]]; then
+        curl_kv[head_flag]="-I"
+    fi
+
+    curl_kv[output_flag]="-o"
+    curl_kv[output_value]="$output_file"
+
+    if [[ "${CURL_CONTINUE}" == "true" && "$method" == "GET" && "$output_file" != "/dev/null" ]]; then
+        curl_kv[resume_flag]="-C"
+        curl_kv[resume_value]="-"
+    fi
+
+    if [[ "$method" != "GET" || -n "$data_file" ]]; then
+        curl_kv[method_flag]="-X"
+        curl_kv[method_value]="$method"
+    fi
+
+    case "$method" in
+    POST | PUT | PATCH | DELETE)
+        if [[ -n "$data_file" ]]; then
+            curl_kv[data_flag]="--data-binary"
+            curl_kv[data_value]="@$data_file"
+        fi
+        ;;
+    esac
+
+    # --------------------------------------------
+    # Authentication: passcode & cert/key support
+    # --------------------------------------------
+    if [[ -n "$CURL_USER" || -n "$CURL_PASSWORD" ]]; then
+        if [[ -n "$CURL_USER" && -n "$CURL_PASSWORD" ]]; then
+            curl_kv[auth_flag]="-u"
+            curl_kv[auth_value]="${CURL_USER}:${CURL_PASSWORD}"
+        elif [[ -n "$CURL_USER" ]]; then
+            curl_kv[auth_flag]="-u"
+            curl_kv[auth_value]="${CURL_USER}"
+        fi
+    fi
+
+    if [[ -n "$CURL_CERT" ]]; then
+        curl_kv[cert_flag]="--cert"
+        curl_kv[cert_value]="${CURL_CERT}"
+        if [[ -n "$CURL_KEY_PASSPHRASE" ]]; then
+            curl_kv[cert_pass_flag]="--pass"
+            curl_kv[cert_pass_value]="${CURL_KEY_PASSPHRASE}"
+        fi
+    fi
+    if [[ -n "$CURL_KEY" ]]; then
+        curl_kv[key_flag]="--key"
+        curl_kv[key_value]="${CURL_KEY}"
+        if [[ -n "$CURL_KEY_PASSPHRASE" ]]; then
+            curl_kv[key_pass_flag]="--pass"
+            curl_kv[key_pass_value]="${CURL_KEY_PASSPHRASE}"
+        fi
+    fi
+
+    # Extra user-provided options (split on whitespace safely)
+    if [[ -n "$CURL_EXTRA_OPTS" ]]; then
+        read -r -a _extra_opts <<<"$CURL_EXTRA_OPTS" 2>/dev/null
+        curl_opts+=("${_extra_opts[@]}")
+        unset "_extra_opts"
+    fi
+
+    # ------------------------------------------------------------
+    # Headers conversion (indexed or associative array by name)
+    # ------------------------------------------------------------
+    if array_is_available "$headers_array_name"; then
+        # Associative: iterate original keys and transform to Title-Case hyphen-separated header names
+        local orig_key header_name parts p first rest header_val joined
+        for orig_key in "${!headers_array_name[@]}"; do
+            header_name="${orig_key//_/-}"
+            IFS='-' read -ra parts <<<"$header_name"
+            joined=""
+            for p in "${parts[@]}"; do
+                if [[ -n "$p" ]]; then
+                    first="${p:0:1}"
+                    rest="${p:1}"
+                    joined+="${first^^}${rest,,}-"
+                fi
+            done
+            header_name="${joined%-}"
+            header_val="${headers_array_name[$orig_key]}"
+            curl_opts+=("-H" "${header_name}: ${header_val}")
+        done
+    fi
+
+    # ----------------------------------------------------------------
+    # Flatten curl_kv to curl_opts in original, deterministic order
+    # ----------------------------------------------------------------
+    [[ -n "${curl_kv[silence_flag]}" ]] && curl_opts+=("${curl_kv[silence_flag]}")
+    [[ -n "${curl_kv[location_flag]}" ]] && curl_opts+=("${curl_kv[location_flag]}")
+    if [[ -n "${curl_kv[connect_timeout_flag]}" ]]; then
+        curl_opts+=("${curl_kv[connect_timeout_flag]}" "${curl_kv[connect_timeout_value]}")
+    fi
+    if [[ -n "${curl_kv[retry_flag]}" ]]; then
+        curl_opts+=("${curl_kv[retry_flag]}" "${curl_kv[retry_value]}" "${curl_kv[retry_delay_flag]}" "${curl_kv[retry_delay_value]}"
+            "${curl_kv[retry_connrefused_flag]}" "${curl_kv[retry_max_time_flag]}" "${curl_kv[retry_max_time_value]}")
+    fi
+    if [[ -n "${curl_kv[write_out_flag]}" ]]; then
+        curl_opts+=("${curl_kv[write_out_flag]}" "${curl_kv[write_out_value]}")
+    fi
+    [[ -n "${curl_kv[head_flag]}" ]] && curl_opts+=("${curl_kv[head_flag]}")
+    if [[ -n "${curl_kv[output_flag]}" ]]; then
+        curl_opts+=("${curl_kv[output_flag]}" "${curl_kv[output_value]}")
+    fi
+    if [[ -n "${curl_kv[resume_flag]}" ]]; then
+        curl_opts+=("${curl_kv[resume_flag]}" "${curl_kv[resume_value]}")
+    fi
+    if [[ -n "${curl_kv[method_flag]}" ]]; then
+        curl_opts+=("${curl_kv[method_flag]}" "${curl_kv[method_value]}")
+    fi
+    if [[ -n "${curl_kv[data_flag]}" ]]; then
+        curl_opts+=("${curl_kv[data_flag]}" "${curl_kv[data_value]}")
+    fi
+    if [[ -n "${curl_kv[auth_flag]}" ]]; then
+        curl_opts+=("${curl_kv[auth_flag]}" "${curl_kv[auth_value]}")
+    fi
+    if [[ -n "${curl_kv[cert_flag]}" ]]; then
+        curl_opts+=("${curl_kv[cert_flag]}" "${curl_kv[cert_value]}")
+        [[ -n "${curl_kv[cert_pass_flag]}" ]] && curl_opts+=("${curl_kv[cert_pass_flag]}" "${curl_kv[cert_pass_value]}")
+    fi
+    if [[ -n "${curl_kv[key_flag]}" ]]; then
+        curl_opts+=("${curl_kv[key_flag]}" "${curl_kv[key_value]}")
+        [[ -n "${curl_kv[key_pass_flag]}" ]] && curl_opts+=("${curl_kv[key_pass_flag]}" "${curl_kv[key_pass_value]}")
+    fi
+
+    # -------------------------------------
+    # Execute curl & capture response_code
+    # -------------------------------------
+    response_code="$(curl "${curl_opts[@]}" -- "$url" 2>/dev/null)"
+    curl_exit=$?
+    response_code=$(trim "$response_code")
+    local raw_status_code="$response_code"
+
+    case "$scheme" in
+    http | https)
+        # HTTP/HTTPS: treat 2xx/3xx as success -> 200; 4xx/5xx or curl failure -> 0
+        if [ "$curl_exit" -eq 0 ] && [ "$response_code" -ge 200 ] && [ "$response_code" -lt 400 ]; then
+            response_code=200
+        fi
+        ;;
+    ftp)
+        # FTP: any successful curl call is normalized to 200
+        if [ "$curl_exit" -eq 0 ]; then
+            response_code=200
+        fi
+        ;;
+    sftp)
+        # SFTP: success -> 200, failure -> 0
+        if [ "$curl_exit" -eq 0 ]; then
+            response_code=200
+        fi
+        ;;
+    *)
+        # Other schemes: default to SFTP behavior
+        if [ "$curl_exit" -eq 0 ]; then
+            response_code=200
+        fi
+        ;;
+    esac
+
+    if [[ "$response_code" == "000" ]]; then
+        response_code=5005
+    fi
+
+    if [[ "$response_code" != 200 ]]; then
+        [[ "$CURL_RAW_STATUS_CODE" == "true" ]] && printf '%s\n' "$raw_status_code" || printf '%s\n' "$response_code"
+        return 1
+    fi
+
+    [[ "$CURL_RAW_STATUS_CODE" == "true" ]] && printf '%s\n' "$raw_status_code" || printf '%s\n' "$response_code"
     return 0
 }
 
@@ -4476,7 +5144,12 @@ uuidv4() {
 # Function to convert hex to string
 hex2str() {
     local hex_string=$(trim "$1")
-    printf '%s' "$hex_string" | tr -d '[:space:]' | xxd -r -p || printf ''
+    printf '%s' "$hex_string" | tr -d '[:space:]' | xxd -r -p || {
+        printf ''
+        return 1
+    }
+
+    return 0
 }
 
 # Function to convert string to hex
@@ -4959,7 +5632,8 @@ separate_command() {
 
 # Register the current command
 register_current_command() {
-    CURRENT_PID="$$"
+    CURRENT_PID=$$
+    is_posi_int "$CURRENT_PID" || error_exit "Incorrect CURRENT_PID!"
     local args=($(printf '%s\n' "$@"))
     local current_file_path=""
     local current_args=""
@@ -5115,7 +5789,7 @@ safe_callfunc() {
         # Check function existence
         if is_func "$fn_name"; then
             # Call function and capture exit
-            printf '%s' "$(eval "${fn_name} $(printf '%q ' "$@")")" || {
+            eval "${fn_name} $(printf '%s ' "$@")" 2>/dev/null || {
                 printf ''
                 return 1
             }
@@ -5408,13 +6082,12 @@ callfunc() {
     }
     array_splice "current_args" 0 2
     local params=$(string_join "current_args" ' ')
-    local result="$(safe_callfunc "$func" $(printf '%s ' "$params"))" || error_exit "Function '$func' does not exist."
-    result="$(trim "$result")"
-    if [ -n "$result" ]; then
-        printf '%s\n' "$(printf '%s' "$result")"
-    else
-        printf '%s\n' "(empty result)"
-    fi
+    local output=""
+    safe_callfunc "$func" $(printf '%s ' "$params") | {
+        output=$(trim "$(cat)")
+        [ -n "$output" ] || output="(empty result)"
+        printf '%b\n' "$output"
+    }
 }
 
 # get the current utility's name.
@@ -5597,7 +6270,7 @@ install_script() {
             error_exit "Failed to install $current_filename"
     fi
 
-    exec_command "mv \"$current_file\" \"$target_path\"" || error_exit "Failed to install $current_filename"
+    exec_command "mv \"$current_file\" \"$target_path\"" "true" || error_exit "Failed to install $current_filename"
     log_msg "Done."
 }
 
