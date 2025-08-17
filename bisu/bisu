@@ -8,61 +8,43 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.40"
+export BISU_VERSION="10.2.50"
 # Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-16Z"}
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-17Z"}
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
-export _ASSOC_KEYS=()   # Core array for common associative arrays, no modification
-export _ASSOC_VALUES=() # Core array for common associative arrays, no modification
-export _LOG_BUFFER=()
-export _CK="_ASSOC_KEYS"   # Current big array key storage
-export _CV="_ASSOC_VALUES" # Current big array value storage
-export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
-export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
-export HOME="$(eval printf '%s' "~${SUDO_USER:-$USER}")"
-export KERNEL_INFO=""
-export OS_INFO=""
-# BISU path
-export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # Default title
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
 export LINE_BREAK_LENGTH=240
-# Set $TMPDIR
-TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
-# Set $HOME
-HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
-# awk prefix
-export AWK_PREFIX="awk"
-# fifo dir
-export BISU_FIFO_DIR="$TMPDIR/bisu_fifo"
-# fork limit for per process
-export SAFE_FORK_LIMIT=16
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
     'bash' 'awk' 'sed' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'date' 'whoami' 'hostname' 'gpg'
 )
-# Required external commands list
-REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
-# Required scripts
-export BISU_REQUIRED_SCRIPTS=()
-# Required scripts
-REQUIRED_SCRIPTS=(${REQUIRED_SCRIPTS[@]:-})
 # Read-only actions avoiding AML lock
 export BISU_ACTIONS_RO=(
     'version' 'v' 'info' 'usage' 'doc' 'help' 'h' 'callfunc' 'installed'
 )
-# Read-only actions avoiding AML lock for user definitions
-ACTIONS_RO=(${ACTIONS_RO[@]:-})
 # Auto run commands
-export BISU_AUTORUN=(${BISU_AUTORUN[@]:-})
-# Auto run commands
-AUTORUN=(${AUTORUN[@]:-})
+export BISU_AUTORUN=()
+# Required scripts
+export BISU_REQUIRED_SCRIPTS=()
 # Exit with commands
 export BISU_EXIT_WITH_COMMANDS=()
-# Exit with commands
-EXIT_WITH_COMMANDS=(${EXIT_WITH_COMMANDS[@]:-})
+# fifo dir
+export BISU_FIFO_DIR="$TMPDIR/bisu_fifo"
+# fork limit for per process
+export SAFE_FORK_LIMIT=16
+# BISU Signature verification switch
+export VERIFY_BISU_SIG=${VERIFY_BISU_SIG:-"true"}
+# Specific Empty Expression
+export EMPTY_EXPR="0x00"
+# Error message prefix
+export ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
+# BISU File URL
+export BISU_FILE_URL="https://g.bisu.cc/bisu-file"
+# BISU ASC File URL
+export BISU_ASC_FILE_URL="https://g.bisu.cc/bisu-asc-file"
 # Global Variables
 export ROOT_LOCK_FILE_DIR="/var/run"
 export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
@@ -74,6 +56,18 @@ export ROOT_LOG_FILE_DIR="/var/log"                                    # Root Lo
 export USER_LOG_FILE_DIR="$HOME/.local/var/log"                        # User Log file dir
 export TARGET_PATH_PREFIX="/usr/local/sbin"                            # Default target path for moving scripts
 export TERMUX_TARGET_PATH_PREFIX="/data/data/com.termux/files/usr/bin" # Android Termux target path for moving scripts
+export KERNEL_INFO=""
+export OS_INFO=""
+export _LOG_BUFFER=()
+export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+export HOME="$(eval printf '%s' "~${SUDO_USER:-$USER}")"
+# BISU path
+export BISU_FILE_PATH="${BASH_SOURCE[0]}"
+# Set $TMPDIR
+TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
+# Set $HOME
+HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
 # Current Process ID
 export CURRENT_PID
 # The current file path
@@ -88,10 +82,6 @@ export CURRENT_COMMAND=""
 export CURRENT_ARGS=()
 # The action currently specified
 export CURRENT_ACTION=""
-# Specific Empty Expression
-export EMPTY_EXPR="0x00"
-# Error message prefix
-export ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # Quitting flag
 export QUITTING_FLAG=0
 # Lock held
@@ -100,12 +90,16 @@ export LOCK_HELD=0
 export UNIX_USERNAME=""
 # Machine's hostname
 export UNIX_HOSTNAME=""
-# BISU File URL
-export BISU_FILE_URL="https://g.bisu.cc/bisu-file"
-# BISU ASC File URL
-export BISU_ASC_FILE_URL="https://g.bisu.cc/bisu-asc-file"
-# BISU Signature verification switch
-export VERIFY_BISU_SIG=${VERIFY_BISU_SIG:-"true"}
+# Required external commands list
+REQUIRED_EXTERNAL_COMMANDS=(${REQUIRED_EXTERNAL_COMMANDS[@]:-})
+# Read-only actions avoiding AML lock for user definitions
+ACTIONS_RO=(${ACTIONS_RO[@]:-})
+# Auto run commands
+AUTORUN=(${AUTORUN[@]:-})
+# Required scripts
+REQUIRED_SCRIPTS=(${REQUIRED_SCRIPTS[@]:-})
+# Exit with commands
+EXIT_WITH_COMMANDS=(${EXIT_WITH_COMMANDS[@]:-})
 # Set this utility's name
 UTILITY_NAME=${UTILITY_NAME:-"bisu"}
 # Set this utility's version number
@@ -1324,7 +1318,7 @@ normalize_bool() {
     }
     if [[ "$result" == "1" ]]; then
         result="true"
-    else
+    elif [[ "$result" == "0" ]]; then
         result="false"
     fi
     @set "$var_name" "$result" || return 1
@@ -2402,34 +2396,32 @@ fileext() {
 
 # Get file info
 get_file_info() {
-    local file=$(trim "$1")
-    file=$(file_real_path "$file")
-    if [ -z "$file" ]; then
+    local file_path=$(trim "$1")
+    file_path=$(file_real_path "$file_path")
+    if [ -z "$file_path" ]; then
+        printf ''
         return 1
     fi
 
-    dict_reset || return 1
-
     local filename=""
     local file_ext=""
-    local file_path="$file"
     local file_dir=""
     local file_exists="false"
     local file_is_dir="false"
     local file_is_file="false"
     local file_has_ext="false"
 
-    if [ -d "$file" ]; then
+    if [ -d "$file_path" ]; then
         file_is_dir="true"
         file_exists="true"
-    elif [ -f "$file" ]; then
+    elif [ -f "$file_path" ]; then
         file_is_file="true"
         file_exists="true"
     fi
 
-    filename=$(basename "$file")
-    file_dir=$(dirname "$file")
-    file_ext=$(fileext "$file")
+    filename=$(basename "$file_path")
+    file_dir=$(dirname "$file_path")
+    file_ext=$(fileext "$file_path")
 
     if [ -n "$file_ext" ]; then
         file_has_ext="true"
@@ -2440,15 +2432,17 @@ get_file_info() {
         filename=""
     fi
 
-    dict_set_val "FILE_NAME" "$filename"
-    dict_set_val "FILE_EXT" "$file_ext"
-    dict_set_val "FILE_PATH" "$file_path"
-    dict_set_val "FILE_DIR" "$file_dir"
-    dict_set_val "FILE_EXISTS" "$file_exists"
-    dict_set_val "FILE_IS_DIR" "$file_is_dir"
-    dict_set_val "FILE_IS_FILE" "$file_is_file"
-    dict_set_val "FILE_HAS_EXT" "$file_has_ext"
+    local rs=()
+    array_set "rs" "filename" "$filename"
+    array_set "rs" "file_ext" "$file_ext"
+    array_set "rs" "file_path" "$file_path"
+    array_set "rs" "file_dir" "$file_dir"
+    array_set "rs" "file_exists" "$file_exists"
+    array_set "rs" "is_dir" "$file_is_dir"
+    array_set "rs" "is_file" "$file_is_file"
+    array_set "rs" "file_has_ext" "$file_has_ext"
 
+    echo "${rs[@]}"
     return 0
 }
 
@@ -2505,18 +2499,11 @@ cp_p() {
         return 1
     fi
 
-    get_file_info "$target_path"
-    local filename=$(dict_get_val "FILE_NAME")
-    local file_path=$(dict_get_val "FILE_PATH")
-    local file_ext=$(dict_get_val "FILE_EXT")
-    local file_dir=$(dict_get_val "FILE_DIR")
-    local file_exists=$(dict_get_val "FILE_EXISTS")
-    local file_is_dir=$(dict_get_val "FILE_IS_DIR")
-    local file_is_file=$(dict_get_val "FILE_IS_FILE")
-    local file_has_ext=$(dict_get_val "FILE_HAS_EXT")
+    local file_info=$(get_file_info "$target_path")
+    file_info=("$file_info")
 
-    target_path="$file_path"
-    target_dir="$file_dir"
+    target_path=$(array_get "file_info" "file_path")
+    target_dir=$(array_get "file_info" "file_dir")
 
     if [[ "$force_override" == "false" ]] && [ -e "$target_path" ]; then
         return 1
@@ -2851,13 +2838,118 @@ array_get() {
 
     local key val
     for key in "$@"; do
-        [[ -z "$key" ]] && continue
+        [ -z "$key" ] && continue
         val=$(eval "printf '%s' \"\${$array_name[\"\$key\"]}\"")
-        [[ -z "$val" ]] && continue
+        [ -z "$val" ] && continue
         printf '%s' "$val"
         return 0
     done
 
+    printf ''
+    return 1
+}
+
+# ---------------------------------------
+# array_keys <array_name> [pattern]
+# Returns all keys of the array.
+# ---------------------------------------
+array_keys() {
+    local arr_name=$(trim "$1")
+    local sep="${2:-'\n'}"
+
+    array_is_available "$arr_name" || {
+        printf ''
+        return 1
+    }
+
+    eval "local keys=( \${!$arr_name[@]} )" || {
+        printf ''
+        return 1
+
+    }
+    local IFS="$sep"
+    echo "(${keys[*]})"
+    return 0
+}
+
+# --------------------------------------------
+# array_values <array_name> [pattern]
+# Returns all values of the array.
+# --------------------------------------------
+array_values() {
+    local arr_name=$(trim "$1")
+    local sep="${2:-'\n'}"
+
+    # Check if array exists
+    array_is_available "$arr_name" || {
+        printf ''
+        return 1
+    }
+
+    # Get all values
+    eval "local values=( \"\${$arr_name[@]}\" )" || {
+        printf ''
+        return 1
+    }
+
+    local IFS="$sep"
+    echo "(${values[*]})"
+    return 0
+}
+
+# ------------------------------------------------------------
+# array_search <array_name> <search_value>
+# Returns all keys where array value matches search_value.
+# ------------------------------------------------------------
+array_search() {
+    local arr_name=$(trim "$1")
+    local search_value="$2"
+    local strict=$(trim "$3")
+    in_array "$strict" "true" "false" || strict="false"
+
+    # Check if array exists
+    array_is_available "$arr_name" || {
+        printf ''
+        return 1
+    }
+
+    # Get all keys and values once
+    local keys values key val
+    eval "keys=(\"\${!$arr_name[@]}\")"
+    eval "values=(\"\${$arr_name[@]}\")"
+
+    local i=0
+    local total="${#keys[@]}"
+
+    while ((i < total)); do
+        key="${keys[i]}"
+        val="${values[i]}"
+
+        if [[ "$strict" == "true" ]]; then
+            # Numeric strict comparison if both are numeric
+            if [[ "$val" =~ ^-?[0-9]+([.][0-9]+)?$ ]] && [[ "$search_value" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+                ((val + 0 == search_value + 0)) && {
+                    echo "$key"
+                    return 0
+                }
+            else
+                [[ "$val" == "$search_value" ]] && {
+                    echo "$key"
+                    return 0
+                }
+            fi
+        else
+            # Non-strict string comparison
+            [[ "$val" == "$search_value" ]] && {
+                echo "$key"
+                return 0
+            }
+        fi
+
+        ((i++))
+    done
+
+    printf ''
     return 1
 }
 
@@ -3064,95 +3156,6 @@ array_shift() {
     }
 
     @set "$val_ref" "$val"
-    return 0
-}
-
-# Function to dynamically set or update a key-value pair for the common array
-dict_set_val() {
-    local key=$(trim "$1")
-    local value=$(trim "$2")
-
-    if ! isset "$_CK" || ! is_array "$_CK"; then
-        return 1
-    fi
-
-    if ! isset "$_CV" || ! is_array "$_CV"; then
-        return 1
-    fi
-    [ -n "$key" ] || {
-        return 1
-    }
-
-    # Type handling (preserve numbers and booleans correctly)
-    case "$value" in
-    "true" | "false") ;;                                                             # Keep booleans unchanged
-    '' | [0-9]* | *[.][0-9]*) ;;                                                     # Keep numbers (integers & floats)
-    *) value=$(printf '%s\n' "$value" | awk '{gsub(/"/, ""); print}' 2>/dev/null) ;; # Strip double quotes from strings
-    esac
-
-    local found=0
-    local array_count=$(array_count "$_CK")
-
-    if is_posi_int "$array_count"; then
-        # Search for existing key and update if found
-        for ((i = 0; i < $array_count; i++)); do
-            if eval "[[ \${${_CK}[$i]} == \"$key\" ]]" &>/dev/null; then
-                eval "${_CV}[$i]=\"$value\""
-                found=1
-                break
-            fi
-        done
-    fi
-
-    # Append new key-value pair if not found
-    if [ "$found" -eq 0 ]; then
-        eval "${_CK}+=(\"$key\")"
-        eval "${_CV}+=(\"$value\")"
-    fi
-
-    return 0
-}
-
-# Function to access elements for the common associative array and looping search for the first populated value
-dict_get_val() {
-    local idx search_key
-
-    if ! isset "$_CK" || ! is_array "$_CK"; then
-        return 1
-    fi
-
-    if ! isset "$_CV" || ! is_array "$_CV"; then
-        return 1
-    fi
-
-    for search_key in "$@"; do
-        [ -z "$search_key" ] && continue
-
-        idx=$(eval "printf '%s\\n' \"\${${_CK}[@]}\"" | awk -v key="$search_key" '$0 == key {print NR; exit}' 2>/dev/null)
-
-        [ -z "$idx" ] && continue
-
-        eval "printf '%s' \"\${${_CV}[\$((idx - 1))]}\""
-        return 0
-    done
-
-    printf ''
-    return 0
-}
-
-# Function to reset the common associative array
-dict_reset() {
-    if ! isset "$_CK" || ! is_array "$_CK"; then
-        return 1
-    fi
-    if ! isset "$_CV" || ! is_array "$_CV"; then
-        return 1
-    fi
-
-    # Clear the keys and values arrays
-    eval "export ${_CK}=()" || return 1
-    eval "export ${_CV}=()" || return 1
-
     return 0
 }
 
@@ -4343,33 +4346,60 @@ verify_sig_file() {
         return 1
     }
 
-    # Capture both machine-readable and human-readable output
-    local output=$(gpg --status-fd=1 --verify "$sig_file" "$src_file" 2>/dev/null)
-    local status=$?
+    local status_code hash_id result return_code
+    # Extract status status_code and optional hash_id in one awk pass
+    read -r status_code hash_id <<<"$(
+        gpg --status-fd=1 --verify "$sig_file" "$src_file" 2>&1 |
+            awk '
+            /^\[GNUPG:\] VALIDSIG/ { print "VALIDSIG", $(NF-2); next }
+            /^\[GNUPG:\] BADSIG/   { print "BADSIG";   exit }
+            /^\[GNUPG:\] NO_PUBKEY/{ print "NOPUB";    exit }
+            /^\[GNUPG:\] ERRSIG/   { print "ERRSIG";   exit }
+            /^\[GNUPG:\] NODATA/   { print "NODATA";   exit }
+            END { if (!NR) print "UNKNOWN" }
+        ' 2>/dev/null
+    )"
 
-    # Primary check: GPG exit code
-    [ "$status" -eq 0 ] || {
-        printf "incons"
-        return 1
-    }
-
-    # Secondary check: try to extract hash algorithm from VALIDSIG line
-    # We do not depend on fixed spaces or messages; parse fields instead
-    local hash_id=$(awk '/^\[GNUPG:\] VALIDSIG/ {print $(NF-2)}' <<<"$output")
-
-    local hash_name="unknown"
-    case "$hash_id" in
-    1) hash_name="md5" ;;
-    2) hash_name="sha1" ;;
-    3) hash_name="ripemd160" ;;
-    8) hash_name="sha256" ;;
-    9) hash_name="sha384" ;;
-    10) hash_name="sha512" ;;
-    11) hash_name="sha224" ;;
+    # Classify based on extracted status_code
+    case "$status_code" in
+    VALIDSIG)
+        case "$hash_id" in
+        1) result="sig_md5" ;;
+        2) result="sig_sha1" ;;
+        3) result="sig_ripemd160" ;;
+        8) result="sig_sha256" ;;
+        9) result="sig_sha384" ;;
+        10) result="sig_sha512" ;;
+        11) result="sig_sha224" ;;
+        *) result="sig_unknown" ;;
+        esac
+        return_code=0
+        ;;
+    BADSIG)
+        result="err_badsig"
+        return_code=1
+        ;;
+    NOPUB)
+        result="err_nopub"
+        return_code=1
+        ;;
+    ERRSIG)
+        result="err_errsig"
+        return_code=1
+        ;;
+    NODATA)
+        result="err_nodata"
+        return_code=1
+        ;;
+    *)
+        result="err_unknown"
+        return_code=1
+        ;;
     esac
 
-    printf "%s" "$hash_name"
-    return 0
+    result=$(strtoupper "$result")
+    printf '%s' "$result"
+    return $return_code
 }
 
 # Function to convert YAML to JSON
@@ -4419,9 +4449,7 @@ yaml_to_array() {
         input=$(trim "$1")
     fi
 
-    # Reset the array first
-    dict_reset || return 1
-
+    local rs=()
     # Read the input line by line
     while IFS=':' read -r key value; do
         # Trim spaces and remove quotes from key and value using POSIX awk
@@ -4432,9 +4460,16 @@ yaml_to_array() {
         [ -z "$key" ] && continue
 
         # Set the key-value pair
-        dict_set_val "$key" "$value" || return 1
-    done <<<"$input" || return 1
+        array_set "rs" "$key" "$value" || {
+            printf ''
+            return 1
+        }
+    done <<<"$input" || {
+        printf ''
+        return 1
+    }
 
+    echo "${rs[@]}"
     return 0
 }
 
@@ -4448,9 +4483,7 @@ json_to_array() {
         input=$(trim "$1")
     fi
 
-    # Reset the array first
-    dict_reset || return 1
-
+    local rs=()
     # Read the input line by line
     while IFS= read -r line; do
         # Trim spaces around the line
@@ -4474,10 +4507,17 @@ json_to_array() {
             [ -z "$key" ] && continue
 
             # Set the key-value pair
-            dict_set_val "$key" "$value" || return 1
+            array_set "rs" "$key" "$value" || {
+                printf ''
+                return 1
+            }
         fi
-    done <<<"$input" || return
+    done <<<"$input" || {
+        printf ''
+        return 1
+    }
 
+    echo "${rs[@]}"
     return 0
 }
 
@@ -4635,8 +4675,11 @@ get_url_info() {
     local url scheme domain path remaining_url normalized_url
     local url_is_encoded unencoded_url unencoded_req_path encoded_url encoded_req_path
 
-    url=$(trim "$1") || return 1
-    [ -n "$url" ] || return 1 # Empty input -> fail gracefully
+    url=$(trim "$1")
+    [ -n "$url" ] || {
+        printf ''
+        return 1
+    }
 
     # Step 1: Extract scheme if present
     if [[ "$url" =~ ^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/(.*)$ ]]; then
@@ -4649,6 +4692,7 @@ get_url_info() {
 
     # Step 2: Validate scheme (only allow http, https, ftp)
     if [[ ! "$scheme" =~ ^(http|https|ftp)$ ]]; then
+        printf ''
         return 1
     fi
 
@@ -4657,11 +4701,13 @@ get_url_info() {
         domain="${BASH_REMATCH[1]}"
         path="${BASH_REMATCH[2]:-/}" # default to '/' if empty
     else
+        printf ''
         return 1
     fi
 
     # Step 4: Validate domain (basic alphanumeric, dots, hyphens)
     if [[ ! "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+        printf ''
         return 1
     fi
 
@@ -4691,14 +4737,15 @@ get_url_info() {
     fi
 
     # Step 7: Set values in dictionary
-    dict_reset || return 1
-    dict_set_val "URL_SCHEME" "$scheme"
-    dict_set_val "URL_DOMAIN" "$domain"
-    dict_set_val "UNENCODED_REQ_PATH" "$unencoded_req_path"
-    dict_set_val "UNENCODED_URL" "$unencoded_url"
-    dict_set_val "ENCODED_REQ_PATH" "$encoded_req_path"
-    dict_set_val "ENCODED_URL" "$encoded_url"
+    local rs=()
+    array_set "rs" "url_scheme" "$scheme"
+    array_set "rs" "url_domain" "$domain"
+    array_set "rs" "unencoded_req_path" "$unencoded_req_path"
+    array_set "rs" "unencoded_url" "$unencoded_url"
+    array_set "rs" "encoded_req_path" "$encoded_req_path"
+    array_set "rs" "encoded_url" "$encoded_url"
 
+    echo "${rs[@]}"
     return 0
 }
 
@@ -5679,17 +5726,21 @@ separate_command() {
         else
             params="$params $word" # Everything after is considered a parameter
         fi
-    done <<<"$(printf '%s\n' "$input" | awk '{for(i=1;i<=NF;i++) print $i}')" 2>/dev/null || return 0
+    done <<<"$(printf '%s\n' "$input" | awk '{for(i=1;i<=NF;i++) print $i}')" 2>/dev/null || {
+        printf ''
+        return 1
+    }
 
     if [ -z "$cmd" ]; then
+        printf ''
         return 1
     fi
 
-    dict_reset || return 1
+    local rs=()
+    array_set "rs" "command" "$cmd"
+    array_set "rs" "args" "$params"
 
-    dict_set_val "CURRENT_COMMAND" "$cmd"
-    dict_set_val "CURRENT_ARGS" "$params"
-
+    echo "${rs[@]}"
     return 0
 }
 
@@ -5750,19 +5801,19 @@ register_current_command() {
 
     array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"@class.gc\"'
 
-    in_array "$VERIFY_BISU_SIG" "true" "false" || VERIFY_BISU_SIG="false"
+    normalize_bool "VERIFY_BISU_SIG"
     [[ "$VERIFY_BISU_SIG" == "true" ]] && {
         local sig_status=$(verify_sig_file "$(bisu_file).asc" "$(bisu_file)")
-        in_array "$sig_status" "failed" "unknown" && {
-            error_exit "Invalid file signature, specific error: signature ${sig_status}"
+        string_starts_with "$sig_status" "ERR_" && {
+            error_exit "Invalid bisu signature, signature specific error: ${sig_status}"
         }
-
     }
-    in_array "$VERIFY_UTILITY_SIG" "true" "false" || VERIFY_UTILITY_SIG="false"
+
+    normalize_bool "VERIFY_UTILITY_SIG"
     [[ "$VERIFY_UTILITY_SIG" == "true" ]] && {
         local sig_status=$(verify_sig_file "$(current_file).asc" "$(current_file)")
-        in_array "$sig_status" "failed" "unknown" && {
-            error_exit "Invalid file signature, specific error: signature ${sig_status}"
+        string_starts_with "$sig_status" "ERR_" && {
+            error_exit "Invalid utility signature, signature specific error: ${sig_status}"
         }
     }
 }
@@ -5773,11 +5824,18 @@ get_args() {
     local emptyExpr="$EMPTY_EXPR" # Assign with 0x00 to distinguish empty from null
     local args="$(current_args)"
 
-    eval "set -- $(printf '%s ' "$args")" 2>/dev/null || return 1
+    eval "set -- $(printf '%s ' "$args")" 2>/dev/null || {
+        printf ''
+        return 1
+    }
 
     # Reset associative array or fail if no args
-    [ $# -gt 0 ] && dict_reset || return 1
+    [ $# -gt 0 ] || {
+        printf ''
+        return 1
+    }
 
+    local rs=()
     while [ $# -gt 0 ]; do
         param="$1"
 
@@ -5789,7 +5847,7 @@ get_args() {
             # Multiple short options (-yf -> -y + -f)
             while [ -n "$key" ]; do
                 single_opt="${key:0:1}"
-                dict_set_val "$single_opt" "$emptyExpr"
+                array_set "rs" "$single_opt" "$emptyExpr"
                 key="${key:1}"
             done
             ;;
@@ -5805,7 +5863,7 @@ get_args() {
             else
                 value="$emptyExpr"
             fi
-            dict_set_val "$key" "$value"
+            array_set "rs" "$key" "$value"
             ;;
 
         # Explicit separator "--"
@@ -5817,15 +5875,13 @@ get_args() {
         # Positional arguments
         *)
             pos_index=$((pos_index + 1))
-            dict_set_val "$pos_index" "$param"
+            array_set "rs" "$pos_index" "$param"
             ;;
         esac
-
         shift
     done
 
-    dict_set_val "_arg${pos_index}" "$param"
-
+    echo "${rs[@]}"
     return 0
 }
 
@@ -6181,8 +6237,8 @@ last_release_date() {
 
 # Integrate operations
 integrate_ops() {
-    get_args
-    local parg1=$(dict_get_val 1)
+    local args=$(get_args)
+    local parg1=$(array_get "args" 1)
 
     local action="$parg1"
     if [ -z "$action" ]; then
@@ -6193,7 +6249,7 @@ integrate_ops() {
             parg1=$(substr "$parg1" 1 1)
         fi
         # recheck to ensure the param
-        if [ -n "$parg1" ] && [ -n parg1=$(dict_get_val "$parg1") ]; then
+        if [ -n "$parg1" ] && [ -n parg1=$(array_get "args" "$parg1") ]; then
             action="$parg1"
         fi
         [[ "$action" == "$EMPTY_EXPR" ]] && action=""
@@ -6202,9 +6258,9 @@ integrate_ops() {
     set_action "$action"
     autorun_start
 
-    local option_force=$(dict_get_val "f" "force")
-    local option_yes=$(dict_get_val "y" "yes")
-    local option_version=$(dict_get_val "v" "version")
+    local option_force=$(array_get "args" "f" "force")
+    local option_yes=$(array_get "args" "y" "yes")
+    local option_version=$(array_get "args" "v" "version")
     local current_file=$(current_file)
     local current_filename=$(current_filename)
     local target_path=$(target_path)
