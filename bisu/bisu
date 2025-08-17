@@ -8,7 +8,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.50"
+export BISU_VERSION="10.2.51"
 # Set this utility's last release date
 LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-17Z"}
 # Minimal Bash Version
@@ -31,8 +31,6 @@ export BISU_AUTORUN=()
 export BISU_REQUIRED_SCRIPTS=()
 # Exit with commands
 export BISU_EXIT_WITH_COMMANDS=()
-# fifo dir
-export BISU_FIFO_DIR="$TMPDIR/bisu_fifo"
 # fork limit for per process
 export SAFE_FORK_LIMIT=16
 # BISU Signature verification switch
@@ -46,16 +44,19 @@ export BISU_FILE_URL="https://g.bisu.cc/bisu-file"
 # BISU ASC File URL
 export BISU_ASC_FILE_URL="https://g.bisu.cc/bisu-asc-file"
 # Global Variables
-export ROOT_LOCK_FILE_DIR="/var/run"
-export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
-export LOCK_FILE_DIR="$TMPDIR"
-export LOCK_ID=""
-export LOCK_FILE=""
+TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
+HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
 export CURRENT_LOG_FILE_DIR=""                                         # Current Log file dir
 export ROOT_LOG_FILE_DIR="/var/log"                                    # Root Log file dir
 export USER_LOG_FILE_DIR="$HOME/.local/var/log"                        # User Log file dir
 export TARGET_PATH_PREFIX="/usr/local/sbin"                            # Default target path for moving scripts
 export TERMUX_TARGET_PATH_PREFIX="/data/data/com.termux/files/usr/bin" # Android Termux target path for moving scripts
+export ROOT_LOCK_FILE_DIR="/var/run"
+export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
+export LOCK_FILE_DIR="$TMPDIR"
+export LOCK_ID=""
+export LOCK_FILE=""
+export BISU_FIFO_DIR="$TMPDIR/bisu_fifo"
 export KERNEL_INFO=""
 export OS_INFO=""
 export _LOG_BUFFER=()
@@ -64,10 +65,6 @@ export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export HOME="$(eval printf '%s' "~${SUDO_USER:-$USER}")"
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
-# Set $TMPDIR
-TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
-# Set $HOME
-HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
 # Current Process ID
 export CURRENT_PID
 # The current file path
@@ -2442,7 +2439,7 @@ get_file_info() {
     array_set "rs" "is_file" "$file_is_file"
     array_set "rs" "file_has_ext" "$file_has_ext"
 
-    echo "${rs[@]}"
+    echo "(${rs[*]})"
     return 0
 }
 
@@ -2500,8 +2497,6 @@ cp_p() {
     fi
 
     local file_info=$(get_file_info "$target_path")
-    file_info=("$file_info")
-
     target_path=$(array_get "file_info" "file_path")
     target_dir=$(array_get "file_info" "file_dir")
 
@@ -2816,11 +2811,11 @@ array_set() {
 
     while [[ $# -gt 0 ]]; do
         local key=$(trim "$1")
-        local value=$(trim "$2")
+        local value="$2"
         shift 2
 
         [[ -z "$key" || -z "$value" ]] && continue
-        eval "$array_name[\"\$key\"]=\"\$value\"" || return 1
+        eval "\"\${$array_name[\"\$key\"]}\"=\"\$value\"" 2>/dev/null || return 1
     done
 
     return 0
@@ -4469,7 +4464,7 @@ yaml_to_array() {
         return 1
     }
 
-    echo "${rs[@]}"
+    echo "(${rs[*]})"
     return 0
 }
 
@@ -4517,7 +4512,7 @@ json_to_array() {
         return 1
     }
 
-    echo "${rs[@]}"
+    echo "(${rs[*]})"
     return 0
 }
 
@@ -4745,7 +4740,7 @@ get_url_info() {
     array_set "rs" "encoded_req_path" "$encoded_req_path"
     array_set "rs" "encoded_url" "$encoded_url"
 
-    echo "${rs[@]}"
+    echo "(${rs[*]})"
     return 0
 }
 
@@ -5740,7 +5735,7 @@ separate_command() {
     array_set "rs" "command" "$cmd"
     array_set "rs" "args" "$params"
 
-    echo "${rs[@]}"
+    echo "(${rs[*]})"
     return 0
 }
 
@@ -5798,8 +5793,6 @@ register_current_command() {
     [ -n "$CURRENT_FILE_NAME" ] && {
         USER_CONF_DIR="${HOME}/.local/config/${CURRENT_FILE_NAME}"
     }
-
-    array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"@class.gc\"'
 
     normalize_bool "VERIFY_BISU_SIG"
     [[ "$VERIFY_BISU_SIG" == "true" ]] && {
@@ -5881,7 +5874,7 @@ get_args() {
         shift
     done
 
-    echo "${rs[@]}"
+    echo "(${rs[*]})"
     return 0
 }
 
@@ -6144,6 +6137,7 @@ autorun_start() {
 
     if atomic_mutex_lock; then
         acquire_lock
+        array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"@class.gc\"'
         array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"release_lock\"'
         log_msg "🔒 Lock set." "true"
     fi
