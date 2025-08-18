@@ -4,15 +4,17 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
 ## Official Web Site: https://bisu.cc
-## Recommended BISU PATH: /usr/local/sbin/bisu
+## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.51"
-# Set this utility's last release date
-LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-"2025-08-17Z"}
+export BISU_VERSION="10.2.60"
+# Set BISU's last release date
+export BISU_LAST_RELEASE_DATE="2025-08-18Z"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
+# BISU info uri
+export BISU_INFO_URI="https://bisu.cc"
 # Default title
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
@@ -49,7 +51,7 @@ HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
 export CURRENT_LOG_FILE_DIR=""                                         # Current Log file dir
 export ROOT_LOG_FILE_DIR="/var/log"                                    # Root Log file dir
 export USER_LOG_FILE_DIR="$HOME/.local/var/log"                        # User Log file dir
-export TARGET_PATH_PREFIX="/usr/local/sbin"                            # Default target path for moving scripts
+export TARGET_PATH_PREFIX="/usr/local/bin"                             # Default target path for moving scripts
 export TERMUX_TARGET_PATH_PREFIX="/data/data/com.termux/files/usr/bin" # Android Termux target path for moving scripts
 export ROOT_LOCK_FILE_DIR="/var/run"
 export USER_LOCK_FILE_DIR="$HOME/.local/var/run"
@@ -98,17 +100,21 @@ REQUIRED_SCRIPTS=(${REQUIRED_SCRIPTS[@]:-})
 # Exit with commands
 EXIT_WITH_COMMANDS=(${EXIT_WITH_COMMANDS[@]:-})
 # Set this utility's name
-UTILITY_NAME=${UTILITY_NAME:-"bisu"}
+UTILITY_NAME=${UTILITY_NAME:-}
 # Set this utility's version number
-UTILITY_VERSION=${UTILITY_VERSION:-"$BISU_VERSION"}
+UTILITY_VERSION=${UTILITY_VERSION:-"1.0"}
+# Set this utility's last release date
+LAST_RELEASE_DATE=${LAST_RELEASE_DATE:-}
 # Set this utility's doc URI
-UTILITY_INFO_URI=${UTILITY_INFO_URI:-"https://bisu.cc"}
+UTILITY_INFO_URI=${UTILITY_INFO_URI:-}
 # Atomic mutex lock switch for single-threaded utilities
 ATOMIC_MUTEX_LOCK=${ATOMIC_MUTEX_LOCK:-"true"}
 # Signature verification switch
 VERIFY_UTILITY_SIG=${VERIFY_UTILITY_SIG:-"false"}
 # GPG Signature algorithm set
 GPG_SIG_ALGO=${GPG_SIG_ALGO:-"sha256"}
+# Installation target dir
+TARGET_DIR=${TARGET_DIR:-}
 # Style code injection function
 FUNC_STYLE_CODE_INJECTION=${FUNC_STYLE_CODE_INJECTION:-"__style_code_injection"}
 # Debug Switch
@@ -1216,24 +1222,24 @@ get_importer_var() {
     printf '%s' "${!var_name}"
 }
 
-# Function: target_path
-# Description: According to its naming
-target_path() {
-    local target_path="$TARGET_PATH_PREFIX"
+# Function: target_dir
+# Description: Installation target_dir
+target_dir() {
+    local target_dir="$TARGET_PATH_PREFIX"
     local os_name=$(get_os_name)
 
     if [[ "$os_name" == "android" ]]; then
-        target_path="$TERMUX_TARGET_PATH_PREFIX"
+        target_dir="$TERMUX_TARGET_PATH_PREFIX"
     fi
 
-    if [ -n "$(current_file)" ]; then
-        local current_file=$(current_file)
-    else
-        local current_file=$(bisu_file)
-    fi
-    target_path="$target_path/$(current_filename)"
-    target_path=$(file_real_path "$target_path")
-    printf '%s' "$target_path"
+    target_dir=$(file_real_path "$target_dir")
+    printf '%s' "$target_dir"
+}
+
+# Function: target_path
+# Description: Installation target_path
+target_path() {
+    printf '%s' "$(target_dir)/$(current_filename)"
 }
 
 # Function: strtolower
@@ -1274,7 +1280,7 @@ substr() {
     ((offset + length > strlen)) && length=$((strlen - offset))
 
     # Extract substring
-    printf '%s' "${string:offset:length}"
+    echo "${string:offset:length}"
     return 0
 }
 
@@ -3277,69 +3283,69 @@ compare_version() {
         constraint="${constraint// /}" # Remove any spaces
     fi
 
-    # Function to compare two versions numerically
-    compare_raw_versions() {
-        local ver1="$1"
-        local ver2="$2"
+    # --- Inline: compare_raw_versions (first use) ---
+    local verA verB cmp_result
+    verA="$version"
+    verB="$constraint"
 
-        declare -a version_labels
-        # Define version labels for pre-release versions
-        version_labels=(
-            [dev]=-3 [alpha]=-2 [a]=-2 [beta]=-1 [b]=-1 [rc]=0 [RC]=0
-            [stable]=1 [final]=1 [pl]=2 [p]=2 [snapshot]=3 [milestone]=4 [pre]=0
-            [v]=0 [release]=5
-        )
+    # Define version labels for pre-release versions (associative array)
+    declare -A version_labels
+    version_labels=(
+        [dev]=-3 [alpha]=-2 [a]=-2 [beta]=-1 [b]=-1 [rc]=0 [RC]=0
+        [stable]=1 [final]=1 [pl]=2 [p]=2 [snapshot]=3 [milestone]=4 [pre]=0
+        [v]=0 [release]=5
+    )
 
-        # Normalize version parts (replace '~' with '0.' and remove '^' since they're not part of the actual version)
-        ver1="${ver1//~/0.}"
-        ver1="${ver1//^/}"
-        ver2="${ver2//~/0.}"
-        ver2="${ver2//^/}"
+    # Normalize version parts (replace '~' with '0.' and remove '^' since they're not part of the actual version)
+    verA="${verA//~/0.}"
+    verA="${verA//^/}"
+    verB="${verB//~/0.}"
+    verB="${verB//^/}"
 
-        # Split versions by '.' and '-'
-        IFS='.-' read -ra v1 <<<"$ver1"
-        IFS='.-' read -ra v2 <<<"$ver2"
+    local IFS_bak="$IFS"
+    IFS='.-' read -ra v1parts <<<"$verA"
+    IFS='.-' read -ra v2parts <<<"$verB"
+    IFS="$IFS_bak"
 
-        local i=0
-        while [[ $i -lt ${#v1[@]} || $i -lt ${#v2[@]} ]]; do
-            local s1="${v1[i]}"
-            local s2="${v2[i]}"
-            [ -z "$s1" ] && s1=0
-            [ -z "$s2" ] && s2=0
+    local i=0
+    cmp_result=
+    while [[ $i -lt ${#v1parts[@]} || $i -lt ${#v2parts[@]} ]]; do
+        local s1="${v1parts[i]}"
+        local s2="${v2parts[i]}"
+        [ -z "$s1" ] && s1=0
+        [ -z "$s2" ] && s2=0
 
-            # Numeric comparison of each segment
-            if [[ "$s1" =~ ^[0-9]+$ && "$s2" =~ ^[0-9]+$ ]]; then
-                if ((10#$s1 > 10#$s2)); then
-                    printf '%s' "1"
-                    return
-                fi
-                if ((10#$s1 < 10#$s2)); then
-                    printf '%s' "-1"
-                    return
-                fi
-            else
-                # Compare pre-release versions (like alpha, beta)
-                s1=${version_labels[$s1]:-$s1}
-                s2=${version_labels[$s2]:-$s2}
-
-                if [[ "$s1" > "$s2" ]]; then
-                    printf '%s' "1"
-                    return
-                fi
-                if [[ "$s1" < "$s2" ]]; then
-                    printf '%s' "-1"
-                    return
-                fi
+        # Numeric comparison of each segment
+        if [[ "$s1" =~ ^[0-9]+$ && "$s2" =~ ^[0-9]+$ ]]; then
+            if ((10#$s1 > 10#$s2)); then
+                cmp_result="1"
+                break
             fi
+            if ((10#$s1 < 10#$s2)); then
+                cmp_result="-1"
+                break
+            fi
+        else
+            # Compare pre-release versions (like alpha, beta)
+            s1=${version_labels[$s1]:-$s1}
+            s2=${version_labels[$s2]:-$s2}
 
-            ((i++))
-        done
-        printf '%s' "0"
-    }
+            if [[ "$s1" > "$s2" ]]; then
+                cmp_result="1"
+                break
+            fi
+            if [[ "$s1" < "$s2" ]]; then
+                cmp_result="-1"
+                break
+            fi
+        fi
+
+        ((i++))
+    done
+    cmp_result=${cmp_result:-0}
+    # --- end inline compare_raw_versions (first use) ---
 
     # Perform comparison based on operator
-    local cmp_result=$(compare_raw_versions "$version" "$constraint")
-
     case "$operator" in
     "=")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
@@ -3385,7 +3391,55 @@ compare_version() {
         ;;
     "~" | "^")
         if [[ "$cmp_result" =~ ^-?[0-9]+$ ]]; then
-            version_check=$(compare_raw_versions "$version" "${constraint%.*}.999")
+            # --- Inline: compare_raw_versions (second use) to compute version_check ---
+            local verC verD version_check
+            verC="$version"
+            verD="${constraint%.*}.999999"
+
+            verC="${verC//~/0.}"
+            verC="${verC//^/}"
+            verD="${verD//~/0.}"
+            verD="${verD//^/}"
+
+            IFS_bak="$IFS"
+            IFS='.-' read -ra v1parts <<<"$verC"
+            IFS='.-' read -ra v2parts <<<"$verD"
+            IFS="$IFS_bak"
+
+            i=0
+            version_check=
+            while [[ $i -lt ${#v1parts[@]} || $i -lt ${#v2parts[@]} ]]; do
+                local t1="${v1parts[i]}"
+                local t2="${v2parts[i]}"
+                [ -z "$t1" ] && t1=0
+                [ -z "$t2" ] && t2=0
+
+                if [[ "$t1" =~ ^[0-9]+$ && "$t2" =~ ^[0-9]+$ ]]; then
+                    if ((10#$t1 > 10#$t2)); then
+                        version_check="1"
+                        break
+                    fi
+                    if ((10#$t1 < 10#$t2)); then
+                        version_check="-1"
+                        break
+                    fi
+                else
+                    t1=${version_labels[$t1]:-$t1}
+                    t2=${version_labels[$t2]:-$t2}
+                    if [[ "$t1" > "$t2" ]]; then
+                        version_check="1"
+                        break
+                    fi
+                    if [[ "$t1" < "$t2" ]]; then
+                        version_check="-1"
+                        break
+                    fi
+                fi
+
+                ((i++))
+            done
+            version_check=${version_check:-0}
+            # --- end inline compare_raw_versions (second use) ---
 
             if [[ "$version_check" =~ ^-?[0-9]+$ ]]; then
                 if [ "$cmp_result" -ge 0 ] && [ "$version_check" -le 0 ]; then
@@ -3437,7 +3491,7 @@ check_bash_version() {
 
     local result=$(compare_version "$expr" "$bash_version")
     if [[ $result == 0 ]]; then
-        error_exit "Bash version is not compatible with the minimal required version."
+        error_exit "Bash version (${bash_version}) is not compatible with the version requirement (${expr})."
     fi
 }
 
@@ -3450,6 +3504,14 @@ check_bisu_version() {
     if [[ $result == 0 ]] && [[ $(current_filename) != $(bisu_filename) ]]; then
         error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($THIS_REQUIRED_BISU_VERSION)."
     fi
+}
+
+# Check if it's BISU's file or not
+is_bisu_file() {
+    local current_filename=$(current_filename)
+    local bisu_filename=$(bisu_filename)
+    [[ "$current_filename" == "$bisu_filename" ]] || return 1
+    return 0
 }
 
 # Function: normalize_iso_datetime
@@ -5793,6 +5855,9 @@ register_current_command() {
     [ -n "$CURRENT_FILE_NAME" ] && {
         USER_CONF_DIR="${HOME}/.local/config/${CURRENT_FILE_NAME}"
     }
+    [ -n "$TARGET_DIR" ] && is_dir "$TARGET_DIR" || {
+        TARGET_DIR=$(target_dir)
+    }
 
     normalize_bool "VERIFY_BISU_SIG"
     [[ "$VERIFY_BISU_SIG" == "true" ]] && {
@@ -6211,20 +6276,40 @@ current_utility_name() {
 
 # Get the current utility's version.
 current_utility_version() {
-    local version=$(trim "$UTILITY_VERSION")
+    local version
+    if is_bisu_file; then
+        version="$BISU_VERSION"
+    else
+        version="$UTILITY_VERSION"
+    fi
+    version=$(trim "$version")
+
     is_valid_version "$version" || error_exit "Invalid version number definition for \$UTILITY_VERSION: '$version'"
     printf '%s' "$version"
 }
 
 # Get extra info URI of the current utility.
 current_utility_info_uri() {
-    local doc_uri=$(trim "$UTILITY_INFO_URI")
+    local doc_uri
+    if is_bisu_file; then
+        doc_uri="$BISU_INFO_URI"
+    else
+        doc_uri="$UTILITY_INFO_URI"
+    fi
+    doc_uri=$(trim "$doc_uri")
+
+    is_valid_uri "$doc_uri" || printf ''
     printf '%s' "$doc_uri"
 }
 
 # Get the current utility's last release date
 last_release_date() {
-    local last_release_date=$(trim "$LAST_RELEASE_DATE")
+    local last_release_date
+    if is_bisu_file; then
+        last_release_date=$(trim "$BISU_LAST_RELEASE_DATE")
+    else
+        last_release_date=$(trim "$LAST_RELEASE_DATE")
+    fi
     last_release_date=$(normalize_iso_datetime "$last_release_date")
     printf '%s' "$last_release_date"
 }
@@ -6265,18 +6350,19 @@ integrate_ops() {
         local version current_utility_name last_release_date
         current_utility_name="$(current_utility_name)"
         [ -n "$current_utility_name" ] || current_utility_name="$(current_filename)"
-        version="$current_utility_name v$(current_utility_version)"
+        version="; $current_utility_name v$(current_utility_version)"
         last_release_date="$(last_release_date)"
         [ -n "$last_release_date" ] && {
             last_release_date="$(gdate "$last_release_date")"
-            version+=" released on ${last_release_date}"
+            [ -n "$last_release_date" ] && version+=" released on ${last_release_date}"
         }
-        [[ "$(current_filename)" == "bisu" ]] || {
+        is_bisu_file || {
             version+="; using bisu framework v${BISU_VERSION}"
         }
         [ -n "$(current_utility_info_uri)" ] && {
             version+="; for more info please visit $(current_utility_info_uri)"
         }
+        version=$(substr "$version" 2)
         output "${version}"
         ;;
     "info")
