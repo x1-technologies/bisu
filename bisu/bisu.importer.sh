@@ -4,14 +4,14 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 ################################################################### BISU Importer Start ########################################################################
 ## Official Web Site: https://bisu.cc
-## Version: v9-20250818Z1
+## Version: v9-20250818Z3
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Set the required version of BISU
 export THIS_REQUIRED_BISU_VERSION=">=9.0.0"
 export BISU_BOUND="./bisu"
 export BISU_PATH="/usr/local/bin/bisu"
 export TERMUX_BISU_PATH="/data/data/com.termux/files/usr/bin/bisu"
-export BISU_DL_COMMAND="curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && ./bisu -f install"
+export BISU_DL_COMMAND="curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install"
 
 ## <user-customized-variables>
 # Set this utility's name
@@ -24,6 +24,8 @@ export LAST_RELEASE_DATE=""
 export UTILITY_INFO_URI=""
 # Installation target dir
 export TARGET_DIR=""
+# Set this utility's asc sig file URL
+export UTILITY_ASC_FILE_URL=""
 # Atomic mutex lock switch for single-threaded utilities
 export ATOMIC_MUTEX_LOCK="false"
 # Signature verification switch
