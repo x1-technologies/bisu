@@ -112,7 +112,7 @@ class.append() {
 
 # Begin class definition, handling inheritance.
 @class() {
-    __BISU_CLASS_NAME=("$@")
+    export __BISU_CLASS_NAME=("$@")
     local name vars
     for name in "${__BISU_CLASS_NAME[@]:1}"; do
         vars="__BISU_CLASS_V_$name"
