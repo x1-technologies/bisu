@@ -2,16 +2,16 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.100"
+export BISU_VERSION="10.2.300"
 # Set BISU's last release date
-export BISU_LAST_RELEASE_DATE="2025-08-19Z"
+export BISU_LAST_RELEASE_DATE="2025-08-21Z"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 # BISU info uri
@@ -69,9 +69,9 @@ export HOME="$(eval printf '%s' "~${SUDO_USER:-$USER}")"
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
 # Current Process ID
-export CURRENT_PID
+export CURRENT_PID=$$
 # The current file path
-export CURRENT_FILE_PATH=""
+export CURRENT_FILE_PATH="$0"
 # The current file name
 export CURRENT_FILE_NAME=""
 # The user's config dir
@@ -79,13 +79,11 @@ export USER_CONF_DIR=""
 # The current command by the actual script
 export CURRENT_COMMAND=""
 # The current args by the actual script
-export CURRENT_ARGS=()
+declare -a CURRENT_ARGS=("$@") && export CURRENT_ARGS
 # The action currently specified
 export CURRENT_ACTION=""
 # BISU start flag
 export BISU_START_FLAG=0
-# Quitting flag
-export QUITTING_FLAG=0
 # Lock held
 export LOCK_HELD=0
 # Machine's current username
@@ -366,10 +364,8 @@ isset() {
         fi
         # If an index/key is given, verify it exists in the array
         if [ -n "$index" ]; then
-            pattern="\\[\"?$index\"?\\]="
-            if ! declare -p "$name" 2>/dev/null | awk -v patt="$pattern" '
-                { if ($0 ~ patt) { found=1; exit } }
-                END { exit(!found) }' &>/dev/null; then
+            pattern='\["?'"$index"'"]='
+            if ! [[ $(declare -p "$name" 2>/dev/null) =~ $pattern ]]; then
                 return 1
             fi
         fi
@@ -460,6 +456,29 @@ rtrim() {
 # Function to validate a variable name
 is_valid_var_name() {
     class.name.valid "$1" || return 1
+    return 0
+}
+
+# Function: var_copy
+# Description: to copy a var internally or globally
+var_copy() {
+    local var_name=$(trim "$1")
+    declare -n var_ref="$var_name"
+    local new_var_name=$(trim "$2")
+    local is_global=$(trim "$3")
+    in_array "$is_global" "true" "false" || is_global="false"
+
+    if ! isset "$var_name" || ! is_valid_var_name "$new_var_name"; then
+        return 1
+    fi
+
+    # Pass original array name, not nameref variable name, to array_dump
+    eval "$new_var_name=\"\$var_name\"" &>/dev/null || {
+        return 1
+    }
+
+    [[ "$is_global" == "true" ]] && declare -g "$new_var_name" &>/dev/null || return 1
+
     return 0
 }
 
@@ -605,7 +624,7 @@ output() {
             injected_style_codes="$(trim "$injected_style_codes")"
             [ -n "$injected_style_codes" ] && {
                 injected_style_codes=("$injected_style_codes")
-                array_merge "style_codes" "injected_style_codes"
+                indexed_array_merge "style_codes" "injected_style_codes"
             }
         fi
 
@@ -937,7 +956,7 @@ quit() {
     fi
 
     if process_is_running "$pid"; then
-        if [[ "$QUITTING_FLAG" == 1 && "$pid" == "$CURRENT_PID" ]]; then
+        if [[ "$pid" == "$CURRENT_PID" ]]; then
             exit $exit_code
         fi
 
@@ -947,13 +966,10 @@ quit() {
         else
             command="kill -${signal} $pid"
         fi
-
-        exec_command "$command" "true" &
-
+        exec_command "$command" "true"
         trap "$original_sigterm" SIGTERM 2>/dev/null
     fi
 
-    [[ "$pid" == "$CURRENT_PID" ]] && QUITTING_FLAG=1
     exit $exit_code
 }
 
@@ -976,7 +992,9 @@ current_command() {
 # Function: current_args
 # Description: According to its naming
 current_args() {
-    printf '%s' "$CURRENT_ARGS"
+    local array_count=$(array_count "CURRENT_ARGS")
+    [[ $array_count > 0 ]] || printf ''
+    printf '%s ' "${CURRENT_ARGS[@]}"
 }
 
 # Function: current_file_path
@@ -1027,7 +1045,10 @@ current_log_file() {
     local log_file=""
     local filename="$(current_filename)"
 
-    [ -n "$filename" ] || quit
+    [ -n "$filename" ] || {
+        printf '%s' "/dev/null"
+        return
+    }
 
     if [ -z "$CURRENT_LOG_FILE_DIR" ]; then
         if is_root_user; then
@@ -1048,11 +1069,15 @@ current_log_file() {
     log_file_dir="$CURRENT_LOG_FILE_DIR"
     string_starts_with "$log_file_dir" "$USER_LOG_FILE_DIR" || string_starts_with "$log_file_dir" "$ROOT_LOG_FILE_DIR" || {
         error_log "Failed to mkdir: $log_file_dir"
-        quit
+        printf '%s' "/dev/null"
+        return
     }
 
     local date_str="$(date +'%Y%m%d')"
-    is_valid_datetime "$date_str" || quit
+    is_valid_datetime "$date_str" || {
+        printf '%s' "/dev/null"
+        return
+    }
 
     local month_str=$(substr "$date_str" 0 6)
     local day_str=$(substr "$date_str" 6 2)
@@ -1060,12 +1085,26 @@ current_log_file() {
     log_file="$log_file_dir/$day_str.log"
 
     is_dir "$log_file_dir" || {
-        mkdir -p "$log_file_dir" &>/dev/null || quit
-        chmod -R 755 "$log_file_dir" &>/dev/null || quit
+        mkdir -p "$log_file_dir" &>/dev/null || {
+            printf '%s' "/dev/null"
+            return
+        }
+        chmod -R 755 "$log_file_dir" &>/dev/null || {
+            printf '%s' "/dev/null"
+            return
+        }
     }
 
     is_file "$log_file" || {
-        touch "$log_file" &>/dev/null || quit
+        touch "$log_file" &>/dev/null || {
+            printf '%s' "/dev/null"
+            return
+        }
+    }
+
+    is_file "$log_file" && [ -w "$log_file" ] || {
+        printf '%s' "/dev/null"
+        return
     }
 
     printf '%s' "$log_file"
@@ -1073,9 +1112,15 @@ current_log_file() {
 
 # Add a log record to buffer
 log_add() {
+    is_array "_LOG_BUFFER" || {
+        output "${ERROR_MSG_PREFIX}Illegal log buffer array."
+        quit 1
+    }
+
     local msg="$1"
     local display_time=$(trim "$2")
     in_array "$display_time" "true" "false" || display_time="false"
+
     if [[ "$display_time" == "true" ]]; then
         array_push "_LOG_BUFFER" "$(date +'%Y-%m-%d %H:%M:%S') - $msg" || return 1
     else
@@ -1087,16 +1132,16 @@ log_add() {
 
 # Flush the log buffer to the log file
 log_flush() {
+    is_array "_LOG_BUFFER" || {
+        output "${ERROR_MSG_PREFIX}Illegal log buffer array."
+        quit 1
+    }
+
     local output_buffer=$(trim "$1")
     in_array "${output_buffer}" "true" "false" || output_buffer="true"
     local log_only=$(trim "$2")
     in_array "${log_only}" "true" "false" || log_only="false"
     local log_file=$(current_log_file)
-
-    is_array "_LOG_BUFFER" || {
-        output "${ERROR_MSG_PREFIX}Illegal log buffer array."
-        quit 1
-    }
 
     local array_count=$(array_count "_LOG_BUFFER")
 
@@ -1337,7 +1382,7 @@ normalize_bool() {
 string_join() {
     local array_name=$(trim "$1")
     local sep="$2"
-    local -n arr_ref="$array_name"
+    declare -n arr_ref="$array_name"
 
     array_is_available "$array_name" || {
         printf ''
@@ -1430,127 +1475,166 @@ normalize_number() {
 # Function: md5_sign
 # Description: Compute SHA1 hash of a string, robust and consistent with md5_sign
 md5_sign() {
-    printf '%s' $(trim "$1") | md5sum 2>/dev/null | awk '{print $1}'
+    printf '%s' $(trim "$1") | md5sum 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha1_sign
 # Description: Compute SHA1 hash of a string, robust and consistent with sha1_sign
 sha1_sign() {
-    # Use printf with quotes to preserve spaces and special characters
-    printf '%s' "$(trim "$1")" | sha1sum 2>/dev/null | awk '{print $1}'
+    command_exists "sha1sum" "true"
+    printf '%s' "$(trim "$1")" | sha1sum 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha224_sign
 # Description: Compute SHA224 hash of a string, robust and consistent with sha224_sign
 sha224_sign() {
-    printf '%s' "$(trim "$1")" | sha224sum 2>/dev/null | awk '{print $1}'
+    command_exists "sha224sum" "true"
+    printf '%s' "$(trim "$1")" | sha224sum 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha256_sign
 # Description: Compute SHA256 hash of a string, robust and consistent with sha256_sign
 sha256_sign() {
-    printf '%s' "$(trim "$1")" | sha256sum 2>/dev/null | awk '{print $1}'
+    command_exists "sha256sum" "true"
+    printf '%s' "$(trim "$1")" | sha256sum 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha384_sign
 # Description: Compute SHA384 hash of a string, robust and consistent with sha384_sign
 sha384_sign() {
-    printf '%s' "$(trim "$1")" | sha384sum 2>/dev/null | awk '{print $1}'
+    command_exists "sha384sum" "true"
+    printf '%s' "$(trim "$1")" | sha384sum 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha512_sign
 # Description: Compute SHA512 hash of a string, robust and consistent with sha512_sign
 sha512_sign() {
-    printf '%s' "$(trim "$1")" | sha512sum 2>/dev/null | awk '{print $1}'
+    command_exists "sha512sum" "true"
+    printf '%s' "$(trim "$1")" | sha512sum 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: md5_file
 # Description: Sign a md5 hash for a file
 md5_file() {
-    command_exists "md5sum" "true"
-
     local file=$(trim "$1")
     is_file "$file" && [ -r "$file" ] || {
         printf ''
         return 1
     }
-
-    md5sum "$file" 2>/dev/null | awk '{print $1}'
+    md5sum "$file" 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha1_file
 # Description: Generate SHA-1 hash for a file
 sha1_file() {
     command_exists "sha1sum" "true"
-
     local file
     file=$(trim "$1")
     is_file "$file" && [ -r "$file" ] || {
         printf ''
         return 1
     }
-
-    sha1sum "$file" 2>/dev/null | awk '{print $1}'
+    sha1sum "$file" 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha224_file
 # Description: Generate SHA-224 hash for a file
 sha224_file() {
     command_exists "sha224sum" "true"
-
     local file
     file=$(trim "$1")
     is_file "$file" && [ -r "$file" ] || {
         printf ''
         return 1
     }
-
-    sha224sum "$file" 2>/dev/null | awk '{print $1}'
+    sha224sum "$file" 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha256_file
 # Description: Generate SHA-256 hash for a file
 sha256_file() {
     command_exists "sha256sum" "true"
-
     local file
     file=$(trim "$1")
     is_file "$file" && [ -r "$file" ] || {
         printf ''
         return 1
     }
-
-    sha256sum "$file" 2>/dev/null | awk '{print $1}'
+    sha256sum "$file" 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha384_file
 # Description: Generate SHA-384 hash for a file
 sha384_file() {
     command_exists "sha384sum" "true"
-
     local file
     file=$(trim "$1")
     is_file "$file" && [ -r "$file" ] || {
         printf ''
         return 1
     }
-
-    sha384sum "$file" 2>/dev/null | awk '{print $1}'
+    sha384sum "$file" 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # Function: sha512_file
 # Description: Generate SHA-512 hash for a file
 sha512_file() {
     command_exists "sha512sum" "true"
-
     local file
     file=$(trim "$1")
     is_file "$file" && [ -r "$file" ] || {
         printf ''
         return 1
     }
-
-    sha512sum "$file" 2>/dev/null | awk '{print $1}'
+    sha512sum "$file" 2>/dev/null | awk '{print $1}' || {
+        printf ''
+        return 1
+    }
+    return 0
 }
 
 # PHP-like function as its naming
@@ -1857,15 +1941,15 @@ str_ireplace() {
     return 0
 }
 
-# string to array
-string_to_array() {
-    local input="$1"
+# string to indexed array
+string_to_indexed_array() {
     local array_name=$(trim "$2")
-    local delim="${3-" "}"
-
     is_valid_var_name "$array_name" || return 1
 
-    local -n arr_ref="$array_name"
+    local input="$1"
+    local delim="${3-" "}"
+
+    declare -n arr_ref="$array_name"
     local delim_awk
 
     case "$delim" in
@@ -1888,11 +1972,25 @@ string_to_array() {
                 for (i = 1; i <= NF; i++) print $i;
                 if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
             }'
-        ) 2>/dev/null
+        ) 2>/dev/null || return 1
     else
         arr_ref=()
     fi
 
+    return 0
+}
+
+# string to assoc array
+string_to_assoc_array() {
+    local array_name=$(trim "$2")
+    is_valid_var_name "$array_name" || return 1
+    local input="$1" # string like '([x]="1" [y]="2")'
+    # nameref to caller's variable
+    declare -n ref="$array_name"
+    input=$(trim "$input" "() ")
+    [ -n "$input" ] || return 1
+    # reassign directly with eval, scoped through nameref
+    eval "ref=(${input})" 2>/dev/null || return 1
     return 0
 }
 
@@ -1959,7 +2057,7 @@ debug_mode_on() {
 # Execute command
 exec_command() {
     local phrase=$(trim "$1")
-    string_to_array "$phrase" "phrase"
+    string_to_indexed_array "$phrase" "phrase"
     normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
@@ -1969,8 +2067,8 @@ exec_command() {
     is_executable "$cmd" || return 1
 
     local run_in_bg=$(trim "$2")
-    local log_file=$(current_log_file)
     in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
+    local log_file=$(current_log_file)
     local logging=$(trim "$3")
     in_array "${logging}" "true" "false" || logging="true"
 
@@ -2453,7 +2551,7 @@ get_file_info() {
     array_set "rs" "is_file" "$file_is_file"
     array_set "rs" "file_has_ext" "$file_has_ext"
 
-    echo "(${rs[*]})"
+    array_dump "rs" || return 1
     return 0
 }
 
@@ -2510,7 +2608,7 @@ cp_p() {
         return 1
     fi
 
-    local file_info=$(get_file_info "$target_path")
+    local file_info=("$(get_file_info "$target_path")")
     target_path=$(array_get "file_info" "file_path")
     target_dir=$(array_get "file_info" "file_dir")
 
@@ -2606,23 +2704,42 @@ saferm() {
     return 0
 }
 
+# Function to check if a variable is an indexed array
+is_indexed_array() {
+    local var=$(trim "$1")
+    is_valid_var_name "$var" || return 1
+    local decl
+    decl=$(declare -p "$var" 2>/dev/null) || return 1
+    case $decl in
+    declare\ -a*) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
+# Function to check if a variable is an assoc array
+is_assoc_array() {
+    local var=$(trim "$1")
+    is_valid_var_name "$var" || return 1
+    local decl
+    decl=$(declare -p "$var" 2>/dev/null) || return 1
+    case $decl in
+    declare\ -A*) return 0 ;;
+    *) return 1 ;;
+    esac
+}
+
 # Function to check if a variable is an array
 is_array() {
-    local name=$(trim "$1")
-    is_valid_var_name "$name" || return 1
-    # Check if variable is declared as an array (indexed or associative)
-    declare -p "$name" 2>/dev/null | grep -qE 'declare -a|declare -A' &>/dev/null || return 1
+    is_indexed_array "$1" || is_assoc_array "$1" || return 1
     return 0
 }
 
 # Function to check if an array is available
 array_is_available() {
     local array_name=$(trim "$1")
-
     is_array "$array_name" || return 1
-
-    [ -n "${array_name[*]}" ] || return 1
-
+    declare -n arr_ref="$array_name"
+    [ ${#arr_ref[@]} -gt 0 ] || return 1
     return 0
 }
 
@@ -2661,24 +2778,28 @@ sign_array() {
 # Function to count an array's element number
 array_count() {
     local array_name=$(trim "$1")
+    local is_big_array=$(trim "$2")
+    in_array "$is_big_array" "true" "false" || is_big_array="false"
 
     is_array "$array_name" || {
         printf '%s' "0"
         return 1
     }
 
-    local -n ref="$array_name" 2>/dev/null || {
+    declare -n ref="$array_name" 2>/dev/null || {
         printf '%s' "0"
         return 1
     }
 
-    local array_count=$(awk -v n="${#ref[@]}" 'BEGIN { print n }' 2>/dev/null) || {
-        printf '%s' "0"
-        return 1
-    }
+    local array_count=0
+    if [[ "$is_big_array" == "true" ]]; then
+        array_count=$(awk -v n="${#ref[@]}" 'BEGIN { print n }' 2>/dev/null)
+    else
+        declare -n arr_ref="$array_name"
+        array_count=${#arr_ref[@]}
+    fi
 
     is_nn_int "$array_count" || array_count=0
-
     printf '%s' "$array_count"
     return 0
 }
@@ -2712,26 +2833,22 @@ in_array() {
 # dump an array's elements into string
 array_dump() {
     local array_name=$(trim "$1")
-    is_array "$array_name" || {
-        printf ''
-        return 1
-    }
+    if is_indexed_array "$array_name"; then
+        # Stream array elements using mapfile + xargs only if it works, fallback to eval
+        local -a temp_array=()
+        if ! eval "mapfile -t temp_array < <(printf '%s\0' \"\${${array_name}[@]}\" 2>/dev/null | xargs -0 -n1 printf '%s\n' 2>/dev/null)"; then
+            # Fallback safe to get array elements
+            eval "temp_array=(\"\${${array_name}[@]}\")" &>/dev/null || {
+                printf ''
+                return 1
+            }
+        fi
 
-    # Stream array elements using mapfile + xargs only if it works, fallback to eval
-    local -a temp_array=()
-    if ! eval "mapfile -t temp_array < <(printf '%s\0' \"\${${array_name}[@]}\" 2>/dev/null | xargs -0 -n1 printf '%s\n' 2>/dev/null)"; then
-        # Fallback safe to get array elements
-        eval "temp_array=(\"\${${array_name}[@]}\")" &>/dev/null || {
-            printf ''
-            return 1
-        }
-    fi
-
-    # Output quoted elements, streamed, avoid extra arrays
-    local IFS=$' '
-    # Use printf + awk for quoting in a streaming fashion
-    printf '%s\n' "${temp_array[@]}" |
-        awk '{
+        # Output quoted elements, streamed, avoid extra arrays
+        local IFS=$' '
+        # Use printf + awk for quoting in a streaming fashion
+        printf '%s\n' "${temp_array[@]}" |
+            awk '{
             # Escape single quotes inside element for safe POSIX shell quoting
             gsub(/'\''/, "'\''\\'\'''\''")
             # Print each element quoted with trailing space
@@ -2742,18 +2859,41 @@ array_dump() {
             if (NR > 0) {
                 printf "\n"
             }
-        }' 2>/dev/null
+        }' 2>/dev/null || {
+            printf ''
+            return 1
+        }
+        return 0
+    elif is_assoc_array "$array_name"; then
+        local temp_kv p
+        if p="$(declare -p "$array_name" 2>/dev/null)"; then
+            # strip everything up to the first '=' to leave the literal payload
+            temp_kv="${p#*=}"
+            # Some bash builds may wrap the temp_kv in top-level quotes;
+            # if so strip *one* matching outer quote char (single or double).
+            case "$temp_kv" in
+            \'*\') temp_kv="${temp_kv:1:-1}" ;;
+            \"*\") temp_kv="${temp_kv:1:-1}" ;;
+            esac
+        fi
+        temp_kv=$(trim "$temp_kv" "()")
+        # Print exactly the literal (no extra chars).
+        printf '%s\n' "$temp_kv"
+        return 0
+    fi
 
-    return 0
+    printf ''
+    return 1
 }
 
 # Function: array_copy
 # Description: to copy an array internally or globally
 array_copy() {
     local array_name=$(trim "$1")
-    local -n arr_ref="$array_name"
+    declare -n arr_ref="$array_name"
     local new_array_name=$(trim "$2")
-    in_array "$domain" "local" "global" || domain="local"
+    local is_global=$(trim "$3")
+    in_array "$is_global" "true" "false" || is_global="false"
 
     if ! is_array "$array_name" || ! is_valid_var_name "$new_array_name"; then
         return 1
@@ -2764,7 +2904,7 @@ array_copy() {
         return 1
     }
 
-    [[ "$domain" == "global" ]] && (declare -ga "$new_array_name" || return 1) &>/dev/null
+    [[ "$is_global" == "true" ]] && declare -g "$new_array_name" &>/dev/null || return 1
 
     return 0
 }
@@ -2779,7 +2919,7 @@ normalize_array() {
 # Description: To remove elements from an array
 array_splice() {
     local array_name=$(trim "$1")
-    local -n arr_ref="$array_name"
+    declare -n arr_ref="$array_name"
     local position
     local quantity
     local array_count=$(array_count "$array_name")
@@ -2815,47 +2955,123 @@ array_splice() {
     return 0
 }
 
-# Set the specified values in either indexed or associative arrays
+# Set the specified key/value pairs in either indexed or associative arrays
+# Usage: array_set arr key1 val1 [key2 val2 ...]
+# Returns 0 on success, 1 on failure
 array_set() {
-    local array_name=$(trim "$1")
+    local array_name key value is_assoc i
+
+    array_name="$(trim "$1")"
     shift
 
-    # Ensure array is valid
     is_array "$array_name" || return 1
 
-    while [[ $# -gt 0 ]]; do
-        local key=$(trim "$1")
-        local value="$2"
+    declare -n _ref="$array_name"
+
+    if is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    while [[ $# -gt 1 ]]; do
+        key="$(trim "$1")"
+        value="$2"
         shift 2
 
-        [[ -z "$key" || -z "$value" ]] && continue
-        eval "\"\${$array_name[\"\$key\"]}\"=\"\$value\"" 2>/dev/null || return 1
+        [[ -z "$key" ]] && continue
+
+        if [[ $is_assoc -eq 1 ]]; then
+            _ref["$key"]="$value"
+            continue
+        fi
+
+        if [[ "$key" =~ ^[0-9]+$ ]]; then
+            _ref[$key]="$value"
+            continue
+        fi
+
+        local __mig_tmp="__array_mig_tmp_$$"
+        if isset "$__mig_tmp"; then
+            unset -v "$__mig_tmp"
+        fi
+        declare -gA "$__mig_tmp"
+
+        declare -n __tmp_ref="$__mig_tmp"
+        for i in "${!_ref[@]}"; do
+            __tmp_ref["$i"]="${_ref[$i]}"
+        done
+
+        # Unset original variable and re-declare it as associative
+        unset -v "$array_name"
+        declare -gA "$array_name"
+
+        # Rebind _ref to the now-associative variable
+        declare -n _ref="$array_name"
+
+        # Restore values from tmp and clean up
+        for i in "${!__tmp_ref[@]}"; do
+            _ref["$i"]="${__tmp_ref[$i]}"
+        done
+
+        unset -v "__tmp_ref"
+        unset -v "$__mig_tmp"
+
+        is_assoc=1
+
+        _ref["$key"]="$value"
     done
 
     return 0
 }
 
-# Get the specified value from an array
+# Get an element from a indexed or assoc array, if having multiple keys, when matched the first non-empty val then stop
+# Usage: array_get arr key1 [key2 ...]
+# Returns: 0 on success, 1 on failure
 array_get() {
-    local array_name=$(trim "$1")
+    local array_name key val is_assoc
+    array_name="$(trim "$1")"
     shift
 
     is_array "$array_name" || {
         printf ''
-        return 0
+        return 1
     }
 
-    local key val
+    declare -n _ref="$array_name"
+
+    if is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    val=""
     for key in "$@"; do
-        [ -z "$key" ] && continue
-        val=$(eval "printf '%s' \"\${$array_name[\"\$key\"]}\"")
-        [ -z "$val" ] && continue
-        printf '%s' "$val"
-        return 0
+        [[ -z "$key" ]] && continue
+
+        if [[ $is_assoc -eq 1 ]]; then
+            [[ -v _ref["$key"] ]] 2>/dev/null || continue
+            val="${_ref[$key]}"
+        else
+            [[ "$key" =~ ^[0-9]+$ ]] || continue
+            if ((key >= 0 && key < ${#_ref[@]})); then
+                val="${_ref[$key]}"
+            else
+                continue
+            fi
+        fi
+
+        [[ "${val:-}" == "${EMPTY_EXPR:-}" ]] && val=""
+
+        [[ -n "$val" ]] && {
+            [[ "$val" == "$EMPTY_EXPR" ]] && val=""
+            break
+        }
     done
 
-    printf ''
-    return 1
+    printf '%s' "$val"
+    return 0
 }
 
 # ---------------------------------------
@@ -3089,15 +3305,15 @@ array_unique_unshift() {
     return 0
 }
 
-# Function: array_merge
+# Function: indexed_array_merge
 # Description: Function to merge 2 arrays into arg3, according to arg3's array name
-array_merge() {
+indexed_array_merge() {
     local src1=$(trim "$1")
     local src2=$(trim "$2")
     local dest_name=$(trim "$3")
 
     # Validate arguments
-    if ! is_array "$src1" || ! is_array "$src2" || ! is_valid_var_name "$dest_name"; then
+    if ! is_indexed_array "$src1" || ! is_indexed_array "$src2" || ! is_valid_var_name "$dest_name"; then
         return 1
     fi
 
@@ -3121,6 +3337,47 @@ array_merge() {
     return 0
 }
 
+# Function: assoc_array_merge
+# Description: Merge 2 associative arrays into arg3 (dest associative array)
+assoc_array_merge() {
+    local src1=$(trim "$1")
+    local src2=$(trim "$2")
+    local dest_name=$(trim "$3")
+
+    # Validate arguments
+    if ! is_assoc_array "$src1" || ! is_assoc_array "$src2" || ! is_valid_var_name "$dest_name"; then
+        return 1
+    fi
+
+    # Namerefs avoid copies and make in-place updates safe even if dest == src1/src2
+    declare -n _am_src1="$src1" _am_src2="$src2" _am_dest="$dest_name"
+
+    # Build merged associative array
+    #   - Preserve keys from src1 first
+    #   - Keys from src2 override if duplicated
+    #   - Ensures uniqueness by definition of associative arrays
+    declare -A _am_merged=()
+    local _am_key
+
+    # Copy all from src1
+    for _am_key in "${!_am_src1[@]}"; do
+        _am_merged["$_am_key"]="${_am_src1[$_am_key]}"
+    done
+
+    # Copy/override from src2
+    for _am_key in "${!_am_src2[@]}"; do
+        _am_merged["$_am_key"]="${_am_src2[$_am_key]}"
+    done
+
+    # Final assignment
+    _am_dest=()
+    for _am_key in "${!_am_merged[@]}"; do
+        _am_dest["$_am_key"]="${_am_merged[$_am_key]}"
+    done
+
+    return 0
+}
+
 # Function: array_unique
 # Description: To remove duplicates from a global array
 array_unique() {
@@ -3135,48 +3392,61 @@ array_unique() {
     return 0
 }
 
-# Function: array_pop
-# Accepts: $1 array_name, $2 external value reference
-# Exits: 0 if success, 1 if failure (empty array)
-array_pop() {
-    local array_name=$(trim "$1")
-    local val_ref="$2"
-    local count=$(array_count "$array_name")
-
-    if ! is_posi_int "$count"; then
-        return 1
-    fi
-
-    local last_index=$((count - 1))
-    local val=$(array_get "$array_name" "$last_index") || return 1
-
-    array_splice "$array_name" "$last_index" 1 || {
-        return 1
-    }
-
-    @set "$val_ref" "$val"
-    return 0
-}
-
 # Function: array_shift
 # Accepts: $1 array_name, $2 external value reference
 # Exits: 0 if success, 1 if failure (empty array)
 array_shift() {
     local array_name=$(trim "$1")
-    local val_ref="$2"
-    local count=$(array_count "$array_name")
+    isset "$array_name" || return 1
+    # ensure array not empty (uses existing helper array_count)
+    local array_count=$(array_count "$array_name")
+    [ $array_count -gt 0 ] || return 1
+    local val_name="$2"
 
-    if ! is_posi_int "$count"; then
-        return 1
+    # create namerefs for array and destination variable
+    declare -n arr="$array_name"
+    declare -n val_ref="$val_name"
+
+    local first_key
+    read -r first_key < <(printf '%s\n' "${!arr[@]}") 2>/dev/null
+    [ -n "$first_key" ] || return 1
+    is_valid_var_name "$val_name" && val_ref="${arr[$first_key]}" 2>/dev/null
+
+    if is_assoc_array "$array_name"; then
+        unset 'arr[$first_key]'
+    else
+        arr=("${arr[@]:1}")
     fi
 
-    local val=$(array_get "$array_name" 0) || return 1
+    return 0
+}
 
-    array_splice "$array_name" 0 1 || {
-        return 1
-    }
+# Function: array_pop
+# Accepts: $1 array_name, $2 external value reference
+# Exits: 0 if success, 1 if failure (empty array)
+array_pop() {
+    local array_name=$(trim "$1")
+    isset "$array_name" || return 1
+    # ensure array not empty (uses existing helper array_count)
+    local array_count=$(array_count "$array_name")
+    [ $array_count -gt 0 ] || return 1
+    local val_name="$2"
 
-    @set "$val_ref" "$val"
+    # create namerefs for array and destination variable
+    declare -n arr="$array_name"
+    declare -n val_ref="$val_name"
+
+    local last_key
+    last_key=$(printf '%s\n' "${!arr[@]}" | tail -n1 2>/dev/null)
+    [ -n "$last_key" ] || return 1
+    is_valid_var_name "$val_name" && val_ref="${arr[$last_key]}" 2>/dev/null
+
+    if is_assoc_array "$array_name"; then
+        unset 'arr[$last_key]' 2>/dev/null
+    else
+        arr=("${arr[@]:0:$last_key}")
+    fi
+
     return 0
 }
 
@@ -3520,8 +3790,9 @@ check_bash_version() {
 check_bisu_version() {
     local expr="$THIS_REQUIRED_BISU_VERSION"
     local result=$(compare_version "$expr" "$BISU_VERSION")
-
-    if [[ $result == 0 ]] && [[ $(current_filename) != $(bisu_filename) ]]; then
+    local current_filename="$(current_filename)"
+    local bisu_filename="$(bisu_filename)"
+    if [[ $result == 0 ]] && [[ "$current_filename" != "$bisu_filename" ]]; then
         error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($THIS_REQUIRED_BISU_VERSION)."
     fi
 }
@@ -3832,7 +4103,7 @@ get_os_info() {
 # get_os_name
 get_os_name() {
     local os_info=$(get_os_info)
-    string_to_array "$os_info" "os_info"
+    string_to_indexed_array "$os_info" "os_info"
     local os_name=$(array_get "os_info" 0)
     printf '%s' "$os_name"
 }
@@ -3840,7 +4111,7 @@ get_os_name() {
 # get_os_version
 get_os_version() {
     local os_info=$(get_os_info)
-    string_to_array "$os_info" "os_info"
+    string_to_indexed_array "$os_info" "os_info"
     local os_version=$(array_get "os_info" 1)
     printf '%s' "$os_version"
 }
@@ -3889,7 +4160,7 @@ get_kernel_info() {
 # get_os_name
 get_kernel_name() {
     local kernel_info=$(get_kernel_info)
-    string_to_array "$kernel_info" "kernel_info"
+    string_to_indexed_array "$kernel_info" "kernel_info"
     local kernel_name=$(array_get "kernel_info" 0)
     printf '%s' "$kernel_name"
 }
@@ -3897,7 +4168,7 @@ get_kernel_name() {
 # get_os_version
 get_kernel_version() {
     local kernel_info=$(get_kernel_info)
-    string_to_array "$kernel_info" "kernel_info"
+    string_to_indexed_array "$kernel_info" "kernel_info"
     local kernel_version=$(array_get "kernel_info" 1)
     printf '%s' "$kernel_version"
 }
@@ -4546,7 +4817,7 @@ yaml_to_array() {
         return 1
     }
 
-    echo "(${rs[*]})"
+    array_dump "rs" || return 1
     return 0
 }
 
@@ -4594,7 +4865,7 @@ json_to_array() {
         return 1
     }
 
-    echo "(${rs[*]})"
+    array_dump "rs" || return 1
     return 0
 }
 
@@ -4822,7 +5093,7 @@ get_url_info() {
     array_set "rs" "encoded_req_path" "$encoded_req_path"
     array_set "rs" "encoded_url" "$encoded_url"
 
-    echo "(${rs[*]})"
+    array_dump "rs" || return 1
     return 0
 }
 
@@ -5822,7 +6093,7 @@ separate_command() {
     array_set "rs" "command" "$cmd"
     array_set "rs" "args" "$params"
 
-    echo "(${rs[*]})"
+    echo "${rs[@]}"
     return 0
 }
 
@@ -5847,42 +6118,27 @@ verify_sig() {
 
 # Register the current command
 register_current_command() {
-    [ "$BISU_START_FLAG" -eq 0 ] || return 0
-    CURRENT_PID=$$
     is_posi_int "$CURRENT_PID" || error_exit "Incorrect CURRENT_PID!"
-    local args=($(printf '%s\n' "$@"))
-    local current_file_path=""
-    local current_args=""
-    for arg in "${args[@]}"; do
-        if [ -z "$current_file_path" ]; then
-            current_file_path="$arg"
-        else
-            current_args+=" $arg"
-        fi
-    done
+    local current_args=$(current_args)
 
     # normalization of arrays allowed to manually modify them
     normalize_array "BISU_REQUIRED_EXTERNAL_COMMANDS" && normalize_array "REQUIRED_EXTERNAL_COMMANDS" &&
-        array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS" &&
+        indexed_array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS" &&
         array_unique "BISU_REQUIRED_EXTERNAL_COMMANDS"
     normalize_array "BISU_REQUIRED_SCRIPTS" && normalize_array "REQUIRED_SCRIPTS" &&
-        array_merge "BISU_REQUIRED_SCRIPTS" "REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS"array_unique "BISU_REQUIRED_SCRIPTS"
-    normalize_array "BISU_ACTIONS_RO" && normalize_array "ACTIONS_RO" && array_merge "BISU_ACTIONS_RO" "ACTIONS_RO" "BISU_ACTIONS_RO" &&
+        indexed_array_merge "BISU_REQUIRED_SCRIPTS" "REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS"array_unique "BISU_REQUIRED_SCRIPTS"
+    normalize_array "BISU_ACTIONS_RO" && normalize_array "ACTIONS_RO" && indexed_array_merge "BISU_ACTIONS_RO" "ACTIONS_RO" "BISU_ACTIONS_RO" &&
         array_unique "BISU_ACTIONS_RO"
-    normalize_array "BISU_AUTORUN" && normalize_array "AUTORUN" && array_merge "BISU_AUTORUN" "AUTORUN" "BISU_AUTORUN" &&
+    normalize_array "BISU_AUTORUN" && normalize_array "AUTORUN" && indexed_array_merge "BISU_AUTORUN" "AUTORUN" "BISU_AUTORUN" &&
         array_unique "BISU_AUTORUN"
     normalize_array "BISU_EXIT_WITH_COMMANDS" && normalize_array "EXIT_WITH_COMMANDS" &&
-        array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS" && array_unique "BISU_EXIT_WITH_COMMANDS"
+        indexed_array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS" && array_unique "BISU_EXIT_WITH_COMMANDS"
 
     UNIX_USERNAME=$(whoami)
     UNIX_HOSTNAME=$(hostname)
-    CURRENT_FILE_PATH=$(normalize_string "$current_file_path")
-    CURRENT_COMMAND="$CURRENT_FILE_PATH"
+    CURRENT_FILE_PATH=$(normalize_string "$CURRENT_FILE_PATH")
     CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
-    CURRENT_ARGS=$(trim "$current_args")
-    [ -n "$CURRENT_ARGS" ] && {
-        CURRENT_COMMAND="$CURRENT_COMMAND $CURRENT_ARGS"
-    }
+    CURRENT_COMMAND="$CURRENT_FILE_PATH $current_args"
     [ -n "$CURRENT_FILE_NAME" ] && {
         USER_CONF_DIR="${HOME}/.local/config/${CURRENT_FILE_NAME}"
     }
@@ -5892,70 +6148,227 @@ register_current_command() {
     bisu_start_flag
 }
 
-# Get args and store them in an associative array
+# Parse command-line arguments into an associative storage backend.
+# - Uses only `array_set "$array" "$key" "$value"` to write values.
+# - Uses `array_get "$array" "$key"` to read existing values (to enforce repetition rules).
+# - Writes into "$args_array_name" or "result" by default.
+# - Emits values only (in insertion order) on stdout (one per line), then returns 0.
+# - Single function, no subfunctions.
 get_args() {
-    local key value param pos_index=0
-    local emptyExpr="$EMPTY_EXPR" # Assign with 0x00 to distinguish empty from null
-    local args="$(current_args)"
+    local array_name="$1"
+    local -a args=($(current_args))
+    local argc=${#args[@]}
+    local i=0
+    declare -A target=()
 
-    eval "set -- $(printf '%s ' "$args")" 2>/dev/null || {
-        printf ''
-        return 1
-    }
+    # order_list records keys in the order they were first set (insertion order)
+    local -a order_list=()
+    local positional_index=1
+    local GETARGS_OVERRIDE_FLAG="${GETARGS_OVERRIDE:-0}"
+    local EMPTY_EXPR_literal="$EMPTY_EXPR" # the literal to use for booleans
+    local stop_parsing=0
 
-    # Reset associative array or fail if no args
-    [ $# -gt 0 ] || {
-        printf ''
-        return 1
-    }
+    # Internal function-like inline logic (kept inline as required):
+    # - set_key_if_allowed KEY VALUE
+    #     respects repetition rules and records insertion order.
+    # Implementation uses only array_get/array_set for storage checks/sets.
+    #
+    # Because subfunctions are disallowed by the spec, implement logic inline via labels
+    # (comments) where used.
 
-    local rs=()
-    while [ $# -gt 0 ]; do
-        param="$1"
+    while [ $i -lt $argc ]; do
+        local token="${args[$i]}"
 
-        case "$param" in
-        # Short options: -a value, -yf
-        -[a-zA-Z0-9]*)
-            key="${param#-}"
+        if [ "$stop_parsing" -eq 1 ]; then
+            # All subsequent args are positional
+            local key="$positional_index"
+            array_set "target" "$key" "$token"
+            order_list+=("$key")
+            positional_index=$((positional_index + 1))
+            i=$((i + 1))
+            continue
+        fi
 
-            # Multiple short options (-yf -> -y + -f)
-            while [ -n "$key" ]; do
-                single_opt="${key:0:1}"
-                array_set "rs" "$single_opt" "$emptyExpr"
-                key="${key:1}"
-            done
-            ;;
+        # End-of-options marker (unless consumed as a KV value later)
+        if [ "$token" = "--" ]; then
+            # '--' alone stops option parsing
+            stop_parsing=1
+            i=$((i + 1))
+            continue
+        fi
 
-        # Long options: --option1 value
-        --[a-zA-Z0-9][a-zA-Z0-9-_]*)
-            key="${param#--}"
+        # Long options: start with '--' (including 3+ dashes which will be normalized)
+        if [[ "$token" == --* ]]; then
+            # Handle forms:
+            #  --opt=value        -> opt="value"
+            #  --opt value        -> opt="value" (if next doesn't start with '-')
+            #  --opt key=value    -> opt="key=value"
+            #  --opt              -> opt="$EMPTY_EXPR"
+            local long_raw="$token"
+            local val=""
+            local keyraw=""
+            if [[ "$long_raw" == *=* ]]; then
+                # --opt=value  (split at first '=')
+                keyraw="${long_raw%%=*}"
+                val="${long_raw#*=}"
+                # strip leading dashes from keyraw
+                # remove ALL leading '-' (3+ dashes allowed)
+                while [[ "$keyraw" == -* ]]; do keyraw="${keyraw#-}"; done
+                # normalize internal '-' to '_'
+                local key="${keyraw//-/_}"
+                # explicit empty after '=' means user supplied empty -> store single space " "
+                if [ -z "$val" ]; then val=" "; fi
 
-            # Handle "--option value" (space-separated value)
-            if [ -n "$2" ] && [[ ! "$2" =~ ^- ]]; then
-                value="$2"
-                shift
+                # repetition check
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    # record order if first set
+                    if [ -z "$existing" ]; then order_list+=("$key"); fi
+                fi
+                i=$((i + 1))
+                continue
             else
-                value="$emptyExpr"
+                # --opt (without '=')
+                # keyraw is token without leading dashes
+                keyraw="$long_raw"
+                while [[ "$keyraw" == -* ]]; do keyraw="${keyraw#-}"; done
+                local key="${keyraw//-/_}"
+
+                # Lookahead to decide if it's a KV (next not starting with '-')
+                local nextidx=$((i + 1))
+                if [ $nextidx -lt $argc ]; then
+                    local next="${args[$nextidx]}"
+                    # If next is exactly '--' then spec says: if it's being used as the KV value,
+                    # store it literally as the value. Otherwise, '--' alone stops option parsing.
+                    if [[ "$next" = "--" ]]; then
+                        # Treat it as a *value* for this option (per spec).
+                        val="--"
+                        # consume next arg as the value
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            array_set "target" "$key" "$val"
+                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                        fi
+                        continue
+                    fi
+
+                    # if next does not start with '-', bind it as the value (covers key=value literal too)
+                    if [[ ! "$next" == -* ]]; then
+                        val="$next"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            # explicit empty string binding (user wrote --opt "" ) would be an empty arg,
+                            # but if val is empty we treat it as explicit empty: store single space " ".
+                            if [ -z "$val" ]; then val=" "; fi
+                            array_set "target" "$key" "$val"
+                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                        fi
+                        continue
+                    fi
+                fi
+
+                # Otherwise, boolean flag
+                val="$EMPTY_EXPR_literal"
+                i=$((i + 1))
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    if [ -z "$existing" ]; then order_list+=("$key"); fi
+                fi
+                continue
             fi
-            array_set "rs" "$key" "$value"
-            ;;
+        fi
 
-        # Explicit separator "--"
-        --)
-            shift
-            break
-            ;;
+        # Short options: start with single '-' and not '--'
+        if [[ "$token" == -* && "$token" != "-" ]]; then
+            # Distinguish single-letter '-k' vs bundled '-abc' vs '-ovalue' (which is treated as bundling)
+            # If token length == 2 (e.g., -k) then it may bind the next arg as a value (if next exists and does not start with '-')
+            local token_len=${#token}
+            if [ "$token_len" -eq 2 ]; then
+                local ch="${token:1:1}"
+                local key="$ch"
+                # check lookahead for KV binding: -k value -> KV; only when -k is alone, not bundled
+                local nextidx=$((i + 1))
+                if [ $nextidx -lt $argc ]; then
+                    local next="${args[$nextidx]}"
+                    # if next is exactly '--', spec: '--' after KV option stored as literal value "--"
+                    if [ "$next" = "--" ]; then
+                        # treat as value "--"
+                        local val="--"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            array_set "target" "$key" "$val"
+                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                        fi
+                        continue
+                    fi
+                    # Bind next as value only if it does NOT start with '-'
+                    if [[ ! "$next" == -* ]]; then
+                        local val="$next"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            if [ -z "$val" ]; then val=" "; fi
+                            array_set "target" "$key" "$val"
+                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                        fi
+                        continue
+                    fi
+                fi
 
-        # Positional arguments
-        *)
-            pos_index=$((pos_index + 1))
-            array_set "rs" "$pos_index" "$param"
-            ;;
-        esac
-        shift
+                # Otherwise boolean
+                local val="$EMPTY_EXPR_literal"
+                i=$((i + 1))
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    if [ -z "$existing" ]; then order_list+=("$key"); fi
+                fi
+                continue
+            else
+                # Bundled short options or -ovalue: treat every character after '-' as its own boolean.
+                # Example: -abc -> a="$EMPTY_EXPR" b="$EMPTY_EXPR" c="$EMPTY_EXPR"
+                # Example: -ovalue -> o="$EMPTY_EXPR" v="$EMPTY_EXPR" a="$EMPTY_EXPR" l="$EMPTY_EXPR" u="$EMPTY_EXPR" e="$EMPTY_EXPR"
+                local j=1
+                while [ $j -lt $token_len ]; do
+                    local ch="${token:$j:1}"
+                    local key="$ch"
+                    local val="$EMPTY_EXPR_literal"
+                    local existing
+                    existing="$(array_get "target" "$key")"
+                    if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                        array_set "target" "$key" "$val"
+                        if [ -z "$existing" ]; then order_list+=("$key"); fi
+                    fi
+                    j=$((j + 1))
+                done
+                i=$((i + 1))
+                continue
+            fi
+        fi
+
+        # Anything else is a positional argument
+        {
+            local key="$positional_index"
+            array_set "target" "$key" "$token"
+            order_list+=("$key")
+            positional_index=$((positional_index + 1))
+            i=$((i + 1))
+        }
     done
 
-    echo "(${rs[*]})"
+    array_dump "target" || return 1
     return 0
 }
 
@@ -5999,7 +6412,7 @@ safe_callfunc() {
 # return $pid
 safe_fork() {
     local phrase=$(trim "$1")
-    string_to_array "$phrase" "phrase"
+    string_to_indexed_array "$phrase" "phrase"
     normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
@@ -6250,7 +6663,9 @@ on_signal_exit() {
 # check dependencies
 check_dependencies() {
     check_bash_version
+
     check_bisu_version
+
     check_commands_list
     load_required_scripts
 }
@@ -6303,17 +6718,17 @@ initialize() {
     # order#1 set source guard
     set_source_guard
     # order#2 register current command
-    register_current_command $(printf '%s ' "$@")
+    register_current_command
     # order#3 check dependencies
     check_dependencies
     # order#4 integrate operations
-    integrate_ops $(printf '%s ' "$@")
+    integrate_ops
 }
 
 # Execute a command when quit
 callfunc() {
     local current_args
-    string_to_array "$(current_args)" "current_args"
+    string_to_indexed_array "$(current_args)" "current_args"
     normalize_array "current_args"
 
     local action=$(array_get "current_args" 0)
@@ -6405,26 +6820,21 @@ in_target_dir() {
 
 # Integrate operations
 integrate_ops() {
+    local current_args=($(current_args))
     local args=$(get_args)
+    string_to_assoc_array "$args" "args1"
     local parg1=$(array_get "args" 1)
-
     local action="$parg1"
     if [ -z "$action" ]; then
-        local parg1=$(trim "$2")
-        if string_starts_with "$parg1" "--"; then
-            parg1=$(substr "$parg1" 2)
-        elif string_starts_with "$parg1" "-"; then
-            parg1=$(substr "$parg1" 1 1)
-        fi
+        local parg1=$(array_get "current_args" 0)
+        parg1="${parg1##*-}"
         # recheck to ensure the param
         if [ -n "$parg1" ] && [ -n parg1=$(array_get "args" "$parg1") ]; then
             action="$parg1"
         fi
-        [[ "$action" == "$EMPTY_EXPR" ]] && action=""
     fi
 
     in_array "$action" "install" || verify_sig
-
     set_action "$action"
     autorun_start
 
@@ -6494,7 +6904,7 @@ integrate_ops() {
         vi "$(current_log_file)" 2>/dev/null
         ;;
     "callfunc")
-        callfunc $(printf '%s ' "$@")
+        callfunc $(printf '%s ' "$(current_args)")
         ;;
     *)
         is_matched_action="false"
@@ -6558,6 +6968,7 @@ install_script() {
     log_msg "Moving $current_filename to path: $target_path"
     if [[ "$verify_sig" == "true" ]]; then
         is_file "$sig_file" || error_exit "Failed to install $current_filename"
+        verify_sig
         move_file "$sig_file" "$sig_file_target_path" || error_exit "Failed to install ${current_filename}, please check for permissions."
     fi
     move_file "$current_file_path" "$target_path" || error_exit "Failed to install ${current_filename}, please check for permissions."
@@ -6565,5 +6976,5 @@ install_script() {
 }
 
 # Initialization
-initialize $(printf '%s ' "$0" "$@")
+initialize
 ########################################################################### BISU_END ###########################################################################
