@@ -2,10 +2,38 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090,SC2190
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
+################################################################# BISU Archived Functions ######################################################################
+# Version: v1-20250821Z2
 
-# Version: v1-20250821Z1
+# archived work
+# lack of performance
+# Function to count an array's element number
+array_count_v1() {
+    local array_name=$(trim "$1")
 
+    is_array "$array_name" || {
+        printf '%s' "0"
+        return 1
+    }
+
+    local -n ref="$array_name" 2>/dev/null || {
+        printf '%s' "0"
+        return 1
+    }
+
+    local array_count=$(awk -v n="${#ref[@]}" 'BEGIN { print n }' 2>/dev/null) || {
+        printf '%s' "0"
+        return 1
+    }
+
+    is_nn_int "$array_count" || array_count=0
+
+    printf '%s' "$array_count"
+    return 0
+}
+
+# archived work
 # lack of performance
 # Robust and POSIX-compliant isset function
 isset_v1() {
@@ -45,7 +73,7 @@ isset_v1() {
     return 0
 }
 
-# not completely works
+# archived work
 # string to array
 string_to_array_v1() {
     local input="$1"
@@ -106,7 +134,8 @@ is_array_v1() {
     return 0
 }
 
-# not completely works
+# archived work
+# only effective for indexed arrays
 array_merge_v1() {
     local src1=$(trim "$1")
     local src2=$(trim "$2")
