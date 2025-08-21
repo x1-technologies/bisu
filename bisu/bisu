@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.300"
+export BISU_VERSION="10.2.301"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-21Z"
 # Minimal Bash Version
@@ -6827,7 +6827,11 @@ integrate_ops() {
     local action="$parg1"
     if [ -z "$action" ]; then
         local parg1=$(array_get "current_args" 0)
-        parg1="${parg1##*-}"
+        if string_starts_with "$parg1" "--"; then
+            parg1=$(substr "$parg1" 2)
+        elif string_starts_with "$parg1" "-"; then
+            parg1=$(substr "$parg1" 1 1)
+        fi
         # recheck to ensure the param
         if [ -n "$parg1" ] && [ -n parg1=$(array_get "args" "$parg1") ]; then
             action="$parg1"
