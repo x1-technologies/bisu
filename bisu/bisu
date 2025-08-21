@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.301"
+export BISU_VERSION="10.2.302"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-21Z"
 # Minimal Bash Version
@@ -123,7 +123,7 @@ FUNC_STYLE_CODE_INJECTION=${FUNC_STYLE_CODE_INJECTION:-"__style_code_injection"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# Version: v7-20250819Z1
+# Version: v7-20250821Z1
 # ================================================================ Bash OOP Engine Start =======================================================================
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
@@ -168,6 +168,7 @@ class.copy() {
 # Get or set a class variable value.
 class.var() {
     local name="${1#*.}__$2"
+    name=$(class.trim "$name")
     if [ -z "$3" ]; then
         printf '%s' "${!name}"
     else
@@ -217,21 +218,21 @@ class.append() {
 
 # Set a variable with validation.
 @set() {
-    local name="$1"
+    local name=$(class.trim "$1")
     shift
     class.name.valid "$name" && printf -v "$name" '%s' "$@"
 }
 
 # Return an object with validation.
 @return() {
-    local name="$1"
+    local name=$(class.trim "$1")
     shift
     class.name.valid "$name" && printf -v "$name" "$@"
 }
 
 # Begin class definition, handling inheritance.
 @class() {
-    export __BISU_CLASS_NAME=("$@")
+    export __BISU_CLASS_NAME=($(printf '%s ' "$@"))
     local name vars
     for name in "${__BISU_CLASS_NAME[@]:1}"; do
         vars="__BISU_CLASS_V_$name"
@@ -459,29 +460,6 @@ is_valid_var_name() {
     return 0
 }
 
-# Function: var_copy
-# Description: to copy a var internally or globally
-var_copy() {
-    local var_name=$(trim "$1")
-    declare -n var_ref="$var_name"
-    local new_var_name=$(trim "$2")
-    local is_global=$(trim "$3")
-    in_array "$is_global" "true" "false" || is_global="false"
-
-    if ! isset "$var_name" || ! is_valid_var_name "$new_var_name"; then
-        return 1
-    fi
-
-    # Pass original array name, not nameref variable name, to array_dump
-    eval "$new_var_name=\"\$var_name\"" &>/dev/null || {
-        return 1
-    }
-
-    [[ "$is_global" == "true" ]] && declare -g "$new_var_name" &>/dev/null || return 1
-
-    return 0
-}
-
 # get timestamp_sec faster and more robust
 time_sec() {
     local ts sec
@@ -624,7 +602,7 @@ output() {
             injected_style_codes="$(trim "$injected_style_codes")"
             [ -n "$injected_style_codes" ] && {
                 injected_style_codes=("$injected_style_codes")
-                indexed_array_merge "style_codes" "injected_style_codes"
+                assoc_array_merge "style_codes" "injected_style_codes" "style_codes"
             }
         fi
 
@@ -1141,8 +1119,6 @@ log_flush() {
     in_array "${output_buffer}" "true" "false" || output_buffer="true"
     local log_only=$(trim "$2")
     in_array "${log_only}" "true" "false" || log_only="false"
-    local log_file=$(current_log_file)
-
     local array_count=$(array_count "_LOG_BUFFER")
 
     if [[ "$output_buffer" == "true" ]] && [ "$array_count" -gt 0 ]; then
@@ -2745,7 +2721,7 @@ array_is_available() {
 
 # Function to sign an array based on its name
 sign_array() {
-    local array_name="$1"
+    local array_name=$(trim "$1")
     local array_contents
     local array_md5
 
@@ -2892,20 +2868,14 @@ array_copy() {
     local array_name=$(trim "$1")
     declare -n arr_ref="$array_name"
     local new_array_name=$(trim "$2")
-    local is_global=$(trim "$3")
-    in_array "$is_global" "true" "false" || is_global="false"
+    declare -n new_arr_ref="$new_array_name"
 
     if ! is_array "$array_name" || ! is_valid_var_name "$new_array_name"; then
         return 1
     fi
 
     # Pass original array name, not nameref variable name, to array_dump
-    eval "$new_array_name=($(array_dump "$array_name"))" &>/dev/null || {
-        return 1
-    }
-
-    [[ "$is_global" == "true" ]] && declare -g "$new_array_name" &>/dev/null || return 1
-
+    new_arr_ref=($(array_dump "$array_name"))
     return 0
 }
 
@@ -2960,12 +2930,10 @@ array_splice() {
 # Returns 0 on success, 1 on failure
 array_set() {
     local array_name key value is_assoc i
-
-    array_name="$(trim "$1")"
+    array_name=$(trim "$1")
     shift
 
     is_array "$array_name" || return 1
-
     declare -n _ref="$array_name"
 
     if is_assoc_array "$array_name"; then
@@ -3030,7 +2998,7 @@ array_set() {
 # Returns: 0 on success, 1 on failure
 array_get() {
     local array_name key val is_assoc
-    array_name="$(trim "$1")"
+    array_name=$(trim "$1")
     shift
 
     is_array "$array_name" || {
@@ -3345,7 +3313,7 @@ assoc_array_merge() {
     local dest_name=$(trim "$3")
 
     # Validate arguments
-    if ! is_assoc_array "$src1" || ! is_assoc_array "$src2" || ! is_valid_var_name "$dest_name"; then
+    if ! is_array "$src1" || ! is_array "$src2" || ! is_valid_var_name "$dest_name"; then
         return 1
     fi
 
@@ -6155,7 +6123,6 @@ register_current_command() {
 # - Emits values only (in insertion order) on stdout (one per line), then returns 0.
 # - Single function, no subfunctions.
 get_args() {
-    local array_name="$1"
     local -a args=($(current_args))
     local argc=${#args[@]}
     local i=0
