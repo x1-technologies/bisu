@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.302"
+export BISU_VERSION="10.2.303"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-21Z"
 # Minimal Bash Version
@@ -123,8 +123,8 @@ FUNC_STYLE_CODE_INJECTION=${FUNC_STYLE_CODE_INJECTION:-"__style_code_injection"}
 # Debug Switch
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
-# Version: v7-20250821Z1
 # ================================================================ Bash OOP Engine Start =======================================================================
+# Version: v7-20250821Z1
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
 
