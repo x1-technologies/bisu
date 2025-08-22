@@ -4,7 +4,86 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250821Z2
+# Version: v1-20250822Z1
+
+# not completely works, can not preserve quoted string as an entity
+# string to indexed array
+string_to_indexed_array_v1() {
+    local array_name=$(trim "$2")
+    is_valid_var_name "$array_name" || return 1
+
+    local input="$1"
+    local delim="${3-" "}"
+
+    declare -n arr_ref="$array_name"
+    local delim_awk
+
+    case "$delim" in
+    '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|')
+        delim_awk="\\$delim"
+        ;;
+    $'\t')
+        delim_awk="\\t"
+        ;;
+    *)
+        delim_awk="$delim"
+        ;;
+    esac
+
+    # Prevent empty input leading to mapfile hanging by using printf only if input is non-empty
+    if [ -n "$input" ]; then
+        mapfile -t arr_ref < <(
+            printf '%s\n' "$input" |
+                awk -v FS="$delim_awk" '{
+                for (i = 1; i <= NF; i++) print $i;
+                if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
+            }'
+        ) 2>/dev/null || return 1
+    else
+        arr_ref=()
+    fi
+
+    return 0
+}
+
+# archived work, completely works
+# Convert a string into an indexed array (lossless, robust)
+string_to_indexed_array_v2() {
+    local input="$1"
+    local array_name=$(trim "$2")
+    is_valid_var_name "$array_name" || return 1
+
+    declare -n arr_ref="$array_name"
+    arr_ref=()
+
+    # Empty input → nothing
+    [ -n "$input" ] || return 0
+
+    # If input contains newline (from current_args), use mapfile directly
+    if [[ "$input" == *$'\n'* ]]; then
+        mapfile -t arr_ref <<<"$input"
+        return 0
+    fi
+
+    # Else split by delimiter (default = space, can be customized)
+    local delim="${3-" "}"
+    local delim_awk
+    case "$delim" in
+    '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|') delim_awk="\\$delim" ;;
+    $'\t') delim_awk="\\t" ;;
+    *) delim_awk="$delim" ;;
+    esac
+
+    mapfile -t arr_ref < <(
+        printf '%s\n' "$input" |
+            awk -v FS="$delim_awk" '{
+            for (i = 1; i <= NF; i++) print $i;
+            if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
+        }'
+    ) 2>/dev/null || return 1
+
+    return 0
+}
 
 # archived work
 # lack of performance
