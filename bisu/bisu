@@ -9,9 +9,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.303"
+export BISU_VERSION="10.2.310"
 # Set BISU's last release date
-export BISU_LAST_RELEASE_DATE="2025-08-21Z"
+export BISU_LAST_RELEASE_DATE="2025-08-22Z"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 # BISU info uri
@@ -124,7 +124,7 @@ FUNC_STYLE_CODE_INJECTION=${FUNC_STYLE_CODE_INJECTION:-"__style_code_injection"}
 DEBUG_MODE=${DEBUG_MODE:-"false"}
 
 # ================================================================ Bash OOP Engine Start =======================================================================
-# Version: v7-20250821Z1
+# Version: v7-20250822Z1
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
 
@@ -220,14 +220,18 @@ class.append() {
 @set() {
     local name=$(class.trim "$1")
     shift
-    class.name.valid "$name" && printf -v "$name" '%s' "$@"
+    class.name.valid "$name" || return 1
+    printf -v "$name" '%s' "$@"
+    return 0
 }
 
 # Return an object with validation.
 @return() {
     local name=$(class.trim "$1")
     shift
-    class.name.valid "$name" && printf -v "$name" "$@"
+    class.name.valid "$name" || return 1
+    printf -v "$name" "$@"
+    return 0
 }
 
 # Begin class definition, handling inheritance.
@@ -971,8 +975,8 @@ current_command() {
 # Description: According to its naming
 current_args() {
     local array_count=$(array_count "CURRENT_ARGS")
-    [[ $array_count > 0 ]] || printf ''
-    printf '%s ' "${CURRENT_ARGS[@]}"
+    [ $array_count -gt 0 ] || printf ''
+    printf '%s\n' "${CURRENT_ARGS[@]}"
 }
 
 # Function: current_file_path
@@ -1917,56 +1921,49 @@ str_ireplace() {
     return 0
 }
 
-# string to indexed array
-string_to_indexed_array() {
+# Convert a string into an array (lossless, robust)
+string_to_array() {
+    local input="$1"
     local array_name=$(trim "$2")
     is_valid_var_name "$array_name" || return 1
-
-    local input="$1"
-    local delim="${3-" "}"
 
     declare -n arr_ref="$array_name"
-    local delim_awk
+    arr_ref=()
 
-    case "$delim" in
-    '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|')
-        delim_awk="\\$delim"
-        ;;
-    $'\t')
-        delim_awk="\\t"
-        ;;
-    *)
-        delim_awk="$delim"
-        ;;
-    esac
+    # Empty input → nothing
+    input=$(trim "$input" "() ")
+    [ -n "$input" ] || return 0
 
-    # Prevent empty input leading to mapfile hanging by using printf only if input is non-empty
-    if [ -n "$input" ]; then
-        mapfile -t arr_ref < <(
-            printf '%s\n' "$input" |
-                awk -v FS="$delim_awk" '{
-                for (i = 1; i <= NF; i++) print $i;
-                if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
-            }'
-        ) 2>/dev/null || return 1
-    else
-        arr_ref=()
+    # Matched assoc supplement
+    if [[ "$input" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+        @set "arr_ref" "$input" || return 1
+        eval "declare -g -A ${array_name}=($arr_ref)" 2>/dev/null || return 1
+        return 0
     fi
 
-    return 0
-}
+    # If input contains newline (from current_args), use mapfile directly
+    if [[ "$input" == *$'\n'* ]]; then
+        mapfile -t arr_ref <<<"$input"
+        return 0
+    fi
 
-# string to assoc array
-string_to_assoc_array() {
-    local array_name=$(trim "$2")
-    is_valid_var_name "$array_name" || return 1
-    local input="$1" # string like '([x]="1" [y]="2")'
-    # nameref to caller's variable
-    declare -n ref="$array_name"
-    input=$(trim "$input" "() ")
-    [ -n "$input" ] || return 1
-    # reassign directly with eval, scoped through nameref
-    eval "ref=(${input})" 2>/dev/null || return 1
+    # Else split by delimiter (default = space, can be customized)
+    local delim="${3-" "}"
+    local delim_awk
+    case "$delim" in
+    '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|') delim_awk="\\$delim" ;;
+    $'\t') delim_awk="\\t" ;;
+    *) delim_awk="$delim" ;;
+    esac
+
+    mapfile -t arr_ref < <(
+        printf '%s\n' "$input" |
+            awk -v FS="$delim_awk" '{
+            for (i = 1; i <= NF; i++) print $i;
+            if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
+        }'
+    ) 2>/dev/null || return 1
+
     return 0
 }
 
@@ -2033,7 +2030,7 @@ debug_mode_on() {
 # Execute command
 exec_command() {
     local phrase=$(trim "$1")
-    string_to_indexed_array "$phrase" "phrase"
+    string_to_array "$phrase" "phrase"
     normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
@@ -2841,20 +2838,20 @@ array_dump() {
         }
         return 0
     elif is_assoc_array "$array_name"; then
-        local temp_kv p
+        local kv p
         if p="$(declare -p "$array_name" 2>/dev/null)"; then
             # strip everything up to the first '=' to leave the literal payload
-            temp_kv="${p#*=}"
-            # Some bash builds may wrap the temp_kv in top-level quotes;
+            kv="${p#*=}"
+            # Some bash builds may wrap the kv in top-level quotes;
             # if so strip *one* matching outer quote char (single or double).
-            case "$temp_kv" in
-            \'*\') temp_kv="${temp_kv:1:-1}" ;;
-            \"*\") temp_kv="${temp_kv:1:-1}" ;;
+            case "$kv" in
+            \'*\') kv="${kv:1:-1}" ;;
+            \"*\") kv="${kv:1:-1}" ;;
             esac
         fi
-        temp_kv=$(trim "$temp_kv" "()")
+        kv=$(trim "$kv" "() ")
         # Print exactly the literal (no extra chars).
-        printf '%s\n' "$temp_kv"
+        printf '%s\n' "$kv"
         return 0
     fi
 
@@ -4071,7 +4068,7 @@ get_os_info() {
 # get_os_name
 get_os_name() {
     local os_info=$(get_os_info)
-    string_to_indexed_array "$os_info" "os_info"
+    string_to_array "$os_info" "os_info"
     local os_name=$(array_get "os_info" 0)
     printf '%s' "$os_name"
 }
@@ -4079,7 +4076,7 @@ get_os_name() {
 # get_os_version
 get_os_version() {
     local os_info=$(get_os_info)
-    string_to_indexed_array "$os_info" "os_info"
+    string_to_array "$os_info" "os_info"
     local os_version=$(array_get "os_info" 1)
     printf '%s' "$os_version"
 }
@@ -4128,7 +4125,7 @@ get_kernel_info() {
 # get_os_name
 get_kernel_name() {
     local kernel_info=$(get_kernel_info)
-    string_to_indexed_array "$kernel_info" "kernel_info"
+    string_to_array "$kernel_info" "kernel_info"
     local kernel_name=$(array_get "kernel_info" 0)
     printf '%s' "$kernel_name"
 }
@@ -4136,7 +4133,7 @@ get_kernel_name() {
 # get_os_version
 get_kernel_version() {
     local kernel_info=$(get_kernel_info)
-    string_to_indexed_array "$kernel_info" "kernel_info"
+    string_to_array "$kernel_info" "kernel_info"
     local kernel_version=$(array_get "kernel_info" 1)
     printf '%s' "$kernel_version"
 }
@@ -6121,9 +6118,12 @@ register_current_command() {
 # - Uses `array_get "$array" "$key"` to read existing values (to enforce repetition rules).
 # - Writes into "$args_array_name" or "result" by default.
 # - Emits values only (in insertion order) on stdout (one per line), then returns 0.
-# - Single function, no subfunctions.
-get_args() {
-    local -a args=($(current_args))
+extract_args() {
+    local array_name=$(trim "$1")
+    # Load args safely (no splitting on spaces)
+    local -a args
+    mapfile -t args < <(current_args)
+
     local argc=${#args[@]}
     local i=0
     declare -A target=()
@@ -6184,7 +6184,7 @@ get_args() {
                 # normalize internal '-' to '_'
                 local key="${keyraw//-/_}"
                 # explicit empty after '=' means user supplied empty -> store single space " "
-                if [ -z "$val" ]; then val=" "; fi
+                [ -z "$val" ] && val=" "
 
                 # repetition check
                 local existing
@@ -6192,7 +6192,7 @@ get_args() {
                 if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
                     array_set "target" "$key" "$val"
                     # record order if first set
-                    if [ -z "$existing" ]; then order_list+=("$key"); fi
+                    [ -z "$existing" ] && order_list+=("$key")
                 fi
                 i=$((i + 1))
                 continue
@@ -6218,7 +6218,7 @@ get_args() {
                         existing="$(array_get "target" "$key")"
                         if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
                             array_set "target" "$key" "$val"
-                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                            [ -z "$existing" ] && order_list+=("$key")
                         fi
                         continue
                     fi
@@ -6232,9 +6232,9 @@ get_args() {
                         if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
                             # explicit empty string binding (user wrote --opt "" ) would be an empty arg,
                             # but if val is empty we treat it as explicit empty: store single space " ".
-                            if [ -z "$val" ]; then val=" "; fi
+                            [ -z "$val" ] && val=" "
                             array_set "target" "$key" "$val"
-                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                            [ -z "$existing" ] && order_list+=("$key")
                         fi
                         continue
                     fi
@@ -6247,7 +6247,7 @@ get_args() {
                 existing="$(array_get "target" "$key")"
                 if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
                     array_set "target" "$key" "$val"
-                    if [ -z "$existing" ]; then order_list+=("$key"); fi
+                    [ -z "$existing" ] && order_list+=("$key")
                 fi
                 continue
             fi
@@ -6274,7 +6274,7 @@ get_args() {
                         existing="$(array_get "target" "$key")"
                         if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
                             array_set "target" "$key" "$val"
-                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                            [ -z "$existing" ] && order_list+=("$key")
                         fi
                         continue
                     fi
@@ -6285,9 +6285,9 @@ get_args() {
                         local existing
                         existing="$(array_get "target" "$key")"
                         if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
-                            if [ -z "$val" ]; then val=" "; fi
+                            [ -z "$val" ] && val=" "
                             array_set "target" "$key" "$val"
-                            if [ -z "$existing" ]; then order_list+=("$key"); fi
+                            [ -z "$existing" ] && order_list+=("$key")
                         fi
                         continue
                     fi
@@ -6300,7 +6300,7 @@ get_args() {
                 existing="$(array_get "target" "$key")"
                 if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
                     array_set "target" "$key" "$val"
-                    if [ -z "$existing" ]; then order_list+=("$key"); fi
+                    [ -z "$existing" ] && order_list+=("$key")
                 fi
                 continue
             else
@@ -6316,7 +6316,7 @@ get_args() {
                     existing="$(array_get "target" "$key")"
                     if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
                         array_set "target" "$key" "$val"
-                        if [ -z "$existing" ]; then order_list+=("$key"); fi
+                        [ -z "$existing" ] && order_list+=("$key")
                     fi
                     j=$((j + 1))
                 done
@@ -6335,7 +6335,10 @@ get_args() {
         }
     done
 
-    array_dump "target" || return 1
+    local kv_str=$(array_dump "target")
+    @set "arr_ref" "${kv_str[@]}" || return 1
+    # IMPORTANT: use -g so the declared associative array is global (visible outside function)
+    eval "declare -g -A ${array_name}=($arr_ref)" 2>/dev/null || return 1
     return 0
 }
 
@@ -6379,7 +6382,7 @@ safe_callfunc() {
 # return $pid
 safe_fork() {
     local phrase=$(trim "$1")
-    string_to_indexed_array "$phrase" "phrase"
+    string_to_array "$phrase" "phrase"
     normalize_array "phrase"
     local cmd=$(array_get "phrase" 0)
     array_splice "phrase" 0 1
@@ -6695,7 +6698,7 @@ initialize() {
 # Execute a command when quit
 callfunc() {
     local current_args
-    string_to_indexed_array "$(current_args)" "current_args"
+    string_to_array "$(current_args)" "current_args"
     normalize_array "current_args"
 
     local action=$(array_get "current_args" 0)
@@ -6787,9 +6790,8 @@ in_target_dir() {
 
 # Integrate operations
 integrate_ops() {
-    local current_args=($(current_args))
-    local args=$(get_args)
-    string_to_assoc_array "$args" "args1"
+    string_to_array "$(current_args)" "current_args"
+    extract_args args
     local parg1=$(array_get "args" 1)
     local action="$parg1"
     if [ -z "$action" ]; then
