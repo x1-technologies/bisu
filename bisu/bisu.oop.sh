@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 # ================================================================ Bash OOP Engine Start =======================================================================
-# Version: v7-20250821Z1
+# Version: v7-20250822Z1
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
 
@@ -100,14 +100,18 @@ class.append() {
 @set() {
     local name=$(class.trim "$1")
     shift
-    class.name.valid "$name" && printf -v "$name" '%s' "$@"
+    class.name.valid "$name" || return 1
+    printf -v "$name" '%s' "$@"
+    return 0
 }
 
 # Return an object with validation.
 @return() {
     local name=$(class.trim "$1")
     shift
-    class.name.valid "$name" && printf -v "$name" "$@"
+    class.name.valid "$name" || return 1
+    printf -v "$name" "$@"
+    return 0
 }
 
 # Begin class definition, handling inheritance.
