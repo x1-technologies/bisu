@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250822Z4
+# Version: v1-20250822Z5
 
 # not completely works, can not preserve quoted string as an entity
 get_args_v1() {
@@ -395,6 +395,11 @@ get_args_v2() {
 }
 
 # archived work, works correctly, preliminarily optimized
+# Parse command-line arguments into an associative storage backend.
+# - Uses only `array_set "$array" "$key" "$value"` to write values.
+# - Uses `array_get "$array" "$key"` to read existing values (to enforce repetition rules).
+# - Writes into "$args_array_name" or "result" by default.
+# - Emits values only (in insertion order) on stdout (one per line), then returns 0.
 get_args_v3() {
     # Load args safely (no splitting on spaces)
     local -a args
