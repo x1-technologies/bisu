@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250822Z2
+# Version: v1-20250822Z3
 
 # not completely works, can not preserve quoted string as an entity
 get_args_v1() {
@@ -211,6 +211,176 @@ get_args_v1() {
         fi
 
         # Anything else is a positional argument
+        {
+            local key="$positional_index"
+            array_set "target" "$key" "$token"
+            order_list+=("$key")
+            positional_index=$((positional_index + 1))
+            i=$((i + 1))
+        }
+    done
+
+    array_dump "target" || return 1
+    return 0
+}
+
+# archived work, works correctly, did not fully optimized
+get_args_v2() {
+    # Load args safely (no splitting on spaces)
+    local -a args
+    mapfile -t args < <(current_args)
+
+    local argc=${#args[@]}
+    local i=0
+    declare -A target=()
+
+    local -a order_list=()
+    local positional_index=1
+    local GETARGS_OVERRIDE_FLAG="${GETARGS_OVERRIDE:-0}"
+    local EMPTY_EXPR_literal="$EMPTY_EXPR"
+    local stop_parsing=0
+
+    while [ $i -lt $argc ]; do
+        local token="${args[$i]}"
+
+        if [ "$stop_parsing" -eq 1 ]; then
+            local key="$positional_index"
+            array_set "target" "$key" "$token"
+            order_list+=("$key")
+            positional_index=$((positional_index + 1))
+            i=$((i + 1))
+            continue
+        fi
+
+        if [ "$token" = "--" ]; then
+            stop_parsing=1
+            i=$((i + 1))
+            continue
+        fi
+
+        if [[ "$token" == --* ]]; then
+            local long_raw="$token"
+            local val=""
+            local keyraw=""
+            if [[ "$long_raw" == *=* ]]; then
+                keyraw="${long_raw%%=*}"
+                val="${long_raw#*=}"
+                while [[ "$keyraw" == -* ]]; do keyraw="${keyraw#-}"; done
+                local key="${keyraw//-/_}"
+                [ -z "$val" ] && val=" "
+
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    [ -z "$existing" ] && order_list+=("$key")
+                fi
+                i=$((i + 1))
+                continue
+            else
+                keyraw="$long_raw"
+                while [[ "$keyraw" == -* ]]; do keyraw="${keyraw#-}"; done
+                local key="${keyraw//-/_}"
+
+                local nextidx=$((i + 1))
+                if [ $nextidx -lt $argc ]; then
+                    local next="${args[$nextidx]}"
+                    if [[ "$next" = "--" ]]; then
+                        val="--"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+                    if [[ ! "$next" == -* ]]; then
+                        val="$next"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            [ -z "$val" ] && val=" "
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+                fi
+                val="$EMPTY_EXPR_literal"
+                i=$((i + 1))
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    [ -z "$existing" ] && order_list+=("$key")
+                fi
+                continue
+            fi
+        fi
+
+        if [[ "$token" == -* && "$token" != "-" ]]; then
+            local token_len=${#token}
+            if [ "$token_len" -eq 2 ]; then
+                local ch="${token:1:1}"
+                local key="$ch"
+                local nextidx=$((i + 1))
+                if [ $nextidx -lt $argc ]; then
+                    local next="${args[$nextidx]}"
+                    if [ "$next" = "--" ]; then
+                        local val="--"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+                    if [[ ! "$next" == -* ]]; then
+                        local val="$next"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            [ -z "$val" ] && val=" "
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+                fi
+                local val="$EMPTY_EXPR_literal"
+                i=$((i + 1))
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    [ -z "$existing" ] && order_list+=("$key")
+                fi
+                continue
+            else
+                local j=1
+                while [ $j -lt $token_len ]; do
+                    local ch="${token:$j:1}"
+                    local key="$ch"
+                    local val="$EMPTY_EXPR_literal"
+                    local existing
+                    existing="$(array_get "target" "$key")"
+                    if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                        array_set "target" "$key" "$val"
+                        [ -z "$existing" ] && order_list+=("$key")
+                    fi
+                    j=$((j + 1))
+                done
+                i=$((i + 1))
+                continue
+            fi
+        fi
+
         {
             local key="$positional_index"
             array_set "target" "$key" "$token"
