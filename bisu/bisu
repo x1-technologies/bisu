@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.330"
+export BISU_VERSION="10.2.340"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-23Z"
 # Minimal Bash Version
@@ -2926,7 +2926,7 @@ array_splice() {
 # Usage: array_set arr key1 val1 [key2 val2 ...]
 # Returns 0 on success, 1 on failure
 array_set() {
-    local array_name key value is_assoc i
+    local array_name key value is_assoc i max_index idx tmp_name __tmp_ref
     array_name=$(trim "$1")
     shift
 
@@ -2939,62 +2939,84 @@ array_set() {
         is_assoc=0
     fi
 
+    # Process key/value pairs
     while [[ $# -gt 1 ]]; do
         key="$(trim "$1")"
         value="$2"
         shift 2
 
+        # ignore empty keys
         [[ -z "$key" ]] && continue
 
+        # associative array set (fast path)
         if [[ $is_assoc -eq 1 ]]; then
             _ref["$key"]="$value"
             continue
         fi
 
+        # indexed array numeric index set (fast path)
         if [[ "$key" =~ ^[0-9]+$ ]]; then
             _ref[$key]="$value"
             continue
         fi
 
-        local __mig_tmp="__array_mig_tmp_$$"
-        if isset "$__mig_tmp"; then
-            unset -v "$__mig_tmp"
-        fi
-        declare -gA "$__mig_tmp"
+        # Non-numeric key for an indexed array -> migrate to associative array
+        # Create a unique temporary associative container
+        tmp_name="__array_mig_tmp_$$_$RANDOM"
+        declare -gA "$tmp_name"
+        declare -n __tmp_ref="$tmp_name"
 
-        declare -n __tmp_ref="$__mig_tmp"
+        # Determine maximal numeric index (safe O(n) scan)
+        max_index=-1
         for i in "${!_ref[@]}"; do
-            __tmp_ref["$i"]="${_ref[$i]}"
+            # only consider numeric indices (defensive)
+            if [[ "$i" =~ ^[0-9]+$ ]]; then
+                ((i > max_index)) && max_index=$i
+            fi
         done
 
-        # Unset original variable and re-declare it as associative
+        # Copy values from original indexed array into tmp in ASC numeric order
+        if ((max_index >= 0)); then
+            for ((idx = 0; idx <= max_index; idx++)); do
+                # Check existence of the element to avoid creating holes
+                if [[ ${_ref[idx]+_} ]]; then
+                    __tmp_ref["$idx"]="${_ref[idx]}"
+                fi
+            done
+        fi
+
+        # Unset original and re-declare as associative, then rebind _ref
         unset -v "$array_name"
         declare -gA "$array_name"
-
-        # Rebind _ref to the now-associative variable
         declare -n _ref="$array_name"
 
-        # Restore values from tmp and clean up
-        for i in "${!__tmp_ref[@]}"; do
-            _ref["$i"]="${__tmp_ref[$i]}"
-        done
+        # Restore entries from tmp in the same ASC numeric order
+        if ((max_index >= 0)); then
+            for ((idx = 0; idx <= max_index; idx++)); do
+                if [[ ${__tmp_ref[$idx]+_} ]]; then
+                    _ref["$idx"]="${__tmp_ref[$idx]}"
+                fi
+            done
+        fi
 
+        # Clean up temporary container
         unset -v "__tmp_ref"
-        unset -v "$__mig_tmp"
+        unset -v "$tmp_name"
 
+        # mark as associative and set the requested key
         is_assoc=1
-
         _ref["$key"]="$value"
     done
 
     return 0
 }
 
-# Get an element from a indexed or assoc array, if having multiple keys, when matched the first non-empty val then stop
+# Get an element from a indexed or assoc array, if multiple keys,
+# return the first non-empty value found.
 # Usage: array_get arr key1 [key2 ...]
-# Returns: 0 on success, 1 on failure
+# Returns: 0 on success (prints value), 1 on failure (prints nothing)
 array_get() {
-    local array_name key val is_assoc
+    local array_name key val is_assoc idx
     array_name=$(trim "$1")
     shift
 
@@ -3002,7 +3024,6 @@ array_get() {
         printf ''
         return 1
     }
-
     declare -n _ref="$array_name"
 
     if is_assoc_array "$array_name"; then
@@ -3016,27 +3037,37 @@ array_get() {
         [[ -z "$key" ]] && continue
 
         if [[ $is_assoc -eq 1 ]]; then
-            [[ -v _ref["$key"] ]] 2>/dev/null || continue
+            # Safe existence test for associative element
+            [[ ${_ref[$key]+_} ]] || continue
             val="${_ref[$key]}"
         else
+            # Indexed array: key must be a non-negative integer and within bounds
             [[ "$key" =~ ^[0-9]+$ ]] || continue
-            if ((key >= 0 && key < ${#_ref[@]})); then
-                val="${_ref[$key]}"
+            idx=$key
+            if ((idx >= 0 && idx < ${#_ref[@]})); then
+                # element may be unset; check existence
+                [[ ${_ref[$idx]+_} ]] || continue
+                val="${_ref[$idx]}"
             else
                 continue
             fi
         fi
 
-        [[ "${val:-}" == "${EMPTY_EXPR:-}" ]] && val=""
+        # Treat EMPTY_EXPR as an explicit empty sentinel if it exists
+        if [[ ${EMPTY_EXPR+set} && "$val" == "${EMPTY_EXPR}" ]]; then
+            val=""
+        fi
 
-        [[ -n "$val" ]] && {
-            [[ "$val" == "$EMPTY_EXPR" ]] && val=""
-            break
-        }
+        # Stop at first non-empty value
+        if [[ -n "$val" ]]; then
+            printf '%s' "$val"
+            return 0
+        fi
     done
 
-    printf '%s' "$val"
-    return 0
+    # Nothing found
+    printf ''
+    return 1
 }
 
 # ---------------------------------------
