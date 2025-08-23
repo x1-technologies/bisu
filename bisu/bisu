@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.320"
+export BISU_VERSION="10.2.330"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-23Z"
 # Minimal Bash Version
@@ -5620,47 +5620,60 @@ base10_encode() {
 }
 
 # Decode from Base10 to the original string.
-# Accepts either concatenated 3-digit blocks or tokens separated by non-digits.
+# Accepts concatenated 3-digit blocks or tokens separated by non-digits.
 # Usage: base10_decode "DDD...DDD"  OR  base10_decode "DDD SEP DDD SEP ..."
 base10_decode() {
-    local input result="" ascii_value ascii_dec char len token
+    local input result="" ascii_value ascii_dec char len i token processed=0
+
     input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
+    # If there is any non-digit, parse tokens (1-3 digits) using pure-bash regex (no external tools)
     if [[ "$input" =~ [^0-9] ]]; then
-        # Input contains separators: split on non-digits (accept 1-3 digit tokens)
-        while IFS= read -r token; do
-            [ -n "$token" ] || continue
-            [[ "$token" =~ ^[0-9]{1,3}$ ]] || {
+        while [[ $input =~ ^[^0-9]*([0-9]{1,3})(.*)$ ]]; do
+            token=${BASH_REMATCH[1]}
+            input=${BASH_REMATCH[2]}
+            # Force decimal interpretation, reject invalid numeric forms
+            ascii_dec=$((10#$token))
+            ((ascii_dec >= 0 && ascii_dec <= 255)) || {
                 printf ''
                 return 1
             }
-            # Force base-10 interpretation (avoid leading-zero octal)
-            ascii_dec=$((10#$token))
-            # Ignore NUL token '000' (ascii_dec == 0)
-            [ "$ascii_dec" -eq 0 ] && continue
-            char=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$ascii_dec")")
-            result+="$char"
-        done <<<"$(tr -cs '0-9' '\n' <<<"$input")"
+            # ignore NUL token '000'
+            if ((ascii_dec != 0)); then
+                char=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$ascii_dec")")
+                result+="$char"
+            fi
+            processed=1
+        done
+        # if no numeric tokens were found, treat as invalid input
+        ((processed == 1)) || {
+            printf ''
+            return 1
+        }
     else
-        # Pure digits: must be a multiple of 3 for fixed-width decoding.
+        # Pure digits: must be multiple of 3 (fixed-width 3-digit blocks)
         len=${#input}
         ((len % 3 == 0)) || {
             printf ''
             return 1
         }
 
-        while [ -n "$input" ]; do
-            ascii_value="${input:0:3}"
-            input="${input:3}"
+        for ((i = 0; i < len; i += 3)); do
+            ascii_value=${input:i:3}
             ascii_dec=$((10#$ascii_value))
-            # Ignore NUL token 000
-            [ "$ascii_dec" -eq 0 ] && continue
-            char=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$ascii_dec")")
-            result+="$char"
+            ((ascii_dec >= 0 && ascii_dec <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL token '000'
+            if ((ascii_dec != 0)); then
+                char=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$ascii_dec")")
+                result+="$char"
+            fi
         done
     fi
 
@@ -5692,23 +5705,27 @@ base26_encode() {
     return 0
 }
 
-# base26: alphabet A..Z (0..25). Each byte -> 2 letters (high, low)
-# base26_decode "encoded" -> "original"
+# base26_decode: decode A..Z pairs (base26) back to original bytes.
+# Accepts concatenated pairs "AABBCD..." (even length) or separated tokens like "AA BB C" (1-2 letters per token).
+# Returns '' and exit code 1 on invalid input.
 base26_decode() {
-    local input result token len ascii_val c0 c1 v0 v1 byte
+    local input result="" token len ascii_val c0 c1 v0 v1 byte processed=0 i
+
     input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
-    # normalize to uppercase (alphabet is A-Z)
+    # Normalize to uppercase to accept a..z or A..Z
     input=${input^^}
 
+    # If any non-letter present, parse tokens of 1..2 letters using pure-Bash regex (no external tools)
     if [[ "$input" =~ [^A-Z] ]]; then
-        # separators present: extract runs of letters, accept length 1-2 tokens
-        while IFS= read -r token; do
-            [ -n "$token" ] || continue
+        while [[ $input =~ ^[^A-Z]*([A-Z]{1,2})(.*)$ ]]; do
+            token=${BASH_REMATCH[1]}
+            input=${BASH_REMATCH[2]}
+
             len=${#token}
             ((len >= 1 && len <= 2)) || {
                 printf ''
@@ -5716,7 +5733,6 @@ base26_decode() {
             }
 
             if ((len == 1)); then
-                # single digit: value 0..25
                 c0=${token:0:1}
                 v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65)) # 'A' -> 0
                 ((v0 >= 0 && v0 < 26)) || {
@@ -5736,21 +5752,34 @@ base26_decode() {
                 byte=$((v0 * 26 + v1))
             fi
 
-            # append byte as character
-            result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
-        done <<<"$(tr -cs 'A-Za-z' '\n' <<<"$input")"
+            # Validate byte range and ignore NUL for portability
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
+            processed=1
+        done
+
+        # If no tokens were processed, input was invalid
+        ((processed == 1)) || {
+            printf ''
+            return 1
+        }
+
     else
-        # pure letters: must be even length (2 chars per byte)
+        # Pure letters: must be even length (2 chars per byte)
         len=${#input}
         ((len % 2 == 0)) || {
             printf ''
             return 1
         }
 
-        while [ -n "$input" ]; do
-            c0=${input:0:1}
-            c1=${input:1:1}
-            input=${input:2}
+        for ((i = 0; i < len; i += 2)); do
+            c0=${input:i:1}
+            c1=${input:i+1:1}
             v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65))
             v1=$(($(LC_ALL=C printf '%d' "'$c1") - 65))
             ((v0 >= 0 && v0 < 26 && v1 >= 0 && v1 < 26)) || {
@@ -5758,7 +5787,14 @@ base26_decode() {
                 return 1
             }
             byte=$((v0 * 26 + v1))
-            result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL for portability
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
         done
     fi
 
@@ -5789,23 +5825,27 @@ base36_encode() {
     return 0
 }
 
-# base36: alphabet 0..9 A..Z (0..35). Each byte -> 2 chars.
-# base36_decode "encoded" -> "original"
+# base36_decode: decode base36 (0-9,A-Z) 2-char pairs back to original bytes.
+# Accepts concatenated pairs "00A1..." (even length) or separated tokens like "0A A1 2".
+# Returns '' and exit code 1 on invalid input.
 base36_decode() {
-    local input result token len c0 c1 v0 v1 byte
+    local input result="" token len c0 c1 v0 v1 byte processed=0 i
+
     input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
-    # normalize to uppercase to accept a..z or A..Z
+    # Normalize to uppercase to accept a..z or A..Z
     input=${input^^}
 
+    # If any char outside 0-9A-Z present, parse tokens of 1..2 allowed chars using pure-Bash regex
     if [[ "$input" =~ [^0-9A-Z] ]]; then
-        # separators present: extract runs of allowed chars (0-9A-Z)
-        while IFS= read -r token; do
-            [ -n "$token" ] || continue
+        while [[ $input =~ ^[^0-9A-Z]*([0-9A-Z]{1,2})(.*)$ ]]; do
+            token=${BASH_REMATCH[1]}
+            input=${BASH_REMATCH[2]}
+
             len=${#token}
             ((len >= 1 && len <= 2)) || {
                 printf ''
@@ -5815,9 +5855,9 @@ base36_decode() {
             if ((len == 1)); then
                 c0=${token:0:1}
                 if [[ "$c0" =~ [0-9] ]]; then
-                    v0=$((c0))
+                    v0=$((c0)) # '0'..'9' -> 0..9
                 else
-                    v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)) # 'A'->10: 65-55=10
+                    v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)) # 'A'->10
                 fi
                 ((v0 >= 0 && v0 < 36)) || {
                     printf ''
@@ -5836,20 +5876,34 @@ base36_decode() {
                 byte=$((v0 * 36 + v1))
             fi
 
-            result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
-        done <<<"$(tr -cs '0-9A-Za-z' '\n' <<<"$input")"
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL byte for portability
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
+            processed=1
+        done
+
+        # if no tokens processed, invalid input
+        ((processed == 1)) || {
+            printf ''
+            return 1
+        }
+
     else
-        # pure allowed-chars: must be even length (2 chars per byte)
+        # Pure allowed-chars: must be even length (2 chars per byte)
         len=${#input}
         ((len % 2 == 0)) || {
             printf ''
             return 1
         }
 
-        while [ -n "$input" ]; do
-            c0=${input:0:1}
-            c1=${input:1:1}
-            input=${input:2}
+        for ((i = 0; i < len; i += 2)); do
+            c0=${input:i:1}
+            c1=${input:i+1:1}
             if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
             if [[ "$c1" =~ [0-9] ]]; then v1=$((c1)); else v1=$(($(LC_ALL=C printf '%d' "'$c1") - 55)); fi
             ((v0 >= 0 && v0 < 36 && v1 >= 0 && v1 < 36)) || {
@@ -5857,7 +5911,13 @@ base36_decode() {
                 return 1
             }
             byte=$((v0 * 36 + v1))
-            result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
         done
     fi
 
