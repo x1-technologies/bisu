@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250823Z1
+# Version: v1-20250823Z2
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -12,7 +12,7 @@
 # - Uses `array_get "$array" "$key"` to read existing values (to enforce repetition rules).
 # - Writes into "$args_array_name" or "result" by default.
 # - Emits values only (in insertion order) on stdout (one per line), then returns 0.
-save_args_v1() {
+extract_args_v1() {
     local array_name=$(trim "$1")
     # Load args safely (no splitting on spaces)
     local -a args
@@ -1210,184 +1210,334 @@ array_get_v1() {
 
 # archived work, works correctly
 # Encode a string to Base10
+# Concatenated 3-digit zero-padded ASCII decimals.
+# Usage: base10_encode "string" -> "DDD...DDD"
 base10_encode_v1() {
-    local input=$(trim "$1")
-    local result=""
+    local input result="" char ascii
+    input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
+
+    # Read one character at a time and emit 3-digit decimal (000-255)
     while IFS= read -r -n1 char; do
-        ascii=$(printf "%d" "'$char")
+        ascii=$(LC_ALL=C printf '%03d' "'$char")
         result+="$ascii"
-    done <<<"$input" || {
-        printf ''
-        return 1
-    }
+    done <<<"$input"
+
     printf '%s' "$result"
     return 0
 }
 
 # archived work, works correctly
-# Decode from base10 to original string
+# Decode from Base10 to the original string.
+# Accepts concatenated 3-digit blocks or tokens separated by non-digits.
+# Usage: base10_decode "DDD...DDD"  OR  base10_decode "DDD SEP DDD SEP ..."
 base10_decode_v1() {
-    local input=$(trim "$1")
-    local result=""
-    [ -n "$input" ] || {
-        printf ''
-        return 1
-    }
+    local input result="" ascii_value ascii_dec char len i token processed=0
 
-    # Loop through the input string and decode in chunks (ASCII values)
-    while [ -n "$input" ]; do
-        # Extract the next 3 digits (ASCII value length)
-        ascii_value="${input:0:3}"
-        input="${input:3}"
-
-        # Convert ASCII value to character
-        char=$(printf "\\$(printf '%03o' "$ascii_value")")
-        result+="$char"
-    done || {
-        printf ''
-        return 1
-    }
-
-    printf '%s' "$result"
-    return 0
-}
-
-# archived work, works correctly, lack of performance
-# Encode a string to Base26
-base26_encode_v1() {
-    local input=$(trim "$1")
-    local result=""
-    [ -n "$input" ] || {
-        printf ''
-        return 1
-    }
-    while IFS= read -r -n1 char; do
-        ascii=$(printf "%d" "'$char")
-        base26=$(((ascii - 65 + 26) % 26 + 65))
-        result+=$(printf "\\$(printf '%03o' "$base26")")
-        result=$(strtolower "$result")
-    done <<<"$input" || {
-        printf ''
-        return 1
-    }
-    printf '%s' "$result"
-    return 0
-}
-
-# archived work, works correctly, lack of performance
-# Decode from base26 to original string
-base26_decode_v1() {
-    local input=$(trim "$1")
-    local result=""
-    [ -n "$input" ] || {
-        printf ''
-        return 1
-    }
-    while IFS= read -r -n1 char; do
-        ascii=$(printf "%d" "'$char")
-        # Reverse the base26 encoding
-        original_ascii=$(((ascii - 65 - 26) % 26 + 65))
-        result+=$(printf "\\$(printf '%03o' "$original_ascii")")
-        result=$(strtolower "$result")
-    done <<<"$input" || {
-        printf ''
-        return 1
-    }
-    printf '%s' "$result"
-    return 0
-}
-
-# archived work, works correctly, lack of performance
-# Encode a string to Base36
-base36_encode_v1() {
-    local input dec hex rem base36=""
     input=$(trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
-    # Convert input string to hex string
-    for ((i = 0; i < ${#input}; i++)); do
-        hex+=$(printf '%02x' "'${input:i:1}")
-    done
-
-    # Convert hex to decimal
-    dec=$(printf '%s' "ibase=16; $hex" | bc 2>/dev/null)
-    [ -n "$dec" ] || {
-        printf ''
-        return 1
-    }
-
-    # Convert decimal to base36
-    while [ "$dec" != "0" ]; do
-        rem=$(printf '%s' "$dec % 36" | bc)
-        dec=$(printf '%s' "$dec / 36" | bc)
-        if ((rem < 10)); then
-            base36="${rem}${base36}"
-        else
-            base36="$(printf '\\x%x' $((87 + rem)))$base36"
-        fi
-    done
-
-    # Handle zero input case
-    [ -z "$base36" ] && base36="0"
-
-    printf '%b' "$base36"
-    return 0
-}
-
-# archived work, works correctly, lack of performance
-# Decode from base36 to original string
-base36_decode_v1() {
-    local input dec=0 len i c ascii val hex="" result=""
-    input=$(trim "$1")
-    [ -n "$input" ] || {
-        printf ''
-        return 1
-    }
-    if ! printf '%s' "$input" | grep -qE '^[0-9a-z]+$'; then
-        printf ''
-        return 1
-    fi
-
-    len=${#input}
-    for ((i = 0; i < len; i++)); do
-        c=${input:i:1}
-        ascii=$(printf '%d' "'$c")
-        if ((ascii >= 48 && ascii <= 57)); then
-            val=$((ascii - 48))
-        elif ((ascii >= 97 && ascii <= 122)); then
-            val=$((ascii - 87))
-        else
+    # If there is any non-digit, parse tokens (1-3 digits) using pure-bash regex (no external tools)
+    if [[ "$input" =~ [^0-9] ]]; then
+        while [[ $input =~ ^[^0-9]*([0-9]{1,3})(.*)$ ]]; do
+            token=${BASH_REMATCH[1]}
+            input=${BASH_REMATCH[2]}
+            # Force decimal interpretation, reject invalid numeric forms
+            ascii_dec=$((10#$token))
+            ((ascii_dec >= 0 && ascii_dec <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL token '000'
+            if ((ascii_dec != 0)); then
+                char=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$ascii_dec")")
+                result+="$char"
+            fi
+            processed=1
+        done
+        # if no numeric tokens were found, treat as invalid input
+        ((processed == 1)) || {
             printf ''
             return 1
-        fi
-        dec=$(printf '%s' "$dec * 36 + $val" | bc)
-    done
+        }
+    else
+        # Pure digits: must be multiple of 3 (fixed-width 3-digit blocks)
+        len=${#input}
+        ((len % 3 == 0)) || {
+            printf ''
+            return 1
+        }
 
-    if [ "$dec" = "0" ]; then
-        printf '\0'
-        return 0
+        for ((i = 0; i < len; i += 3)); do
+            ascii_value=${input:i:3}
+            ascii_dec=$((10#$ascii_value))
+            ((ascii_dec >= 0 && ascii_dec <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL token '000'
+            if ((ascii_dec != 0)); then
+                char=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$ascii_dec")")
+                result+="$char"
+            fi
+        done
     fi
 
-    while [ "$dec" != "0" ]; do
-        rem=$(printf '%s' "$dec % 16" | bc)
-        dec=$(printf '%s' "$dec / 16" | bc)
-        hex="$(printf '%x' "$rem")$hex"
-    done
+    printf '%s' "$result"
+    return 0
+}
 
-    ((${#hex} % 2)) && hex="0$hex"
+# archived work, works correctly
+# base26: alphabet A..Z (0..25). Each byte -> 2 letters (high, low)
+# base26_encode "string" -> "AA...ZZ"   (2 chars per byte)
+base26_encode_v1() {
+    local input result="" char ascii high low alphabet
+    input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
 
-    for ((i = 0; i < ${#hex}; i += 2)); do
-        result+=$(printf '\\x%03o' $((16#${hex:i:2})))
-    done
+    alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ' # index 0->A .. 25->Z
 
-    printf '%b' "$result"
+    while IFS= read -r -n1 char; do
+        ascii=$(LC_ALL=C printf '%d' "'$char")
+        # compute base26 two-digit representation
+        high=$((ascii / 26))
+        low=$((ascii % 26))
+        result+="${alphabet:high:1}${alphabet:low:1}"
+    done <<<"$input"
+
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, works correctly
+# base26_decode: decode A..Z pairs (base26) back to original bytes.
+# Accepts concatenated pairs "AABBCD..." (even length) or separated tokens like "AA BB C" (1-2 letters per token).
+# Returns '' and exit code 1 on invalid input.
+base26_decode_v1() {
+    local input result="" token len ascii_val c0 c1 v0 v1 byte processed=0 i
+
+    input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    # Normalize to uppercase to accept a..z or A..Z
+    input=${input^^}
+
+    # If any non-letter present, parse tokens of 1..2 letters using pure-Bash regex (no external tools)
+    if [[ "$input" =~ [^A-Z] ]]; then
+        while [[ $input =~ ^[^A-Z]*([A-Z]{1,2})(.*)$ ]]; do
+            token=${BASH_REMATCH[1]}
+            input=${BASH_REMATCH[2]}
+
+            len=${#token}
+            ((len >= 1 && len <= 2)) || {
+                printf ''
+                return 1
+            }
+
+            if ((len == 1)); then
+                c0=${token:0:1}
+                v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65)) # 'A' -> 0
+                ((v0 >= 0 && v0 < 26)) || {
+                    printf ''
+                    return 1
+                }
+                byte=$v0
+            else
+                c0=${token:0:1}
+                c1=${token:1:1}
+                v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65))
+                v1=$(($(LC_ALL=C printf '%d' "'$c1") - 65))
+                ((v0 >= 0 && v0 < 26 && v1 >= 0 && v1 < 26)) || {
+                    printf ''
+                    return 1
+                }
+                byte=$((v0 * 26 + v1))
+            fi
+
+            # Validate byte range and ignore NUL for portability
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
+            processed=1
+        done
+
+        # If no tokens were processed, input was invalid
+        ((processed == 1)) || {
+            printf ''
+            return 1
+        }
+
+    else
+        # Pure letters: must be even length (2 chars per byte)
+        len=${#input}
+        ((len % 2 == 0)) || {
+            printf ''
+            return 1
+        }
+
+        for ((i = 0; i < len; i += 2)); do
+            c0=${input:i:1}
+            c1=${input:i+1:1}
+            v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65))
+            v1=$(($(LC_ALL=C printf '%d' "'$c1") - 65))
+            ((v0 >= 0 && v0 < 26 && v1 >= 0 && v1 < 26)) || {
+                printf ''
+                return 1
+            }
+            byte=$((v0 * 26 + v1))
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL for portability
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
+        done
+    fi
+
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, works correctly
+# base36: alphabet 0..9 A..Z (0..35). Each byte -> 2 chars.
+# base36_encode "string" -> "00...ZZ"   (2 chars per byte)
+base36_encode_v1() {
+    local input result char ascii high low alphabet len
+    input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    alphabet='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ' # index 0..35
+
+    while IFS= read -r -n1 char; do
+        ascii=$(LC_ALL=C printf '%d' "'$char")
+        high=$((ascii / 36))
+        low=$((ascii % 36))
+        result+="${alphabet:high:1}${alphabet:low:1}"
+    done <<<"$input"
+
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, works correctly
+# base36_decode: decode base36 (0-9,A-Z) 2-char pairs back to original bytes.
+# Accepts concatenated pairs "00A1..." (even length) or separated tokens like "0A A1 2".
+# Returns '' and exit code 1 on invalid input.
+base36_decode_v1() {
+    local input result="" token len c0 c1 v0 v1 byte processed=0 i
+
+    input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    # Normalize to uppercase to accept a..z or A..Z
+    input=${input^^}
+
+    # If any char outside 0-9A-Z present, parse tokens of 1..2 allowed chars using pure-Bash regex
+    if [[ "$input" =~ [^0-9A-Z] ]]; then
+        while [[ $input =~ ^[^0-9A-Z]*([0-9A-Z]{1,2})(.*)$ ]]; do
+            token=${BASH_REMATCH[1]}
+            input=${BASH_REMATCH[2]}
+
+            len=${#token}
+            ((len >= 1 && len <= 2)) || {
+                printf ''
+                return 1
+            }
+
+            if ((len == 1)); then
+                c0=${token:0:1}
+                if [[ "$c0" =~ [0-9] ]]; then
+                    v0=$((c0)) # '0'..'9' -> 0..9
+                else
+                    v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)) # 'A'->10
+                fi
+                ((v0 >= 0 && v0 < 36)) || {
+                    printf ''
+                    return 1
+                }
+                byte=$v0
+            else
+                c0=${token:0:1}
+                c1=${token:1:1}
+                if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
+                if [[ "$c1" =~ [0-9] ]]; then v1=$((c1)); else v1=$(($(LC_ALL=C printf '%d' "'$c1") - 55)); fi
+                ((v0 >= 0 && v0 < 36 && v1 >= 0 && v1 < 36)) || {
+                    printf ''
+                    return 1
+                }
+                byte=$((v0 * 36 + v1))
+            fi
+
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL byte for portability
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
+            processed=1
+        done
+
+        # if no tokens processed, invalid input
+        ((processed == 1)) || {
+            printf ''
+            return 1
+        }
+
+    else
+        # Pure allowed-chars: must be even length (2 chars per byte)
+        len=${#input}
+        ((len % 2 == 0)) || {
+            printf ''
+            return 1
+        }
+
+        for ((i = 0; i < len; i += 2)); do
+            c0=${input:i:1}
+            c1=${input:i+1:1}
+            if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
+            if [[ "$c1" =~ [0-9] ]]; then v1=$((c1)); else v1=$(($(LC_ALL=C printf '%d' "'$c1") - 55)); fi
+            ((v0 >= 0 && v0 < 36 && v1 >= 0 && v1 < 36)) || {
+                printf ''
+                return 1
+            }
+            byte=$((v0 * 36 + v1))
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
+        done
+    fi
+
+    printf '%s' "$result"
     return 0
 }
 
@@ -1418,5 +1568,88 @@ base64_decode_v1() {
         printf ''
         return 1
     }
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# POSIX-compliant trim functions using awk (UTF-8 supported)
+trim_v1() {
+    local str="$1"
+    local chars="$2" # default POSIX space class
+    local ci="$3"
+    in_array "$ci" "true" "false" || ci="false"
+    if [[ "$ci" == "true" ]]; then
+        ci=1
+    else
+        ci=0
+    fi
+    [ $# -ne 0 ] || str=$(cat)
+
+    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
+        str="${str#"${str%%[![:space:]]*}"}" # ltrim
+        str="${str%"${str##*[![:space:]]}"}" # rtrim
+    else
+        str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+            {
+                gsub("^" chars "+", "")
+                gsub(chars "+$", "")
+                print
+            }
+        ' <<<"$str" 2>/dev/null)
+    fi
+
+    echo "$str"
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# POSIX-compliant trim functions using awk (UTF-8 supported)
+ltrim_v1() {
+    local str="$1"
+    local chars="$2" # default POSIX space class
+    local ci="$3"
+    in_array "$ci" "true" "false" || ci="false"
+    if [[ "$ci" == "true" ]]; then
+        ci=1
+    else
+        ci=0
+    fi
+    [ $# -ne 0 ] || str=$(cat)
+
+    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
+        str="${str#"${str%%[![:space:]]*}"}" # ltrim
+    else
+        str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+            { gsub("^" chars "+", ""); print }
+        ' <<<"$str" 2>/dev/null)
+    fi
+
+    echo "$str"
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# POSIX-compliant trim functions using awk (UTF-8 supported)
+rtrim_v1() {
+    local str="$1"
+    local chars="$2" # default POSIX space class
+    local ci="$3"
+    in_array "$ci" "true" "false" || ci="false"
+    if [[ "$ci" == "true" ]]; then
+        ci=1
+    else
+        ci=0
+    fi
+    [ $# -ne 0 ] || str=$(cat)
+
+    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
+        str="${str%"${str##*[![:space:]]}"}" # rtrim
+    else
+        str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+            { sub(chars "$", ""); print }
+        ' <<<"$str" 2>/dev/null)
+    fi
+
+    echo "$str"
     return 0
 }
