@@ -4,7 +4,237 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250822Z5
+# Version: v1-20250823Z1
+
+# archived work, works correctly, improved version of get_args()
+# Parse command-line arguments into an associative storage backend.
+# - Uses only `array_set "$array" "$key" "$value"` to write values.
+# - Uses `array_get "$array" "$key"` to read existing values (to enforce repetition rules).
+# - Writes into "$args_array_name" or "result" by default.
+# - Emits values only (in insertion order) on stdout (one per line), then returns 0.
+save_args_v1() {
+    local array_name=$(trim "$1")
+    # Load args safely (no splitting on spaces)
+    local -a args
+    mapfile -t args < <(current_args)
+
+    local argc=${#args[@]}
+    local i=0
+    declare -A target=()
+
+    # order_list records keys in the order they were first set (insertion order)
+    local -a order_list=()
+    local positional_index=1
+    local GETARGS_OVERRIDE_FLAG="${GETARGS_OVERRIDE:-0}"
+    local EMPTY_EXPR_literal="$EMPTY_EXPR" # the literal to use for booleans
+    local stop_parsing=0
+
+    # Internal function-like inline logic (kept inline as required):
+    # - set_key_if_allowed KEY VALUE
+    #     respects repetition rules and records insertion order.
+    # Implementation uses only array_get/array_set for storage checks/sets.
+    #
+    # Because subfunctions are disallowed by the spec, implement logic inline via labels
+    # (comments) where used.
+
+    while [ $i -lt $argc ]; do
+        local token="${args[$i]}"
+
+        if [ "$stop_parsing" -eq 1 ]; then
+            # All subsequent args are positional
+            local key="$positional_index"
+            array_set "target" "$key" "$token"
+            order_list+=("$key")
+            positional_index=$((positional_index + 1))
+            i=$((i + 1))
+            continue
+        fi
+
+        # End-of-options marker (unless consumed as a KV value later)
+        if [ "$token" = "--" ]; then
+            # '--' alone stops option parsing
+            stop_parsing=1
+            i=$((i + 1))
+            continue
+        fi
+
+        # Long options: start with '--' (including 3+ dashes which will be normalized)
+        if [[ "$token" == --* ]]; then
+            # Handle forms:
+            #  --opt=value        -> opt="value"
+            #  --opt value        -> opt="value" (if next doesn't start with '-')
+            #  --opt key=value    -> opt="key=value"
+            #  --opt              -> opt="$EMPTY_EXPR"
+            local long_raw="$token"
+            local val=""
+            local keyraw=""
+            if [[ "$long_raw" == *=* ]]; then
+                # --opt=value  (split at first '=')
+                keyraw="${long_raw%%=*}"
+                val="${long_raw#*=}"
+                # strip leading dashes from keyraw
+                # remove ALL leading '-' (3+ dashes allowed)
+                while [[ "$keyraw" == -* ]]; do keyraw="${keyraw#-}"; done
+                # normalize internal '-' to '_'
+                local key="${keyraw//-/_}"
+                # explicit empty after '=' means user supplied empty -> store single space " "
+                [ -z "$val" ] && val=" "
+
+                # repetition check
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    # record order if first set
+                    [ -z "$existing" ] && order_list+=("$key")
+                fi
+                i=$((i + 1))
+                continue
+            else
+                # --opt (without '=')
+                # keyraw is token without leading dashes
+                keyraw="$long_raw"
+                while [[ "$keyraw" == -* ]]; do keyraw="${keyraw#-}"; done
+                local key="${keyraw//-/_}"
+
+                # Lookahead to decide if it's a KV (next not starting with '-')
+                local nextidx=$((i + 1))
+                if [ $nextidx -lt $argc ]; then
+                    local next="${args[$nextidx]}"
+                    # If next is exactly '--' then spec says: if it's being used as the KV value,
+                    # store it literally as the value. Otherwise, '--' alone stops option parsing.
+                    if [[ "$next" = "--" ]]; then
+                        # Treat it as a *value* for this option (per spec).
+                        val="--"
+                        # consume next arg as the value
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+
+                    # if next does not start with '-', bind it as the value (covers key=value literal too)
+                    if [[ ! "$next" == -* ]]; then
+                        val="$next"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            # explicit empty string binding (user wrote --opt "" ) would be an empty arg,
+                            # but if val is empty we treat it as explicit empty: store single space " ".
+                            [ -z "$val" ] && val=" "
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+                fi
+
+                # Otherwise, boolean flag
+                val="$EMPTY_EXPR_literal"
+                i=$((i + 1))
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    [ -z "$existing" ] && order_list+=("$key")
+                fi
+                continue
+            fi
+        fi
+
+        # Short options: start with single '-' and not '--'
+        if [[ "$token" == -* && "$token" != "-" ]]; then
+            # Distinguish single-letter '-k' vs bundled '-abc' vs '-ovalue' (which is treated as bundling)
+            # If token length == 2 (e.g., -k) then it may bind the next arg as a value (if next exists and does not start with '-')
+            local token_len=${#token}
+            if [ "$token_len" -eq 2 ]; then
+                local ch="${token:1:1}"
+                local key="$ch"
+                # check lookahead for KV binding: -k value -> KV; only when -k is alone, not bundled
+                local nextidx=$((i + 1))
+                if [ $nextidx -lt $argc ]; then
+                    local next="${args[$nextidx]}"
+                    # if next is exactly '--', spec: '--' after KV option stored as literal value "--"
+                    if [ "$next" = "--" ]; then
+                        # treat as value "--"
+                        local val="--"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+                    # Bind next as value only if it does NOT start with '-'
+                    if [[ ! "$next" == -* ]]; then
+                        local val="$next"
+                        i=$((i + 2))
+                        local existing
+                        existing="$(array_get "target" "$key")"
+                        if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                            [ -z "$val" ] && val=" "
+                            array_set "target" "$key" "$val"
+                            [ -z "$existing" ] && order_list+=("$key")
+                        fi
+                        continue
+                    fi
+                fi
+
+                # Otherwise boolean
+                local val="$EMPTY_EXPR_literal"
+                i=$((i + 1))
+                local existing
+                existing="$(array_get "target" "$key")"
+                if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                    array_set "target" "$key" "$val"
+                    [ -z "$existing" ] && order_list+=("$key")
+                fi
+                continue
+            else
+                # Bundled short options or -ovalue: treat every character after '-' as its own boolean.
+                # Example: -abc -> a="$EMPTY_EXPR" b="$EMPTY_EXPR" c="$EMPTY_EXPR"
+                # Example: -ovalue -> o="$EMPTY_EXPR" v="$EMPTY_EXPR" a="$EMPTY_EXPR" l="$EMPTY_EXPR" u="$EMPTY_EXPR" e="$EMPTY_EXPR"
+                local j=1
+                while [ $j -lt $token_len ]; do
+                    local ch="${token:$j:1}"
+                    local key="$ch"
+                    local val="$EMPTY_EXPR_literal"
+                    local existing
+                    existing="$(array_get "target" "$key")"
+                    if [ -z "$existing" ] || [ "$GETARGS_OVERRIDE_FLAG" -eq 1 ]; then
+                        array_set "target" "$key" "$val"
+                        [ -z "$existing" ] && order_list+=("$key")
+                    fi
+                    j=$((j + 1))
+                done
+                i=$((i + 1))
+                continue
+            fi
+        fi
+
+        # Anything else is a positional argument
+        {
+            local key="$positional_index"
+            array_set "target" "$key" "$token"
+            order_list+=("$key")
+            positional_index=$((positional_index + 1))
+            i=$((i + 1))
+        }
+    done
+
+    local kv_str=$(array_dump "target")
+    @set "arr_ref" "${kv_str[@]}" || return 1
+    # IMPORTANT: use -g so the declared associative array is global (visible outside function)
+    eval "declare -gA ${array_name}=($arr_ref)" 2>/dev/null || return 1
+    return 0
+}
 
 # not completely works, can not preserve quoted string as an entity
 get_args_v1() {
@@ -856,5 +1086,337 @@ array_merge_v1() {
     # Final assignment (handles empty correctly: yields dest=() not dest=("")
     _am_dest=("${_am_merged[@]}")
 
+    return 0
+}
+
+# archived work, works correctly, not fully verified
+# Set the specified key/value pairs in either indexed or associative arrays
+# Usage: array_set arr key1 val1 [key2 val2 ...]
+# Returns 0 on success, 1 on failure
+array_set_v1() {
+    local array_name key value is_assoc i
+    array_name=$(trim "$1")
+    shift
+
+    is_array "$array_name" || return 1
+    declare -n _ref="$array_name"
+
+    if is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    while [[ $# -gt 1 ]]; do
+        key="$(trim "$1")"
+        value="$2"
+        shift 2
+
+        [[ -z "$key" ]] && continue
+
+        if [[ $is_assoc -eq 1 ]]; then
+            _ref["$key"]="$value"
+            continue
+        fi
+
+        if [[ "$key" =~ ^[0-9]+$ ]]; then
+            _ref[$key]="$value"
+            continue
+        fi
+
+        local __mig_tmp="__array_mig_tmp_$$"
+        if isset "$__mig_tmp"; then
+            unset -v "$__mig_tmp"
+        fi
+        declare -gA "$__mig_tmp"
+
+        declare -n __tmp_ref="$__mig_tmp"
+        for i in "${!_ref[@]}"; do
+            __tmp_ref["$i"]="${_ref[$i]}"
+        done
+
+        # Unset original variable and re-declare it as associative
+        unset -v "$array_name"
+        declare -gA "$array_name"
+
+        # Rebind _ref to the now-associative variable
+        declare -n _ref="$array_name"
+
+        # Restore values from tmp and clean up
+        for i in "${!__tmp_ref[@]}"; do
+            _ref["$i"]="${__tmp_ref[$i]}"
+        done
+
+        unset -v "__tmp_ref"
+        unset -v "$__mig_tmp"
+
+        is_assoc=1
+
+        _ref["$key"]="$value"
+    done
+
+    return 0
+}
+
+# archived work, works correctly, not fully verified
+# Get an element from a indexed or assoc array, if having multiple keys, when matched the first non-empty val then stop
+# Usage: array_get arr key1 [key2 ...]
+# Returns: 0 on success, 1 on failure
+array_get_v1() {
+    local array_name key val is_assoc
+    array_name=$(trim "$1")
+    shift
+
+    is_array "$array_name" || {
+        printf ''
+        return 1
+    }
+
+    declare -n _ref="$array_name"
+
+    if is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    val=""
+    for key in "$@"; do
+        [[ -z "$key" ]] && continue
+
+        if [[ $is_assoc -eq 1 ]]; then
+            [[ -v _ref["$key"] ]] 2>/dev/null || continue
+            val="${_ref[$key]}"
+        else
+            [[ "$key" =~ ^[0-9]+$ ]] || continue
+            if ((key >= 0 && key < ${#_ref[@]})); then
+                val="${_ref[$key]}"
+            else
+                continue
+            fi
+        fi
+
+        [[ "${val:-}" == "${EMPTY_EXPR:-}" ]] && val=""
+
+        [[ -n "$val" ]] && {
+            [[ "$val" == "$EMPTY_EXPR" ]] && val=""
+            break
+        }
+    done
+
+    printf '%s' "$val"
+    return 0
+}
+
+# archived work, works correctly
+# Encode a string to Base10
+base10_encode_v1() {
+    local input=$(trim "$1")
+    local result=""
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+    while IFS= read -r -n1 char; do
+        ascii=$(printf "%d" "'$char")
+        result+="$ascii"
+    done <<<"$input" || {
+        printf ''
+        return 1
+    }
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, works correctly
+# Decode from base10 to original string
+base10_decode_v1() {
+    local input=$(trim "$1")
+    local result=""
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    # Loop through the input string and decode in chunks (ASCII values)
+    while [ -n "$input" ]; do
+        # Extract the next 3 digits (ASCII value length)
+        ascii_value="${input:0:3}"
+        input="${input:3}"
+
+        # Convert ASCII value to character
+        char=$(printf "\\$(printf '%03o' "$ascii_value")")
+        result+="$char"
+    done || {
+        printf ''
+        return 1
+    }
+
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, works correctly, lack of performance
+# Encode a string to Base26
+base26_encode_v1() {
+    local input=$(trim "$1")
+    local result=""
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+    while IFS= read -r -n1 char; do
+        ascii=$(printf "%d" "'$char")
+        base26=$(((ascii - 65 + 26) % 26 + 65))
+        result+=$(printf "\\$(printf '%03o' "$base26")")
+        result=$(strtolower "$result")
+    done <<<"$input" || {
+        printf ''
+        return 1
+    }
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, works correctly, lack of performance
+# Decode from base26 to original string
+base26_decode_v1() {
+    local input=$(trim "$1")
+    local result=""
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+    while IFS= read -r -n1 char; do
+        ascii=$(printf "%d" "'$char")
+        # Reverse the base26 encoding
+        original_ascii=$(((ascii - 65 - 26) % 26 + 65))
+        result+=$(printf "\\$(printf '%03o' "$original_ascii")")
+        result=$(strtolower "$result")
+    done <<<"$input" || {
+        printf ''
+        return 1
+    }
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, works correctly, lack of performance
+# Encode a string to Base36
+base36_encode_v1() {
+    local input dec hex rem base36=""
+    input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    # Convert input string to hex string
+    for ((i = 0; i < ${#input}; i++)); do
+        hex+=$(printf '%02x' "'${input:i:1}")
+    done
+
+    # Convert hex to decimal
+    dec=$(printf '%s' "ibase=16; $hex" | bc 2>/dev/null)
+    [ -n "$dec" ] || {
+        printf ''
+        return 1
+    }
+
+    # Convert decimal to base36
+    while [ "$dec" != "0" ]; do
+        rem=$(printf '%s' "$dec % 36" | bc)
+        dec=$(printf '%s' "$dec / 36" | bc)
+        if ((rem < 10)); then
+            base36="${rem}${base36}"
+        else
+            base36="$(printf '\\x%x' $((87 + rem)))$base36"
+        fi
+    done
+
+    # Handle zero input case
+    [ -z "$base36" ] && base36="0"
+
+    printf '%b' "$base36"
+    return 0
+}
+
+# archived work, works correctly, lack of performance
+# Decode from base36 to original string
+base36_decode_v1() {
+    local input dec=0 len i c ascii val hex="" result=""
+    input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+    if ! printf '%s' "$input" | grep -qE '^[0-9a-z]+$'; then
+        printf ''
+        return 1
+    fi
+
+    len=${#input}
+    for ((i = 0; i < len; i++)); do
+        c=${input:i:1}
+        ascii=$(printf '%d' "'$c")
+        if ((ascii >= 48 && ascii <= 57)); then
+            val=$((ascii - 48))
+        elif ((ascii >= 97 && ascii <= 122)); then
+            val=$((ascii - 87))
+        else
+            printf ''
+            return 1
+        fi
+        dec=$(printf '%s' "$dec * 36 + $val" | bc)
+    done
+
+    if [ "$dec" = "0" ]; then
+        printf '\0'
+        return 0
+    fi
+
+    while [ "$dec" != "0" ]; do
+        rem=$(printf '%s' "$dec % 16" | bc)
+        dec=$(printf '%s' "$dec / 16" | bc)
+        hex="$(printf '%x' "$rem")$hex"
+    done
+
+    ((${#hex} % 2)) && hex="0$hex"
+
+    for ((i = 0; i < ${#hex}; i += 2)); do
+        result+=$(printf '\\x%03o' $((16#${hex:i:2})))
+    done
+
+    printf '%b' "$result"
+    return 0
+}
+
+# archived work, works correctly
+# Encode a string to Base64
+base64_encode_v1() {
+    local input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+    printf '%s' "$input" | base64 || {
+        printf ''
+        return 1
+    }
+    return 0
+}
+
+# archived work, works correctly
+# Decode from base64 to original string
+base64_decode_v1() {
+    local input=$(trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+    printf '%s' "$input" | base64 --decode || {
+        printf ''
+        return 1
+    }
     return 0
 }
