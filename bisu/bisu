@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.350"
+export BISU_VERSION="10.2.351"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-23Z"
 # Minimal Bash Version
@@ -40,6 +40,8 @@ export SAFE_FORK_LIMIT=16
 export VERIFY_BISU_SIG=${VERIFY_BISU_SIG:-"true"}
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
+# Set a critical point for adopting awk to trim
+export TRIM_CRITICAL_POINT=4096
 # Error message prefix
 export ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # BISU File URL
@@ -412,7 +414,7 @@ trim() {
 
     # threshold: environment override allowed
     critical_point="${TRIM_CRITICAL_POINT-4096}"
-    if ! [[ "$critical_point" =~ ^[0-9]+$ ]]; then
+    if ! [[ "$critical_point" =~ ^[1-9][0-9]*$ ]]; then
         critical_point=4096
     fi
 
@@ -5638,14 +5640,8 @@ reliable_curl() {
 
 # Generate a regular nanoid
 nanoid() {
-    local length
-    local having_dash
-    local case_mode="mixed"
-    local alphabet
-    local alpha_len
-    local result=""
-    local i=0
-    local rand byte
+    local length having_dash case_mode alphabet alpha_len rand byte
+    local result="" i=0
 
     # Parse args: length, having_dash (true|false), case_mode (lowercase|uppercase|mixed)
     [ "$1" ] && length=$(trim "$1")
