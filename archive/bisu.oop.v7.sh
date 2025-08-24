@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
-# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179
-# Version: v7-20250811Z5
+# shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 # ================================================================ Bash OOP Engine Start =======================================================================
+# Version: v7-20250822Z1
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
 
 class.trim() {
-    printf '%s' "$1"
+    local str="$1"
+    str="${str#"${str%%[![:space:]]*}"}" # ltrim
+    str="${str%"${str##*[![:space:]]}"}" # rtrim
+    echo "$str"
 }
 
 # Validate if a given string is a valid Bash variable name.
@@ -30,12 +34,12 @@ class.rename() {
 class.copy() {
     if [ "$3" ]; then
         local vars=__BISU_CLASS_V_${4//.*/}
-        eval "$2() { local this=$3 parent=$3.parent self=$4; $(declare -f $1 |
+        eval "$2() { local this=$3 parent=$3.parent self=$4; $(declare -f $1 2>/dev/null |
             tail -n +4 | # delete local self
             class.sed 's/\{?this\[(@'${!vars}')\]\}?/'${3#*.}'__\1/g')"
     else
         local vars=__BISU_CLASS_V_${2//.*/}
-        eval "$2() { local self=${2//.*/}; $(declare -f $1 |
+        eval "$2() { local self=${2//.*/}; $(declare -f $1 2>/dev/null |
             tail -n +3 |
             class.sed 's/\{?self\[(@'${!vars}')\]\}?/'${2//.*/}'_static_\1/g')"
     fi
@@ -44,6 +48,7 @@ class.copy() {
 # Get or set a class variable value.
 class.var() {
     local name="${1#*.}__$2"
+    name=$(class.trim "$name")
     if [ -z "$3" ]; then
         printf '%s' "${!name}"
     else
@@ -93,21 +98,25 @@ class.append() {
 
 # Set a variable with validation.
 @set() {
-    local name="$1"
+    local name=$(class.trim "$1")
     shift
-    class.name.valid "$name" && printf -v "$name" '%s' "$@"
+    class.name.valid "$name" || return 1
+    printf -v "$name" '%s' "$@"
+    return 0
 }
 
 # Return an object with validation.
 @return() {
-    local name="$1"
+    local name=$(class.trim "$1")
     shift
-    class.name.valid "$name" && printf -v "$name" "$@"
+    class.name.valid "$name" || return 1
+    printf -v "$name" "$@"
+    return 0
 }
 
 # Begin class definition, handling inheritance.
 @class() {
-    __BISU_CLASS_NAME=("$@")
+    export __BISU_CLASS_NAME=($(printf '%s ' "$@"))
     local name vars
     for name in "${__BISU_CLASS_NAME[@]:1}"; do
         vars="__BISU_CLASS_V_$name"
