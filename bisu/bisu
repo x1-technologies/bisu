@@ -9,9 +9,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.352"
+export BISU_VERSION="10.2.353"
 # Set BISU's last release date
-export BISU_LAST_RELEASE_DATE="2025-08-23Z"
+export BISU_LAST_RELEASE_DATE="2025-08-24Z"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 # BISU info uri
@@ -888,17 +888,19 @@ output() {
     }
 
     local command
-    command="printf '%b\\n' \"$message\""
+    if [[ "$use_newline" == "true" ]]; then
+        command="printf '%b\\n' \"$message\""
+    else
+        command="printf '%b' \"$message\""
+    fi
 
     if [[ "$log_only" == "true" ]]; then
         eval "$(printf '%s ' "$command")" |
-            { [[ "$use_newline" == "false" ]] && rtrim "$(cat)" '\n' || cat; } |
             { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
             tee -a -- "$(current_log_file)" &>/dev/null ||
             return 1
     else
         eval "$(printf '%s ' "$command")" |
-            { [[ "$use_newline" == "false" ]] && rtrim "$(cat)" '\n' || cat; } |
             { debug_mode_on && fold -s -w "$LINE_BREAK_LENGTH" || fold -s -w "$LINE_BREAK_LENGTH" 2>/dev/null; } |
             { debug_mode_on && tee -a -- "$(current_log_file)" || tee -a -- "$(current_log_file)" 2>/dev/null; } ||
             return 1
@@ -6177,8 +6179,8 @@ exit_with_commands() {
         error_exit "Invalid array name 'BISU_EXIT_WITH_COMMANDS' provided."
     fi
 
-    atomic_mutex_lock && log_msg "🕒 ${utility_name}: Cleaning up..." "true"
     local utility_name=$(current_utility_name)
+    log_msg "🕒 ${utility_name}: Cleaning up..." "true"
     for val in "${BISU_EXIT_WITH_COMMANDS[@]}"; do
         val=$(trim "$val")
         if [ -z "$val" ]; then
@@ -6835,7 +6837,7 @@ continuous_exec() {
 # set guard for importing act
 set_source_guard() {
     # Only install once
-    if declare -F __source_guard >/dev/null; then
+    if declare -F __source_guard &>/dev/null; then
         return 0
     fi
 
@@ -6857,7 +6859,7 @@ set_source_guard() {
 
         # Mark as loaded and perform actual source
         __loaded_scripts[$abs_target]=1
-        builtin source "$target"
+        builtin source "$target" 2>/dev/null
 
         return 0
     }
