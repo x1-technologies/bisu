@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250824Z5
+# Version: v1-20250824Z6
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -1716,7 +1716,7 @@ trim_v2() {
                 str="${str%"${str##*[![:space:]]}"}"
                 ;;
             esac
-            printf '%s' "$str"
+            echo "$str"
             return 0
         else
             # large input: use awk (original robust behavior)
@@ -1735,7 +1735,7 @@ trim_v2() {
                 }
                 ' <<<"$str" 2>/dev/null
             )
-            printf '%s' "$str"
+            echo "$str"
             return 0
         fi
     fi
@@ -1758,7 +1758,7 @@ trim_v2() {
             }
             ' <<<"$str" 2>/dev/null
         )
-        printf '%s' "$str"
+        echo "$str"
         return 0
     fi
 
@@ -1812,7 +1812,7 @@ trim_v2() {
         done
     fi
 
-    printf '%s' "$str"
+    echo "$str"
     return 0
 }
 
