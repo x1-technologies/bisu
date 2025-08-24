@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.355"
+export BISU_VERSION="10.2.356"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-24Z"
 # Minimal Bash Version
@@ -395,7 +395,7 @@ trim() {
     endpoints="${4-3}"
 
     # validate ci param
-    [[ "$raw_ci" == "true" || "$raw_ci" == "false" ]] || raw_ci="false"
+    in_array "$raw_ci" "true" "false" || raw_ci="false"
     if [[ "$raw_ci" == "true" ]]; then
         ci=1
     else
@@ -418,7 +418,7 @@ trim() {
         critical_point=4096
     fi
 
-    # choose fast bash path or awk path based on length
+    # choose fast bash path or awk path
     len=${#str}
     if ((len >= critical_point)); then
         use_awk=1
@@ -429,7 +429,6 @@ trim() {
     # ---- whitespace default fast-path ----
     if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
         if ((use_awk == 0)); then
-            # small input: pure-Bash trimming (fast)
             case $endpoints in
             1) # left only
                 str="${str#"${str%%[![:space:]]*}"}"
@@ -445,32 +444,22 @@ trim() {
             echo "$str"
             return 0
         else
-            # large input: use awk (robust for UTF-8)
-            # For whitespace, ensure a valid class is used
-            if [[ "$endpoints" == "1" ]]; then
-                str=$(
-                    awk -v chars="[[:space:]]" -v IGNORECASE="$ci" '
-                    { gsub("^" chars "+", ""); print }
-                    ' <<<"$str" 2>/dev/null
-                )
-            elif [[ "$endpoints" == "2" ]]; then
-                str=$(
-                    awk -v chars="[[:space:]]" -v IGNORECASE="$ci" '
-                    { gsub(chars "+$", ""); print }
-                    ' <<<"$str" 2>/dev/null
-                )
-            else
-                # exact archived-style awk for both ends
-                str=$(
-                    awk -v chars="[[:space:]]" -v IGNORECASE="$ci" '
-                    {
+            # large input: use awk (original robust behavior)
+            str=$(
+                awk -v chars="[$chars]" -v IGNORECASE="$ci" -v endpoints="$endpoints" '
+                {
+                    if (endpoints == "1") {
+                        gsub("^" chars "+", "")
+                    } else if (endpoints == "2") {
+                        gsub(chars "+$", "")
+                    } else {
                         gsub("^" chars "+", "")
                         gsub(chars "+$", "")
-                        print
                     }
-                    ' <<<"$str" 2>/dev/null
-                )
-            fi
+                    print
+                }
+                ' <<<"$str" 2>/dev/null
+            )
             echo "$str"
             return 0
         fi
@@ -478,31 +467,22 @@ trim() {
 
     # ---- custom chars branch ----
     if ((use_awk == 1)); then
-        # large input: fallback to awk (preserve archived logic for custom classes)
-        if [[ "$endpoints" == "1" ]]; then
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                { gsub("^" chars "+", ""); print }
-                ' <<<"$str" 2>/dev/null
-            )
-        elif [[ "$endpoints" == "2" ]]; then
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                { gsub(chars "+$", ""); print }
-                ' <<<"$str" 2>/dev/null
-            )
-        else
-            # exact archived-style awk for both ends
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                {
+        # large input: fallback to awk (preserve original logic)
+        str=$(
+            awk -v chars="[$chars]" -v IGNORECASE="$ci" -v endpoints="$endpoints" '
+            {
+                if (endpoints == "1") {
+                    gsub("^" chars "+", "")
+                } else if (endpoints == "2") {
+                    gsub(chars "+$", "")
+                } else {
                     gsub("^" chars "+", "")
                     gsub(chars "+$", "")
-                    print
                 }
-                ' <<<"$str" 2>/dev/null
-            )
-        fi
+                print
+            }
+            ' <<<"$str" 2>/dev/null
+        )
         echo "$str"
         return 0
     fi
@@ -531,7 +511,7 @@ trim() {
                 chkey=$ch
             fi
             if [[ ${trim_map[$chkey]+_} ]]; then
-                # remove first character
+                # remove first character (use pattern removal to be robust)
                 str=${str#?}
                 continue
             fi
@@ -549,7 +529,7 @@ trim() {
                 chkey=$ch
             fi
             if [[ ${trim_map[$chkey]+_} ]]; then
-                # remove last character
+                # remove last character robustly
                 str=${str%?}
                 continue
             fi
@@ -1009,8 +989,10 @@ is_executable() {
 
 # Function to check if the process is running
 process_is_running() {
-    local pid=$(trim "$1")
-    is_nn_int "$pid" || return 1
+    local pid="$1"
+    pid="${pid#"${pid%%[![:space:]]*}"}" # ltrim
+    pid="${pid%"${pid##*[![:space:]]}"}" # rtrim
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || exit_code=0
     kill -0 "$pid" &>/dev/null || return 1
     return 0
 }
@@ -1033,9 +1015,15 @@ quit() {
     local original_sigterm=$(trap -p SIGTERM)
 
     local exit_code=$1
-    local pid=$(trim "$2")
-    local quit_group=$(trim "$3")
-    local force=$(trim "$4")
+    local pid="$2"
+    pid="${pid#"${pid%%[![:space:]]*}"}" # ltrim
+    pid="${pid%"${pid##*[![:space:]]}"}" # rtrim
+    local quit_group="$3"
+    quit_group="${quit_group#"${quit_group%%[![:space:]]*}"}" # ltrim
+    quit_group="${quit_group%"${quit_group##*[![:space:]]}"}" # rtrim
+    local force="$4"
+    force="${force#"${force%%[![:space:]]*}"}" # ltrim
+    force="${force%"${force##*[![:space:]]}"}" # rtrim
 
     local command=""
     local signal="TERM"
@@ -1044,13 +1032,10 @@ quit() {
         pid=$CURRENT_PID
     fi
 
-    if ! is_posi_int "$pid"; then
-        exit 1
-    fi
-
-    is_posi_int "$exit_code" || exit_code=0
-    in_array "${quit_group}" "true" "false" || quit_group="true"
-    in_array "${force}" "true" "false" || force="false"
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || exit 1
+    [[ "$exit_code" =~ ^[1-9][0-9]*$ ]] || exit_code=0
+    [[ "$quit_group" == "true" || "$quit_group" == "false" ]] || quit_group="true"
+    [[ "$force" == "true" || "$force" == "false" ]] || force="false"
 
     if [[ "$force" == "true" ]]; then
         signal="9"
