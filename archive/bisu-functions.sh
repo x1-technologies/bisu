@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250824Z3
+# Version: v1-20250824Z5
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -1655,6 +1655,13 @@ rtrim_v1() {
 }
 
 # archived work, correctly works
+# Adaptive, POSIX-aware trim function (UTF-8 friendly, high-performance)
+# Usage: trim "string" [chars] [case_insensitive]
+#   chars: characters to trim (default: POSIX space class)
+#   case_insensitive: "true"|"false"
+# Behavior: adaptive threshold controlled by TRIM_CRITICAL_POINT (non-negative int, default 4096).
+#           For inputs >= threshold the function uses awk (robust for large/UTF-8 data).
+#           For smaller inputs it uses pure-Bash paths for best performance.
 trim_v2() {
     local str chars raw_ci ci endpoints critical_point len use_awk
     str="$1"
@@ -1663,7 +1670,7 @@ trim_v2() {
     endpoints="${4-3}"
 
     # validate ci param
-    [[ "$raw_ci" == "true" || "$raw_ci" == "false" ]] || raw_ci="false"
+    in_array "$raw_ci" "true" "false" || raw_ci="false"
     if [[ "$raw_ci" == "true" ]]; then
         ci=1
     else
@@ -1826,187 +1833,5 @@ ltrim_v2() {
 #   case_insensitive: "true"|"false" (validated via in_array; default "false")
 rtrim_v2() {
     trim "$1" "$2" "$3" "2" || return 1
-    return 0
-}
-
-# archived work, correctly works
-# Adaptive, POSIX-aware trim function (UTF-8 friendly, high-performance)
-# Usage: trim "string" [chars] [case_insensitive]
-#   chars: characters to trim (default: POSIX space class)
-#   case_insensitive: "true"|"false"
-# Behavior: adaptive threshold controlled by TRIM_CRITICAL_POINT (non-negative int, default 4096).
-#           For inputs >= threshold the function uses awk (robust for large/UTF-8 data).
-#           For smaller inputs it uses pure-Bash paths for best performance.
-trim_v3() {
-    local str chars raw_ci ci endpoints critical_point len use_awk
-    str="$1"
-    chars="${2-}"
-    raw_ci="$3"
-    endpoints="${4-3}"
-
-    # validate ci param
-    [[ "$raw_ci" == "true" || "$raw_ci" == "false" ]] || raw_ci="false"
-    if [[ "$raw_ci" == "true" ]]; then
-        ci=1
-    else
-        ci=0
-    fi
-
-    # endpoints must be 1,2 or 3; otherwise default 3
-    if ! [[ "$endpoints" =~ ^[123]$ ]]; then
-        endpoints=3
-    fi
-
-    # if no args, read from stdin (preserve original)
-    if [[ $# -eq 0 ]]; then
-        str=$(cat)
-    fi
-
-    # threshold: environment override allowed
-    critical_point="${TRIM_CRITICAL_POINT-4096}"
-    if ! [[ "$critical_point" =~ ^[1-9][0-9]*$ ]]; then
-        critical_point=4096
-    fi
-
-    # choose fast bash path or awk path based on length
-    len=${#str}
-    if ((len >= critical_point)); then
-        use_awk=1
-    else
-        use_awk=0
-    fi
-
-    # ---- whitespace default fast-path ----
-    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
-        if ((use_awk == 0)); then
-            # small input: pure-Bash trimming (fast)
-            case $endpoints in
-            1) # left only
-                str="${str#"${str%%[![:space:]]*}"}"
-                ;;
-            2) # right only
-                str="${str%"${str##*[![:space:]]}"}"
-                ;;
-            3) # both
-                str="${str#"${str%%[![:space:]]*}"}"
-                str="${str%"${str##*[![:space:]]}"}"
-                ;;
-            esac
-            echo "$str"
-            return 0
-        else
-            # large input: use awk (robust for UTF-8)
-            # For whitespace, ensure a valid class is used
-            if [[ "$endpoints" == "1" ]]; then
-                str=$(
-                    awk -v chars="[[:space:]]" -v IGNORECASE="$ci" '
-                    { gsub("^" chars "+", ""); print }
-                    ' <<<"$str" 2>/dev/null
-                )
-            elif [[ "$endpoints" == "2" ]]; then
-                str=$(
-                    awk -v chars="[[:space:]]" -v IGNORECASE="$ci" '
-                    { gsub(chars "+$", ""); print }
-                    ' <<<"$str" 2>/dev/null
-                )
-            else
-                # exact archived-style awk for both ends
-                str=$(
-                    awk -v chars="[[:space:]]" -v IGNORECASE="$ci" '
-                    {
-                        gsub("^" chars "+", "")
-                        gsub(chars "+$", "")
-                        print
-                    }
-                    ' <<<"$str" 2>/dev/null
-                )
-            fi
-            echo "$str"
-            return 0
-        fi
-    fi
-
-    # ---- custom chars branch ----
-    if ((use_awk == 1)); then
-        # large input: fallback to awk (preserve archived logic for custom classes)
-        if [[ "$endpoints" == "1" ]]; then
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                { gsub("^" chars "+", ""); print }
-                ' <<<"$str" 2>/dev/null
-            )
-        elif [[ "$endpoints" == "2" ]]; then
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                { gsub(chars "+$", ""); print }
-                ' <<<"$str" 2>/dev/null
-            )
-        else
-            # exact archived-style awk for both ends
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                {
-                    gsub("^" chars "+", "")
-                    gsub(chars "+$", "")
-                    print
-                }
-                ' <<<"$str" 2>/dev/null
-            )
-        fi
-        echo "$str"
-        return 0
-    fi
-
-    # small input & custom chars: pure-Bash trimming (multibyte-aware-ish)
-    local -A trim_map=()
-    local ch chkey
-    # build map from chars; honor case-insensitive
-    while IFS= read -r -n1 ch; do
-        [[ -z "$ch" ]] && continue
-        if ((ci)); then
-            chkey=${ch,,}
-        else
-            chkey=$ch
-        fi
-        trim_map["$chkey"]=1
-    done <<<"$chars"
-
-    # left trim if endpoints demands
-    if ((endpoints == 1 || endpoints == 3)); then
-        while [[ -n "$str" ]]; do
-            ch="${str:0:1}"
-            if ((ci)); then
-                chkey=${ch,,}
-            else
-                chkey=$ch
-            fi
-            if [[ ${trim_map[$chkey]+_} ]]; then
-                # remove first character
-                str=${str#?}
-                continue
-            fi
-            break
-        done
-    fi
-
-    # right trim if endpoints demands
-    if ((endpoints == 2 || endpoints == 3)); then
-        while [[ -n "$str" ]]; do
-            ch="${str: -1}"
-            if ((ci)); then
-                chkey=${ch,,}
-            else
-                chkey=$ch
-            fi
-            if [[ ${trim_map[$chkey]+_} ]]; then
-                # remove last character
-                str=${str%?}
-                continue
-            fi
-            break
-        done
-    fi
-
-    echo "$str"
     return 0
 }
