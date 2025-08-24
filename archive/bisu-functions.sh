@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250824Z2
+# Version: v1-20250824Z3
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -1662,8 +1662,8 @@ trim_v2() {
     raw_ci="$3"
     endpoints="${4-3}"
 
-    # validate ci param with existing helper (assumed present)
-    in_array "$raw_ci" "true" "false" || raw_ci="false"
+    # validate ci param
+    [[ "$raw_ci" == "true" || "$raw_ci" == "false" ]] || raw_ci="false"
     if [[ "$raw_ci" == "true" ]]; then
         ci=1
     else
@@ -1833,7 +1833,7 @@ rtrim_v2() {
 # Adaptive, POSIX-aware trim function (UTF-8 friendly, high-performance)
 # Usage: trim "string" [chars] [case_insensitive]
 #   chars: characters to trim (default: POSIX space class)
-#   case_insensitive: "true"|"false" (validated via in_array; default "false")
+#   case_insensitive: "true"|"false"
 # Behavior: adaptive threshold controlled by TRIM_CRITICAL_POINT (non-negative int, default 4096).
 #           For inputs >= threshold the function uses awk (robust for large/UTF-8 data).
 #           For smaller inputs it uses pure-Bash paths for best performance.
@@ -1844,8 +1844,8 @@ trim_v3() {
     raw_ci="$3"
     endpoints="${4-3}"
 
-    # validate ci param with existing helper (assumed present)
-    in_array "$raw_ci" "true" "false" || raw_ci="false"
+    # validate ci param
+    [[ "$raw_ci" == "true" || "$raw_ci" == "false" ]] || raw_ci="false"
     if [[ "$raw_ci" == "true" ]]; then
         ci=1
     else
@@ -1892,7 +1892,7 @@ trim_v3() {
                 str="${str%"${str##*[![:space:]]}"}"
                 ;;
             esac
-            printf '%s' "$str"
+            echo "$str"
             return 0
         else
             # large input: use awk (robust for UTF-8)
@@ -1921,7 +1921,7 @@ trim_v3() {
                     ' <<<"$str" 2>/dev/null
                 )
             fi
-            printf '%s' "$str"
+            echo "$str"
             return 0
         fi
     fi
@@ -1953,7 +1953,7 @@ trim_v3() {
                 ' <<<"$str" 2>/dev/null
             )
         fi
-        printf '%s' "$str"
+        echo "$str"
         return 0
     fi
 
@@ -2007,6 +2007,6 @@ trim_v3() {
         done
     fi
 
-    printf '%s' "$str"
+    echo "$str"
     return 0
 }
