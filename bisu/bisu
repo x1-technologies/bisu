@@ -2,14 +2,14 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
 ## Official Web Site: https://bisu.cc
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.360"
+export BISU_VERSION="10.2.370"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-24Z"
 # Minimal Bash Version
@@ -172,7 +172,7 @@ trim() {
     local str chars raw_ci ci endpoints critical_point len use_awk
     str="$1"
     chars="${2-}"
-    raw_ci="$3"
+    raw_ci="${3-false}"
     endpoints="${4-3}"
 
     # validate ci param
@@ -1022,9 +1022,9 @@ log_flush() {
         quit 1
     }
 
-    local output_buffer=$(trim "$1")
+    local output_buffer=$(trim "${1:-true}")
     in_array "${output_buffer}" "true" "false" || output_buffer="true"
-    local log_only=$(trim "$2")
+    local log_only=$(trim "${2:-false}")
     in_array "${log_only}" "true" "false" || log_only="false"
     local array_count=$(array_count "_LOG_BUFFER")
 
@@ -1065,7 +1065,7 @@ error_log() {
 # Function: forcefully terminate and show errors
 error_exit() {
     local msg=$(trim "$1")
-    local status_code=$(trim "$2")
+    local status_code=$(trim "${2:-1}")
     is_posi_int "${status_code}" || status_code=1
 
     [ -n "$msg" ] && {
@@ -2006,7 +2006,7 @@ confirm() {
 file_real_path() {
     # Trim spaces and handle parameters
     local file=$(trim "$1")
-    local check_base_existence=$(trim "$2")
+    local check_base_existence=$(trim "${2:-false}")
     in_array "${check_base_existence}" "true" "false" || check_base_existence="false"
 
     # Expand shell variables and tilde (~) safely
@@ -2654,7 +2654,7 @@ sign_array() {
 # Function to count an array's element number
 array_count() {
     local array_name=$(trim "$1")
-    local is_big_array=$(trim "$2")
+    local is_big_array=$(trim "${2:-false}")
     in_array "$is_big_array" "true" "false" || is_big_array="false"
 
     is_array "$array_name" || {
@@ -2794,9 +2794,11 @@ array_splice() {
     local quantity
     local array_count=$(array_count "$array_name")
 
-    if ! array_is_available "$array_name"; then
+    if ! is_array "$array_name"; then
         return 1
     fi
+
+    [ "${#arr_ref[@]}" -gt 0 ] || return 0
 
     if [ $# -eq 2 ]; then
         quantity=$(trim "$2")
@@ -3081,10 +3083,9 @@ array_search() {
 array_push() {
     local array_name=$(trim "$1")
     local new_value="$2"
-    local value_type=$(trim "$3")
-    value_type=${value_type:-"string"}
-    local unique_values=$(trim "$4")
-    unique_values=${unique_values:-"false"}
+    local value_type=$(trim "${3:-string}")
+    local unique_values=$(trim "${4:-false}")
+    in_array "$unique_values" "true" "false" || unique_values="false"
 
     # Validate the type parameter and input value
     case "$value_type" in
@@ -6162,7 +6163,19 @@ verify_sig() {
 # Register the current command
 register_current_command() {
     is_posi_int "$CURRENT_PID" || error_exit "Incorrect CURRENT_PID!"
+    bisu_start_flag
     local current_args=$(current_args)
+    UNIX_USERNAME=$(whoami)
+    UNIX_HOSTNAME=$(hostname)
+    CURRENT_FILE_PATH=$(normalize_string "$CURRENT_FILE_PATH")
+    CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
+    CURRENT_COMMAND="$CURRENT_FILE_PATH $current_args"
+    [ -n "$CURRENT_FILE_NAME" ] && {
+        USER_CONF_DIR="${HOME}/.local/config/${CURRENT_FILE_NAME}"
+    }
+    [ -n "$TARGET_DIR" ] && is_dir "$TARGET_DIR" || {
+        TARGET_DIR=$(target_dir)
+    }
 
     # normalization of arrays allowed to manually modify them
     normalize_array "BISU_REQUIRED_EXTERNAL_COMMANDS" && normalize_array "REQUIRED_EXTERNAL_COMMANDS" &&
@@ -6176,19 +6189,6 @@ register_current_command() {
         array_unique "BISU_AUTORUN"
     normalize_array "BISU_EXIT_WITH_COMMANDS" && normalize_array "EXIT_WITH_COMMANDS" &&
         indexed_array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS" && array_unique "BISU_EXIT_WITH_COMMANDS"
-
-    UNIX_USERNAME=$(whoami)
-    UNIX_HOSTNAME=$(hostname)
-    CURRENT_FILE_PATH=$(normalize_string "$CURRENT_FILE_PATH")
-    CURRENT_FILE_NAME=$(basename "$CURRENT_FILE_PATH")
-    CURRENT_COMMAND="$CURRENT_FILE_PATH $current_args"
-    [ -n "$CURRENT_FILE_NAME" ] && {
-        USER_CONF_DIR="${HOME}/.local/config/${CURRENT_FILE_NAME}"
-    }
-    [ -n "$TARGET_DIR" ] && is_dir "$TARGET_DIR" || {
-        TARGET_DIR=$(target_dir)
-    }
-    bisu_start_flag
 }
 
 # Parse command-line arguments into an associative storage backend.
@@ -6713,7 +6713,6 @@ check_dependencies() {
     check_bash_version
     check_bisu_version
     check_commands_list
-    load_required_scripts
 }
 
 # Set bash signals
@@ -6760,13 +6759,16 @@ autorun_start() {
 
 # Function to initialize BISU
 initialize() {
+    [ "$BISU_START_FLAG" -eq 0 ] || return 0
     # order#1 set source guard
     set_source_guard
     # order#2 register current command
     register_current_command
     # order#3 check dependencies
     check_dependencies
-    # order#4 integrate operations
+    # order#4 load required scripts
+    load_required_scripts
+    # order#5 integrate operations
     integrate_ops
 }
 
