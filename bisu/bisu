@@ -9,9 +9,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.370"
+export BISU_VERSION="10.2.371"
 # Set BISU's last release date
-export BISU_LAST_RELEASE_DATE="2025-08-24Z"
+export BISU_LAST_RELEASE_DATE="2025-08-25Z"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 # BISU info uri
@@ -171,9 +171,9 @@ isset() {
 trim() {
     local str chars raw_ci ci endpoints critical_point len use_awk
     str="$1"
-    chars="${2-}"
-    raw_ci="${3-false}"
-    endpoints="${4-3}"
+    chars="${2:-}"
+    raw_ci="${3:-false}"
+    endpoints="${4:-3}"
 
     # validate ci param
     in_array "$raw_ci" "true" "false" || raw_ci="false"
@@ -194,7 +194,7 @@ trim() {
     fi
 
     # threshold: environment override allowed
-    critical_point="${TRIM_CRITICAL_POINT-4096}"
+    critical_point="${TRIM_CRITICAL_POINT:-4096}"
     if ! [[ "$critical_point" =~ ^[1-9][0-9]*$ ]]; then
         critical_point=4096
     fi
@@ -225,22 +225,29 @@ trim() {
             echo "$str"
             return 0
         else
-            # large input: use awk (original robust behavior)
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" -v endpoints="$endpoints" '
-                {
-                    if (endpoints == "1") {
+            # large input: use awk (robust for UTF-8)
+            # For whitespace, ensure a valid class is used
+            if [[ "$endpoints" == "1" ]]; then
+                str=$(
+                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                        { gsub("^" chars "+", ""); print }
+                    ' <<<"$str" 2>/dev/null
+                )
+            elif [[ "$endpoints" == "2" ]]; then
+                str=$(
+                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                        { gsub(chars "+$", ""); print }
+                    ' <<<"$str" 2>/dev/null
+                )
+            else
+                str=$(
+                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '{
                         gsub("^" chars "+", "")
-                    } else if (endpoints == "2") {
                         gsub(chars "+$", "")
-                    } else {
-                        gsub("^" chars "+", "")
-                        gsub(chars "+$", "")
-                    }
-                    print
-                }
-                ' <<<"$str" 2>/dev/null
-            )
+                        print 
+                    }' <<<"$str" 2>/dev/null
+                )
+            fi
             echo "$str"
             return 0
         fi
@@ -248,22 +255,29 @@ trim() {
 
     # ---- custom chars branch ----
     if ((use_awk == 1)); then
-        # large input: fallback to awk (preserve original logic)
-        str=$(
-            awk -v chars="[$chars]" -v IGNORECASE="$ci" -v endpoints="$endpoints" '
-            {
-                if (endpoints == "1") {
+        # large input: use awk (robust for UTF-8)
+        # For whitespace, ensure a valid class is used
+        if [[ "$endpoints" == "1" ]]; then
+            str=$(
+                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                    { gsub("^" chars "+", ""); print }
+                ' <<<"$str" 2>/dev/null
+            )
+        elif [[ "$endpoints" == "2" ]]; then
+            str=$(
+                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                    { gsub(chars "+$", ""); print }
+                ' <<<"$str" 2>/dev/null
+            )
+        else
+            str=$(
+                awk -v chars="[$chars]" -v IGNORECASE="$ci" '{
                     gsub("^" chars "+", "")
-                } else if (endpoints == "2") {
                     gsub(chars "+$", "")
-                } else {
-                    gsub("^" chars "+", "")
-                    gsub(chars "+$", "")
-                }
-                print
-            }
-            ' <<<"$str" 2>/dev/null
-        )
+                    print 
+                }' <<<"$str" 2>/dev/null
+            )
+        fi
         echo "$str"
         return 0
     fi
@@ -1851,7 +1865,7 @@ string_to_array() {
     fi
 
     # Else split by delimiter (default = space, can be customized)
-    local delim="${3-" "}"
+    local delim="${3:-" "}"
     local delim_awk
     case "$delim" in
     '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|') delim_awk="\\$delim" ;;
