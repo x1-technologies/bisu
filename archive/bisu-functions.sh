@@ -2,9 +2,9 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250824Z6
+# Version: v1-20250825Z1
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -1833,5 +1833,43 @@ ltrim_v2() {
 #   case_insensitive: "true"|"false" (validated via in_array; default "false")
 rtrim_v2() {
     trim "$1" "$2" "$3" "2" || return 1
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# set guard for importing act
+set_source_guard_v1() {
+    # Only install once
+    if declare -F __source_guard &>/dev/null; then
+        return 0
+    fi
+
+    # Global registry for loaded scripts
+    declare -gA __loaded_scripts
+
+    # Core guard implementation
+    __source_guard() {
+        local target="$1"
+        local abs_target
+
+        # Resolve absolute path (fallback to raw path if readlink fails)
+        abs_target=$(readlink -f "$target" 2>/dev/null) || abs_target="$target"
+
+        # Skip if already loaded
+        if [[ -n "${__loaded_scripts[$abs_target]}" ]]; then
+            return 0
+        fi
+
+        # Mark as loaded and perform actual source
+        __loaded_scripts[$abs_target]=1
+        builtin source "$target" 2>/dev/null
+
+        return 0
+    }
+
+    # Override source and dot transparently
+    source() { __source_guard "$@"; }
+    .() { __source_guard "$@"; }
+
     return 0
 }
