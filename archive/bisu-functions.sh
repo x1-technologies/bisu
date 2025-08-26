@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250826Z1
+# Version: v1-20250826Z2
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -1972,5 +1972,222 @@ gdate_v1() {
 
     # Remove extra parts
     printf '%s\n' "$out" | awk -v C="$compact" '{ if (C=="true") gsub("00:00:00", ""); print }' 2>/dev/null | tr -s ' '
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# Check if the input is numeric
+is_numeric_v1() {
+    local num=$(trim "$1")
+    [[ "$num" != "" ]] || return 1
+
+    # Validate numeric format using awk
+    printf '%s\n' "$num" | awk '
+        BEGIN { status = 1 }
+        /^0$|^(-?[1-9][0-9]*)$|^-?(0|[1-9][0-9]*)\.[0-9]+$/ { status = 0 }
+        END { exit status }
+    ' 2>/dev/null || return 1
+
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# get a number's absolute value
+abs_v1() {
+    # Trim input and check for empty value
+    local num=$(trim "$1")
+    [[ "$num" != "" ]] || {
+        printf ''
+        return 1
+    }
+
+    # Validate numeric input
+    printf '%s\n' "$num" | awk '
+        BEGIN { status = 1 }
+        /^-?0$|^-?[1-9][0-9]*$|^-?0\.[0-9]+$|^-?[1-9][0-9]*\.[0-9]+$/ { status = 0 }
+        END { exit status }
+    ' 2>/dev/null || {
+        printf ''
+        return 1
+    }
+
+    # Compute absolute value
+    printf '%s\n' "$num" | awk '{ print ($1 < 0) ? -$1 : $1 }' 2>/dev/null
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# Description: Normalize a string
+normalize_string_v1() {
+    local input
+    if [ $# -eq 0 ]; then
+        input="$(cat)"
+    else
+        input="$*"
+    fi
+
+    awk '{
+        sub(/[ \t]+$/, "")
+        gsub(/[ \t]+/, " ")
+        print
+    }' <<<"$input" 2>/dev/null || {
+        printf ''
+        return 1
+    }
+
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# Function: string_join
+string_join_v1() {
+    local array_name=$(trim "$1")
+    local sep="$2"
+    declare -n arr_ref="$array_name"
+
+    array_is_available "$array_name" || {
+        printf ''
+        return 1
+    }
+
+    # Join using awk: read lines from printf, accumulate with sep, no explicit loop in bash
+    printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
+    {
+        if (NR == 1) out = $0;
+        else out = out sep $0;
+    }
+    END { print out }' 2>/dev/null || {
+        printf ''
+        return 1
+    }
+
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# PHP-like function as its naming
+strstr_v1() {
+    local haystack="$1"
+    local needle="$2"
+    local result=""
+
+    # Check if inputs are provided and valid
+    if [ -z "$needle" ]; then
+        printf '%s' "false"
+        return 1
+    fi
+
+    # If haystack is empty and needle is non-empty, no match possible
+    if [ -z "$haystack" ]; then
+        printf '%s' "false"
+        return 1
+    fi
+
+    # Use awk to find the substring, POSIX-compliant and robust
+    result=$(printf '%s\n' "$haystack" | awk -v needle="$needle" '{
+        pos = index($0, needle)
+        if (pos > 0) {
+            print substr($0, pos)
+        }
+    }' 2>/dev/null)
+
+    # If no match found, result will be empty
+    if [ -z "$result" ]; then
+        printf '%s' "false"
+        return 1
+    fi
+
+    # Output the result
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# PHP-like function as its naming
+stristr_v1() {
+    local haystack="$1"
+    local needle="$2"
+    local result=""
+
+    # Check if inputs are provided and valid
+    if [ -z "$needle" ]; then
+        output "Needle cannot be empty"
+        printf '%s' "false"
+        return 1
+    fi
+
+    # If haystack is empty and needle is non-empty, no match possible
+    if [ -z "$haystack" ]; then
+        printf '%s' "false"
+        return 1
+    fi
+
+    # Use awk for case-insensitive search, POSIX-compliant and robust
+    result=$(printf '%s\n' "$haystack" | awk -v needle="$needle" '
+        BEGIN {
+            # Convert needle to lowercase for case-insensitive comparison
+            needle_lower = tolower(needle)
+        }
+        {
+            # Convert current line to lowercase for comparison
+            haystack_lower = tolower($0)
+            pos = index(haystack_lower, needle_lower)
+            if (pos > 0) {
+                # Return original string from matched position
+                print substr($0, pos)
+            }
+        }
+    ' 2>/dev/null)
+
+    # If no match found, result will be empty
+    if [ -z "$result" ]; then
+        printf '%s' "false"
+        return 1
+    fi
+
+    # Output the result
+    printf '%s' "$result"
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# PHP-like function as its naming
+strpos_v1() {
+    # Assign core args
+    local haystack="$1"
+    local needle="$2"
+    local offset="${3:-0}"
+    local ci=$(trim "$4")
+    in_array "$ci" "true" "false" || ci="false"
+    local reverse=$(trim "$5")
+    in_array "$reverse" "true" "false" || reverse="false"
+
+    [ -n "$haystack" ] && [ -n "$needle" ] || {
+        printf '%s' "false"
+        return 1
+    }
+    is_nn_int "$offset" || {
+        printf '%s' "false"
+        return 1
+    }
+
+    [ "$offset" -gt 0 ] && haystack=${haystack:$offset}
+
+    local grep_opt=""
+    [[ "$ci" == "true" ]] && grep_opt="-i"
+
+    pos=$(printf '%s' "$haystack" |
+        grep -abo $grep_opt -- "$needle" 2>/dev/null |
+        cut -d: -f1 |
+        { [[ "$reverse" == "true" ]] && tail -n1 || head -n1; })
+
+    is_nn_int "$pos" || {
+        printf '%s' "false"
+        return 1
+    }
+
+    [ "$offset" -gt 0 ] && pos=$((pos + offset))
+
+    printf '%s' "$pos"
     return 0
 }
