@@ -9,9 +9,9 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.371"
+export BISU_VERSION="10.2.500"
 # Set BISU's last release date
-export BISU_LAST_RELEASE_DATE="2025-08-25Z"
+export BISU_LAST_RELEASE_DATE="2025-08-26Z"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 # BISU info uri
@@ -41,7 +41,7 @@ export VERIFY_BISU_SIG=${VERIFY_BISU_SIG:-"true"}
 # Specific Empty Expression
 export EMPTY_EXPR="0x00"
 # Set a critical point for adopting awk to trim
-export TRIM_CRITICAL_POINT=4096
+export TRIM_CRITICAL_POINT=102400
 # Error message prefix
 export ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # BISU File URL
@@ -68,10 +68,9 @@ export _LOG_BUFFER=()
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export HOME="$(eval printf '%s' "~${SUDO_USER:-$USER}")"
+export START_TIME="$EPOCHREALTIME"
 # BISU path
 export BISU_FILE_PATH="${BASH_SOURCE[0]}"
-# Current Process ID
-export CURRENT_PID=$$
 # The current file path
 export CURRENT_FILE_PATH="$0"
 # The current file name
@@ -169,166 +168,88 @@ isset() {
 #           For inputs >= threshold the function uses awk (robust for large/UTF-8 data).
 #           For smaller inputs it uses pure-Bash paths for best performance.
 trim() {
-    local str chars raw_ci ci endpoints critical_point len use_awk
-    str="$1"
-    chars="${2:-}"
-    raw_ci="${3:-false}"
-    endpoints="${4:-3}"
+    local str="$1"
+    local chars="${2:-}"
+    local raw_ci="${3:-false}"
+    local endpoints="${4:-3}"
+    local critical_point len use_awk ci
 
-    # validate ci param
-    in_array "$raw_ci" "true" "false" || raw_ci="false"
-    if [[ "$raw_ci" == "true" ]]; then
-        ci=1
-    else
-        ci=0
-    fi
+    # Validate and normalize parameters
+    [[ "$raw_ci" =~ ^(true|false)$ ]] || raw_ci="false"
+    ci=$([[ "$raw_ci" == "true" ]] && echo 1 || echo 0)
+    [[ "$endpoints" =~ ^[123]$ ]] || endpoints=3
 
-    # endpoints must be 1,2 or 3; otherwise default 3
-    if ! [[ "$endpoints" =~ ^[123]$ ]]; then
-        endpoints=3
-    fi
+    # Read from stdin if no arguments
+    [[ $# -eq 0 ]] && str=$(cat)
 
-    # if no args, read from stdin (preserve original)
-    if [[ $# -eq 0 ]]; then
-        str=$(cat)
-    fi
-
-    # threshold: environment override allowed
+    # Threshold for adaptive path
     critical_point="${TRIM_CRITICAL_POINT:-4096}"
-    if ! [[ "$critical_point" =~ ^[1-9][0-9]*$ ]]; then
-        critical_point=4096
-    fi
+    [[ "$critical_point" =~ ^[1-9][0-9]*$ ]] || critical_point=4096
 
-    # choose fast bash path or awk path
+    # Choose fast Bash path vs awk path
     len=${#str}
-    if ((len >= critical_point)); then
-        use_awk=1
-    else
-        use_awk=0
-    fi
+    use_awk=$((len >= critical_point ? 1 : 0))
 
     # ---- whitespace default fast-path ----
     if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
         if ((use_awk == 0)); then
-            case $endpoints in
-            1) # left only
-                str="${str#"${str%%[![:space:]]*}"}"
-                ;;
-            2) # right only
-                str="${str%"${str##*[![:space:]]}"}"
-                ;;
-            3) # both
-                str="${str#"${str%%[![:space:]]*}"}"
-                str="${str%"${str##*[![:space:]]}"}"
-                ;;
-            esac
+            # Pure Bash trimming for small strings (UTF-8 safe)
+            ((endpoints == 1 || endpoints == 3)) && str="${str#"${str%%[![:space:]]*}"}"
+            ((endpoints == 2 || endpoints == 3)) && str="${str%"${str##*[![:space:]]}"}"
             echo "$str"
             return 0
         else
-            # large input: use awk (robust for UTF-8)
-            # For whitespace, ensure a valid class is used
-            if [[ "$endpoints" == "1" ]]; then
-                str=$(
-                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                        { gsub("^" chars "+", ""); print }
-                    ' <<<"$str" 2>/dev/null
-                )
-            elif [[ "$endpoints" == "2" ]]; then
-                str=$(
-                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                        { gsub(chars "+$", ""); print }
-                    ' <<<"$str" 2>/dev/null
-                )
+            # Large input: robust awk path
+            if ((endpoints == 1)); then
+                str=$(awk -v chars='[[:space:]]' -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); print }' <<<"$str" 2>/dev/null)
+            elif ((endpoints == 2)); then
+                str=$(awk -v chars='[[:space:]]' -v IGNORECASE="$ci" '{ gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null)
             else
-                str=$(
-                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '{
-                        gsub("^" chars "+", "")
-                        gsub(chars "+$", "")
-                        print 
-                    }' <<<"$str" 2>/dev/null
-                )
+                str=$(awk -v chars='[[:space:]]' -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null)
             fi
             echo "$str"
             return 0
         fi
     fi
 
-    # ---- custom chars branch ----
+    # ---- custom characters branch ----
     if ((use_awk == 1)); then
-        # large input: use awk (robust for UTF-8)
-        # For whitespace, ensure a valid class is used
-        if [[ "$endpoints" == "1" ]]; then
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                    { gsub("^" chars "+", ""); print }
-                ' <<<"$str" 2>/dev/null
-            )
-        elif [[ "$endpoints" == "2" ]]; then
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
-                    { gsub(chars "+$", ""); print }
-                ' <<<"$str" 2>/dev/null
-            )
-        else
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" '{
-                    gsub("^" chars "+", "")
-                    gsub(chars "+$", "")
-                    print 
-                }' <<<"$str" 2>/dev/null
-            )
-        fi
+        # Large input: awk path, robust UTF-8
+        case $endpoints in
+        1) str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); print }' <<<"$str" 2>/dev/null) ;;
+        2) str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '{ gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null) ;;
+        3) str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null) ;;
+        esac
         echo "$str"
         return 0
     fi
 
-    # small input & custom chars: pure-Bash trimming (multibyte-aware-ish)
+    # Small input & custom chars: pure Bash trimming
     local -A trim_map=()
     local ch chkey
-    # build map from chars; honor case-insensitive
     while IFS= read -r -n1 ch; do
         [[ -z "$ch" ]] && continue
-        if ((ci)); then
-            chkey=${ch,,}
-        else
-            chkey=$ch
-        fi
+        chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
         trim_map["$chkey"]=1
     done <<<"$chars"
 
-    # left trim if endpoints demands
+    # Left trim
     if ((endpoints == 1 || endpoints == 3)); then
         while [[ -n "$str" ]]; do
             ch="${str:0:1}"
-            if ((ci)); then
-                chkey=${ch,,}
-            else
-                chkey=$ch
-            fi
-            if [[ ${trim_map[$chkey]+_} ]]; then
-                # remove first character (use pattern removal to be robust)
-                str=${str#?}
-                continue
-            fi
-            break
+            chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
+            [[ ${trim_map[$chkey]+_} ]] || break
+            str=${str#?}
         done
     fi
 
-    # right trim if endpoints demands
+    # Right trim
     if ((endpoints == 2 || endpoints == 3)); then
         while [[ -n "$str" ]]; do
             ch="${str: -1}"
-            if ((ci)); then
-                chkey=${ch,,}
-            else
-                chkey=$ch
-            fi
-            if [[ ${trim_map[$chkey]+_} ]]; then
-                # remove last character robustly
-                str=${str%?}
-                continue
-            fi
-            break
+            chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
+            [[ ${trim_map[$chkey]+_} ]] || break
+            str=${str%?}
         done
     fi
 
@@ -494,7 +415,7 @@ output() {
     in_array "$log_only" "true" "false" || log_only="false"
 
     # Style tag parsing
-    [[ "$message" == *"<"*">"* ]] && {
+    [[ $message == *\<*\>* ]] && {
         # style table
         declare -A style_codes=(
             [reset]=$'\033[0m' [bold]=$'\033[1m' [dim]=$'\033[2m' [underline]=$'\033[4m'
@@ -720,8 +641,8 @@ output() {
 
 # Function to check if a command is existent
 command_exists() {
-    local command=$(trim "$1")
-    local strict_mode=$(trim "$2")
+    local command=$(trim "${1:-}")
+    local strict_mode=$(trim "${2:-false}")
     in_array "$strict_mode" "true" "false" || strict_mode="false"
     [ -n "$command" ] || return 1
     eval "command -v \"$command\"" &>/dev/null &
@@ -838,8 +759,14 @@ quit() {
     local signal="TERM"
 
     if [[ "$pid" == "" ]]; then
-        pid=$CURRENT_PID
+        pid=$$
     fi
+
+    is_posi_int "$pid" || {
+        kill -TERM -$$ &>/dev/null &
+        disown %+ &>/dev/null
+        exit 1
+    }
 
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || exit 1
     [[ "$exit_code" =~ ^[1-9][0-9]*$ ]] || exit_code=0
@@ -855,7 +782,8 @@ quit() {
     fi
 
     if process_is_running "$pid"; then
-        if [[ "$pid" == "$CURRENT_PID" ]]; then
+        execution_time
+        if [[ "$pid" == "$$" ]]; then
             exit $exit_code
         fi
 
@@ -875,7 +803,9 @@ quit() {
 # Dump
 dump() {
     echo "$@" >&1
-    quit
+    kill -TERM -$$ &>/dev/null &
+    disown %+ &>/dev/null
+    exit 0
 }
 
 # Function: current_command
@@ -883,7 +813,9 @@ dump() {
 current_command() {
     if [ -z "$CURRENT_COMMAND" ]; then
         output "Invalid current command"
-        quit
+        kill -TERM -$$ &>/dev/null &
+        disown %+ &>/dev/null
+        exit 1
     fi
     printf '%s' "$CURRENT_COMMAND"
 }
@@ -901,7 +833,9 @@ current_args() {
 current_file_path() {
     if [ -z $CURRENT_FILE_PATH ] || ! is_file "$CURRENT_FILE_PATH"; then
         output "Invalid current file path: $CURRENT_FILE_PATH"
-        quit
+        kill -TERM -$$ &>/dev/null &
+        disown %+ &>/dev/null
+        exit 1
     fi
     printf '%s' "$CURRENT_FILE_PATH"
 }
@@ -911,7 +845,9 @@ current_file_path() {
 current_filename() {
     if [ -z $CURRENT_FILE_NAME ]; then
         output "Invalid current file name"
-        quit
+        kill -TERM -$$ &>/dev/null &
+        disown %+ &>/dev/null
+        exit 1
     fi
     printf '%s' "$CURRENT_FILE_NAME"
 }
@@ -921,7 +857,9 @@ current_filename() {
 user_conf_dir() {
     if [ -z $USER_CONF_DIR ]; then
         output "Invalid user conf dir"
-        quit
+        kill -TERM -$$ &>/dev/null &
+        disown %+ &>/dev/null
+        exit 1
     fi
     printf '%s' "$USER_CONF_DIR"
 }
@@ -1113,7 +1051,7 @@ error_exit() {
             current_line_text=$(sed "${current_lineno}q;d" "$current_file_path" 2>/dev/null)
             local current_charno
             current_charno=$(awk '{match($0,/[^[:space:]]/); print (RSTART?RSTART:1)}' <<<"$current_line_text")
-            log_add "                              <fg_bright_yellow>(Tracing: ${current_file_path}:${current_lineno}:${current_charno}, \
+            log_add "<fg_bright_yellow>(Tracing: ${current_file_path}:${current_lineno}:${current_charno}, \
 ${parent_file}:${parent_lineno}:${parent_charno}</fg_bright_yellow>)"
         }
         log_flush
@@ -1231,23 +1169,41 @@ substr() {
     return 0
 }
 
-# Description: Normalize a string
+# normalize_string - collapse whitespace, trim leading/trailing spaces
+# Usage: normalize_string "  foo   bar   " [big_spec]
+# If no args, reads stdin. big_spec: true=use awk algo, false=use pure bash (default).
 normalize_string() {
-    local input
+    local input big_spec
     if [ $# -eq 0 ]; then
         input="$(cat)"
     else
         input="$*"
     fi
 
-    awk '{
-        sub(/[ \t]+$/, "")
-        gsub(/[ \t]+/, " ")
-        print
-    }' <<<"$input" 2>/dev/null || {
-        printf ''
-        return 1
-    }
+    big_spec=$(trim "${2:-false}")
+    in_array "$big_spec" "true" "false" || big_spec="false"
+
+    if [[ $big_spec == "true" ]]; then
+        # Original awk algorithm as spec reference
+        awk '{
+            sub(/[ \t]+$/, "")
+            gsub(/[ \t]+/, " ")
+            print
+        }' <<<"$input" 2>/dev/null || {
+            printf ''
+            return 1
+        }
+    else
+        # Pure Bash5 internal patterns, faster
+        input="${input#"${input%%[![:space:]]*}"}" # trim leading
+        input="${input%"${input##*[![:space:]]}"}" # trim trailing
+        while [[ $input == *"  "* ]]; do
+            input="${input//  / }" # collapse runs of spaces
+        done
+        # collapse tabs as well
+        input="${input//$'\t'/ }"
+        printf '%s\n' "$input"
+    fi
 
     return 0
 }
@@ -1257,8 +1213,8 @@ normalize_bool() {
     local var_name=$(trim "$1")
     isset "$var_name" || error_exit "Got an invalid varname when normalizing a bool value"
     local str="${!var_name}"
-    local candidate=$(trim "$2")
-    local strict_mode=$(trim "$3")
+    local candidate=$(trim "${2:-}")
+    local strict_mode=$(trim "${3:-true}")
     in_array "$strict_mode" "true" "false" "0" "1" || strict_mode="true"
     local result="$str"
     in_array "$result" "true" "false" "0" "1" || result="$candidate"
@@ -1275,27 +1231,48 @@ normalize_bool() {
     return 0
 }
 
-# Function: string_join
+# string_join - join array elements with a separator
+# Usage: string_join "array_name" "sep" [big_spec]
+# big_spec: true=use awk algo, false=use pure bash (default).
 string_join() {
-    local array_name=$(trim "$1")
-    local sep="$2"
-    declare -n arr_ref="$array_name"
+    local array_name sep big_spec
+    array_name=$(trim "$1")
+    sep="$2"
 
+    declare -n arr_ref="$array_name"
     array_is_available "$array_name" || {
         printf ''
         return 1
     }
 
-    # Join using awk: read lines from printf, accumulate with sep, no explicit loop in bash
-    printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
-    {
-        if (NR == 1) out = $0;
-        else out = out sep $0;
-    }
-    END { print out }' 2>/dev/null || {
-        printf ''
-        return 1
-    }
+    big_spec=$(trim "${3:-false}")
+    in_array "$big_spec" "true" "false" || big_spec="false"
+
+    if [[ $big_spec == "true" ]]; then
+        # Original awk algorithm for big-spec reference
+        printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
+        {
+            if (NR == 1) out = $0;
+            else out = out sep $0;
+        }
+        END { print out }' 2>/dev/null || {
+            printf ''
+            return 1
+        }
+    else
+        # Pure Bash5 implementation (fastest)
+        local out=""
+        local first=true
+        for elem in "${arr_ref[@]}"; do
+            if $first; then
+                out="$elem"
+                first=false
+            else
+                out+="$sep$elem"
+            fi
+        done
+        printf '%s\n' "$out"
+    fi
 
     return 0
 }
@@ -1948,9 +1925,7 @@ debug_mode_on() {
 exec_command() {
     local phrase=$(trim "$1")
     string_to_array "$phrase" "phrase"
-    normalize_array "phrase"
-    local cmd=$(array_get "phrase" 0)
-    array_splice "phrase" 0 1
+    array_shift "phrase" "cmd"
     local args=$(trim "$(printf '%s ' "${phrase[@]}")")
     phrase="$(printf '%s ' "${cmd} ${args}")"
 
@@ -2089,19 +2064,132 @@ add_env_path() {
     fi
 }
 
-# Check if the input is numeric
+# is_numeric - validate Go-style numeric literals (pure Bash5, no external commands)
+# Accepts: optional leading +/-, integer (dec/bin/oct/hex with underscores), decimal floats,
+#          hexadecimal floats (0x...p...), and optional trailing 'i' (imaginary).
+# Returns: 0 when legal, 1 otherwise.
+# Relies on: trim "$1" exists (per your codebase).
 is_numeric() {
-    local num=$(trim "$1")
-    [[ "$num" != "" ]] || return 1
+    local s raw sign imag
 
-    # Validate numeric format using awk
-    printf '%s\n' "$num" | awk '
-        BEGIN { status = 1 }
-        /^0$|^(-?[1-9][0-9]*)$|^-?(0|[1-9][0-9]*)\.[0-9]+$/ { status = 0 }
-        END { exit status }
-    ' 2>/dev/null || return 1
+    # normalize and quick empty check
+    raw=$(trim "$1")
+    [[ -n $raw ]] || return 1
 
-    return 0
+    # strip trailing imaginary 'i' (if present)
+    if [[ ${raw: -1} == i ]]; then
+        imag=1
+        s=${raw:0:-1}
+    else
+        imag=0
+        s=$raw
+    fi
+
+    # strip leading sign
+    if [[ ${s:0:1} == '+' || ${s:0:1} == '-' ]]; then
+        s=${s:1}
+    fi
+
+    # must remain non-empty
+    [[ -n $s ]] || return 1
+
+    # digit-group patterns (underscores only allowed BETWEEN digits)
+    local DEC='[0-9]+(_[0-9]+)*'
+    local BIN='[01]+(_[01]+)*'
+    local OCT='[0-7]+(_[0-7]+)*'
+    local HEX='[0-9A-Fa-f]+(_[0-9A-Fa-f]+)*'
+
+    # exponent patterns (digits may contain underscores between digits)
+    local DEC_EXP='[eE][+-]?[0-9]+(_[0-9]+)*'
+    local HEX_EXP='[pP][+-]?[0-9]+(_[0-9]+)*'
+
+    # ----- Helper regexes (used in [[ ... =~ ... ]]) -----
+    local re_dec_int="^(0|[1-9][0-9]*(_[0-9]+)*)$"
+    local re_dec_flt_a="^${DEC}\\.((${DEC})?)(${DEC_EXP})?$" # digits '.' [digits] [exp]
+    local re_dec_flt_b="^${DEC}${DEC_EXP}$"                  # digits exp
+    local re_dec_flt_c="^\\.(${DEC})(${DEC_EXP})?$"          # '.' digits [exp]
+
+    local re_hex_int="^${HEX}$"
+    local re_hex_mant1="^${HEX}\\.${HEX}?$"                         # hex '.' [hex]
+    local re_hex_mant2="^\\.${HEX}$"                                # '.' hex
+    local re_hex_float="^(${HEX}(\\.${HEX})?|\\.${HEX})${HEX_EXP}$" # mantissa + p-exp
+
+    local re_bin_int="^${BIN}$"
+    local re_oct_pref="^${OCT}$"
+    local re_oct_legacy="^${OCT}$"
+
+    # ----- Branch based on prefix ----- #
+    if [[ $s =~ ^0[xX] ]]; then
+        # hex (integer or float). Allow single optional underscore right after prefix.
+        local rest="${s:2}"
+        if [[ ${rest:0:1} == "_" ]]; then
+            rest=${rest:1}
+            [[ -n $rest ]] || return 1
+        fi
+
+        # If there is a p/P, it must be a hex float (mantissa + p exponent)
+        if [[ $rest =~ [pP] ]]; then
+            # match mantissa and exponent using BASH_REMATCH
+            if [[ $rest =~ ^([^pP]+)[pP]([+-]?[0-9]+(_[0-9]+)*)$ ]]; then
+                local mant=${BASH_REMATCH[1]}
+                local exp=${BASH_REMATCH[2]}
+                # mantissa must be either HEX, HEX'.'HEX?, or '.'HEX (with correct underscore rules)
+                if [[ $mant =~ ^${HEX}$ ]] || [[ $mant =~ ^${HEX}\.$ ]] || [[ $mant =~ ^${HEX}\.${HEX}$ ]] || [[ $mant =~ ^\.${HEX}$ ]]; then
+                    # validate exponent digits (we used match above so it's fine)
+                    return 0
+                else
+                    return 1
+                fi
+            else
+                return 1
+            fi
+        else
+            # hex integer
+            if [[ $rest =~ ^${HEX}$ ]]; then
+                return 0
+            else
+                return 1
+            fi
+        fi
+    elif [[ $s =~ ^0[bB] ]]; then
+        # binary integer, optional single underscore after prefix allowed
+        local rest="${s:2}"
+        if [[ ${rest:0:1} == "_" ]]; then
+            rest=${rest:1}
+            [[ -n $rest ]] || return 1
+        fi
+        [[ $rest =~ ^${BIN}$ ]] && return 0 || return 1
+
+    elif [[ $s =~ ^0[oO] ]]; then
+        # octal with explicit prefix
+        local rest="${s:2}"
+        if [[ ${rest:0:1} == "_" ]]; then
+            rest=${rest:1}
+            [[ -n $rest ]] || return 1
+        fi
+        [[ $rest =~ ^${OCT}$ ]] && return 0 || return 1
+
+    elif [[ ${s:0:1} == 0 && ${#s} -gt 1 ]]; then
+        # legacy leading-zero octal (e.g., 0755). Allow optional '_' after leading zero.
+        local rest="${s:1}"
+        if [[ ${rest:0:1} == "_" ]]; then
+            rest=${rest:1}
+            [[ -n $rest ]] || return 1
+        fi
+        # rest must be octal-digit groups with underscores between digits
+        [[ $rest =~ ^${OCT}$ ]] && return 0 || return 1
+
+    else
+        # Decimal branch: integer or float
+        if [[ $s =~ $re_dec_int ]]; then
+            return 0
+        fi
+        if [[ $s =~ $re_dec_flt_a || $s =~ $re_dec_flt_b || $s =~ $re_dec_flt_c ]]; then
+            return 0
+        fi
+        # not a decimal number
+        return 1
+    fi
 }
 
 # positive numeric validator
@@ -2128,27 +2216,25 @@ is_nega_numeric() {
     return 0
 }
 
-# get a number's absolute value
+# get a number's absolute value (Go-spec compliant)
 abs() {
-    # Trim input and check for empty value
-    local num=$(trim "$1")
-    [[ "$num" != "" ]] || {
+    local num
+    num=$(trim "$1")
+    [[ -n $num ]] || {
         printf ''
         return 1
     }
 
-    # Validate numeric input
-    printf '%s\n' "$num" | awk '
-        BEGIN { status = 1 }
-        /^-?0$|^-?[1-9][0-9]*$|^-?0\.[0-9]+$|^-?[1-9][0-9]*\.[0-9]+$/ { status = 0 }
-        END { exit status }
-    ' 2>/dev/null || {
+    # Ensure number is valid Go numeric literal
+    is_numeric "$num" || {
         printf ''
         return 1
     }
 
-    # Compute absolute value
-    printf '%s\n' "$num" | awk '{ print ($1 < 0) ? -$1 : $1 }' 2>/dev/null
+    # Strip leading + or -
+    [[ ${num:0:1} == '+' || ${num:0:1} == '-' ]] && num=${num:1}
+
+    printf '%s' "$num"
     return 0
 }
 
@@ -2668,8 +2754,8 @@ sign_array() {
 # Function to count an array's element number
 array_count() {
     local array_name=$(trim "$1")
-    local is_big_array=$(trim "${2:-false}")
-    in_array "$is_big_array" "true" "false" || is_big_array="false"
+    local big_spec=$(trim "${2:-false}")
+    in_array "$big_spec" "true" "false" || big_spec="false"
 
     is_array "$array_name" || {
         printf '%s' "0"
@@ -2682,7 +2768,7 @@ array_count() {
     }
 
     local array_count=0
-    if [[ "$is_big_array" == "true" ]]; then
+    if [[ "$big_spec" == "true" ]]; then
         array_count=$(awk -v n="${#ref[@]}" 'BEGIN { print n }' 2>/dev/null)
     else
         declare -n arr_ref="$array_name"
@@ -2808,10 +2894,7 @@ array_splice() {
     local quantity
     local array_count=$(array_count "$array_name")
 
-    if ! is_array "$array_name"; then
-        return 1
-    fi
-
+    is_array "$array_name" || return 1
     [ "${#arr_ref[@]}" -gt 0 ] || return 0
 
     if [ $# -eq 2 ]; then
@@ -3514,8 +3597,8 @@ compare_version() {
     local i=0
     cmp_result=
     while [[ $i -lt ${#v1parts[@]} || $i -lt ${#v2parts[@]} ]]; do
-        local s1="${v1parts[i]}"
-        local s2="${v2parts[i]}"
+        local s1="${v1parts[i]:-}"
+        local s2="${v2parts[i]:-}"
         [ -z "$s1" ] && s1=0
         [ -z "$s2" ] && s2=0
 
@@ -3702,7 +3785,7 @@ check_bash_version() {
 # Function: check_bisu_version
 # Description: Verifies that the installed BISU version is greater than or equal to the specified required version.
 check_bisu_version() {
-    local expr="$THIS_REQUIRED_BISU_VERSION"
+    local expr="${THIS_REQUIRED_BISU_VERSION:-}"
     local result=$(compare_version "$expr" "$BISU_VERSION")
     local current_filename="$(current_filename)"
     local bisu_filename="$(bisu_filename)"
@@ -3852,55 +3935,220 @@ is_valid_datetime() {
 # Function: gdate
 # Description: function for converting ISO8601 time format to natural language format
 gdate() {
-    local input=$(normalize_iso_datetime "$1")
+    local raw fmt compact input datepart timepart tzpart timecore
+    local Y M D h m s
+    local len sep rem hh mm ss frac signpos
+    local days era yoe doy doe days_since_epoch ts weekday
+    local out token
+
+    # get normalized input; return failure on empty
+    input=$(normalize_iso_datetime "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
-    local fmt=$(trim "$2")
+    fmt=$(trim "$2")
     fmt="${fmt:-+%a %b %-e %H:%M:%S %Z %Y}"
-    local compact=$(trim "$3")
+    compact=$(trim "$3")
     in_array "$compact" "true" "false" || compact="true"
 
-    # Process date components
-    clean=$(printf '%s\n' "$input" | awk -v C="$compact" '
-        BEGIN{FS="[T ]"}
-        {
-            split($1,d,"-")
-            if (length(d[1])!=4 || length(d[2])!=2 || length(d[3])!=2) exit
-            t = (NF>1 ? $2 : "")
-            sub(/[+-].*|Z$/, "", t)
-            split(t,tokens,":")
-            h = (tokens[1]=="" ? "00" : tokens[1])
-            m = (tokens[2]=="" ? "00" : tokens[2])
-            s = (tokens[3]=="" ? "00" : tokens[3])
-            if (C=="true" && h=="00" && m=="00" && s=="00") {
-                printf "%04d-%02d-%02d\n", d[1], d[2], d[3]
-            } else {
-                printf "%04d-%02d-%02d %02d:%02d:%02d\n", d[1], d[2], d[3], h, m, s
-            }
-        }' 2>/dev/null)
+    # remove leading '+' like date(1) style
+    [[ "${fmt}" == +* ]] && fmt="${fmt:1}"
 
-    [ -z "$clean" ] && {
+    # Split date and time on first 'T' or space
+    datepart=${input%%[T ]*}
+    rem=${input#"$datepart"}
+    if [[ "$rem" == "$input" ]]; then
+        # no separator, only date
+        timepart=''
+    else
+        # rem begins with separator char
+        timepart=${rem#?}
+    fi
+
+    # strip timezone suffix from timepart (Z or +hh[:mm] or -hh[:mm])
+    if [[ -z "$timepart" ]]; then
+        timecore=''
+    else
+        # find position of 'Z' or '+' or '-' in timepart (if any)
+        signpos=''
+        # search for Z
+        if [[ "$timepart" == *Z ]]; then
+            timecore="${timepart%Z}"
+        else
+            # find first + or - (timezone), but avoid a leading hyphen if time missing - not expected
+            if [[ "$timepart" =~ [+\-] ]]; then
+                # remove timezone part starting at first + or -
+                local tmp="${timepart%%[+-]*}"
+                timecore="$tmp"
+            else
+                timecore="$timepart"
+            fi
+        fi
+    fi
+
+    # extract date components (YYYY-MM-DD)
+    # basic validation and extraction using substring positions
+    if [[ ${#datepart} -lt 10 ]]; then
+        printf ''
+        return 1
+    fi
+    Y=${datepart:0:4}
+    M=${datepart:5:2}
+    D=${datepart:8:2}
+    # ensure numeric (basic)
+    [[ "$Y" =~ ^[0-9]{4}$ && "$M" =~ ^[0-9]{2}$ && "$D" =~ ^[0-9]{2}$ ]] || {
         printf ''
         return 1
     }
 
-    # Convert date to timestamp
-    ts=$(date -j -u -f "%Y-%m-%d %H:%M:%S" "$clean 00:00:00" "+%s" 2>/dev/null || date -u -d "$clean" "+%s" 2>/dev/null) || {
-        printf ''
-        return 1
-    }
+    # parse timecore into hh:mm:ss (may be empty)
+    if [[ -z "$timecore" ]]; then
+        h=0
+        m=0
+        s=0
+    else
+        # Split by ':' using IFS read (safe)
+        IFS=':' read -r hh mm ss <<<"$timecore"
+        hh=${hh:-00}
+        mm=${mm:-00}
+        ss=${ss:-00}
+        # strip fractional seconds if present (e.g., 12:34:56.789)
+        if [[ "$ss" == *.* ]]; then
+            frac="${ss#*.}"
+            ss="${ss%%.*}"
+        fi
+        # defensive numeric defaults
+        [[ "$hh" =~ ^[0-9]+$ ]] || hh=0
+        [[ "$mm" =~ ^[0-9]+$ ]] || mm=0
+        [[ "$ss" =~ ^[0-9]+$ ]] || ss=0
+        h=$((10#$hh))
+        m=$((10#$mm))
+        s=$((10#$ss))
+    fi
 
-    # Format the output
-    out=$(date -u -r "$ts" "$fmt" 2>/dev/null || date -u -d "@$ts" "$fmt" 2>/dev/null) || {
-        printf ''
-        return 1
-    }
+    # If compact and time is all zero, remember flag to remove time later
+    local time_all_zero=0
+    if [[ "$compact" == "true" && "$h" -eq 0 && "$m" -eq 0 && "$s" -eq 0 ]]; then
+        time_all_zero=1
+    fi
 
-    # Remove extra parts
-    printf '%s\n' "$out" | awk -v C="$compact" '{ if (C=="true") gsub("00:00:00", ""); print }' 2>/dev/null | tr -s ' '
+    # Convert Y M D to integer days since epoch (1970-01-01 -> 0)
+    # Algorithm: Howard Hinnant's civil_from_days/days_from_civil (integer math)
+    # Note: handle as signed integers; values well within 64-bit for common dates.
+    local yi mi di y0 era_val yoe_val m_adj doy_val doe_val era_mul
+    yi=$((10#$Y))
+    mi=$((10#$M))
+    di=$((10#$D))
+
+    # adjust year for Jan/Feb
+    if ((mi <= 2)); then
+        y0=$((yi - 1))
+        m_adj=$((mi + 12))
+    else
+        y0=$((yi))
+        m_adj=$((mi))
+    fi
+
+    # era = floor(y0 / 400)
+    # bash division truncates toward zero; for positive years this is floor
+    era_val=$((y0 / 400))
+    yoe_val=$((y0 - era_val * 400))
+    # doy: day of year for March-based year
+    # (153*(m_adj-3)+2)/5 + (d-1)
+    doy_val=$(((153 * (m_adj - 3) + 2) / 5 + (di - 1)))
+    doe_val=$((yoe_val * 365 + yoe_val / 4 - yoe_val / 100 + doy_val))
+    days_since_epoch=$((era_val * 146097 + doe_val - 719468))
+
+    # compute unix timestamp in UTC (seconds)
+    ts=$((days_since_epoch * 86400 + h * 3600 + m * 60 + s))
+
+    # compute weekday: 0=Sun ... 6=Sat (1970-01-01 was Thursday)
+    weekday=$(((days_since_epoch + 4) % 7))
+    ((weekday < 0)) && weekday=$((weekday + 7))
+
+    # Prepare textual replacements
+    local months_abbr months_full weekdays_abbr weekdays_full
+    months_abbr=(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
+    months_full=(January February March April May June July August September October November December)
+    weekdays_abbr=(Sun Mon Tue Wed Thu Fri Sat)
+    weekdays_full=(Sunday Monday Tuesday Wednesday Thursday Friday Saturday)
+
+    local mon_idx mon_name mon_name_full w_abbr w_full
+    mon_idx=$((10#$M - 1))
+    mon_name=${months_abbr[mon_idx]:-Unknown}
+    mon_name_full=${months_full[mon_idx]:-Unknown}
+    w_abbr=${weekdays_abbr[weekday]:-Day}
+    w_full=${weekdays_full[weekday]:-Day}
+
+    # numeric padded values via printf builtin
+    local Y4 Y2 MM DD HH II MN SS
+    Y4=$(printf "%04d" "$yi")
+    Y2=$(printf "%02d" $((yi % 100)))
+    MM=$(printf "%02d" "$mi")
+    DD=$(printf "%02d" "$di")
+    # day space padded and non-padded
+    day_space=$(printf "%2d" "$di")
+    day_nopad=$(printf "%d" "$di")
+    HH=$(printf "%02d" "$h")
+    II_raw=$((h % 12))
+    ((II_raw == 0)) && II_raw=12
+    II=$(printf "%02d" "$II_raw")
+    MN=$(printf "%02d" "$m")
+    SS=$(printf "%02d" "$s")
+    AMPM=$((h >= 12 ? 1 : 0))
+    AMPM_STR=$([ $AMPM -eq 1 ] && printf 'PM' || printf 'AM')
+
+    # Start replacing tokens in format string (longest tokens first)
+    out="$fmt"
+
+    # protect literal %%
+    out="${out//%%/__PCT__PLACEHOLDER__}"
+
+    # Replace %-e (no-pad day) before %e
+    out="${out//%-e/$day_nopad}"
+    # %e -> space-padded day
+    out="${out//%e/$day_space}"
+
+    # Year, month, day
+    out="${out//%Y/$Y4}"
+    out="${out//%y/$Y2}"
+    out="${out//%m/$MM}"
+    out="${out//%d/$DD}"
+
+    # Month names
+    out="${out//%b/$mon_name}"
+    out="${out//%B/$mon_name_full}"
+
+    # Weekday names
+    out="${out//%a/$w_abbr}"
+    out="${out//%A/$w_full}"
+
+    # Time
+    out="${out//%H/$HH}"
+    out="${out//%I/$II}"
+    out="${out//%M/$MN}"
+    out="${out//%S/$SS}"
+    out="${out//%p/$AMPM_STR}"
+
+    # Timezone: this implementation uses UTC (consistent with previous date -u behavior)
+    out="${out//%Z/UTC}"
+
+    # restore literal percent
+    out="${out//__PCT__PLACEHOLDER__/%%}"
+
+    # If compact mode and midnight, remove exact "00:00:00" occurrences and collapse spaces
+    if [[ "$compact" == "true" && "$time_all_zero" -eq 1 ]]; then
+        out="${out//00:00:00/}"
+        # remove stray colons leftover like trailing " :" or "::" don't expect in normal formats, but collapse multiple spaces
+        while [[ "$out" == *"  "* ]]; do out="${out//  / }"; done
+        # trim leading/trailing spaces
+        out="${out#"${out%%[![:space:]]*}"}"
+        out="${out%"${out##*[![:space:]]}"}"
+    fi
+
+    printf '%s\n' "$out"
     return 0
 }
 
@@ -4163,7 +4411,7 @@ is_valid_ipv6() {
     if [ "$doubleslash" -gt 1 ]; then
         return 1
     elif [ "$doubleslash" -eq 1 ]; then
-        [ $((8 - count + 1)) -lt 0 ] && return 1
+        [ "$count" -gt 9 ] && return 1
     else
         [ "$count" -ne 8 ] && return 1
     fi
@@ -6176,8 +6424,6 @@ verify_sig() {
 
 # Register the current command
 register_current_command() {
-    is_posi_int "$CURRENT_PID" || error_exit "Incorrect CURRENT_PID!"
-    bisu_start_flag
     local current_args=$(current_args)
     UNIX_USERNAME=$(whoami)
     UNIX_HOSTNAME=$(hostname)
@@ -6192,17 +6438,19 @@ register_current_command() {
     }
 
     # normalization of arrays allowed to manually modify them
-    normalize_array "BISU_REQUIRED_EXTERNAL_COMMANDS" && normalize_array "REQUIRED_EXTERNAL_COMMANDS" &&
+    array_is_available "REQUIRED_EXTERNAL_COMMANDS" &&
         indexed_array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "REQUIRED_EXTERNAL_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS" &&
         array_unique "BISU_REQUIRED_EXTERNAL_COMMANDS"
-    normalize_array "BISU_REQUIRED_SCRIPTS" && normalize_array "REQUIRED_SCRIPTS" &&
+    array_is_available "REQUIRED_SCRIPTS" &&
         indexed_array_merge "BISU_REQUIRED_SCRIPTS" "REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS" && array_unique "BISU_REQUIRED_SCRIPTS"
-    normalize_array "BISU_ACTIONS_RO" && normalize_array "ACTIONS_RO" && indexed_array_merge "BISU_ACTIONS_RO" "ACTIONS_RO" "BISU_ACTIONS_RO" &&
+    array_is_available "ACTIONS_RO" && indexed_array_merge "BISU_ACTIONS_RO" "ACTIONS_RO" "BISU_ACTIONS_RO" &&
         array_unique "BISU_ACTIONS_RO"
-    normalize_array "BISU_AUTORUN" && normalize_array "AUTORUN" && indexed_array_merge "BISU_AUTORUN" "AUTORUN" "BISU_AUTORUN" &&
+    array_is_available "AUTORUN" && indexed_array_merge "BISU_AUTORUN" "AUTORUN" "BISU_AUTORUN" &&
         array_unique "BISU_AUTORUN"
-    normalize_array "BISU_EXIT_WITH_COMMANDS" && normalize_array "EXIT_WITH_COMMANDS" &&
+    array_is_available "EXIT_WITH_COMMANDS" &&
         indexed_array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS" && array_unique "BISU_EXIT_WITH_COMMANDS"
+
+    bisu_start_flag
 }
 
 # Parse command-line arguments into an associative storage backend.
@@ -6475,9 +6723,7 @@ safe_callfunc() {
 safe_fork() {
     local phrase=$(trim "$1")
     string_to_array "$phrase" "phrase"
-    normalize_array "phrase"
-    local cmd=$(array_get "phrase" 0)
-    array_splice "phrase" 0 1
+    array_shift "phrase" "cmd"
     local args=$(trim "$(printf '%s ' "${phrase[@]}")")
     phrase="$(printf '%s ' "${cmd} ${args}")"
 
@@ -6528,6 +6774,7 @@ safe_fork() {
             else
                 exec 0</dev/tty 1>/dev/tty 2>/dev/null
             fi
+
             if [[ "$logging" == "true" ]]; then
                 bash -c "$(printf '%s' "$phrase")" | tee -a -- "$(current_log_file)" || {
                     printf ''
@@ -6751,29 +6998,37 @@ autorun_start() {
         log_msg "🔒 Lock set." "true"
     fi
 
-    {
-        for command in "${BISU_AUTORUN[@]}"; do
-            log_msg "🕒 Autorun command executing: $command" "true"
+    array_is_available "BISU_AUTORUN" &&
+        {
+            for command in "${BISU_AUTORUN[@]}"; do
+                log_msg "🕒 Autorun command executing: $command" "true"
 
-            {
-                safe_fork "$(printf '%s ' "$command")" || {
-                    log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
-                    continue
-                }
-            } &
-            disown %+ &>/dev/null
+                {
+                    safe_fork "$(printf '%s ' "$command")" || {
+                        log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
+                        continue
+                    }
+                } &
+                disown %+ &>/dev/null
 
-            log_msg "✅ Autorun command done: $command" "true"
-        done
-    } &
-    disown %+ &>/dev/null
+                log_msg "✅ Autorun command done: $command" "true"
+            done
+        } &
 
     return 0
 }
 
+# Utility elapsed time
+execution_time() {
+    is_posi_numeric "$START_TIME" || {
+        START_TIME=$(time_ms)
+    }
+    debug_mode_on && printf '%s\n' "Elapsed: $(echo "($(time_ms) - $START_TIME)" | bc) ms"
+}
+
 # Function to initialize BISU
 initialize() {
-    [ "$BISU_START_FLAG" -eq 0 ] || return 0
+    START_TIME=$(time_ms)
     # order#1 set source guard
     set_source_guard
     # order#2 register current command
@@ -6790,24 +7045,22 @@ initialize() {
 callfunc() {
     local current_args
     string_to_array "$(current_args)" "current_args"
-    normalize_array "current_args"
-
-    local action=$(array_get "current_args" 0)
-    action=$(normalize_string "$action")
-    [[ "$action" == "callfunc" ]] || quit
-
-    local func=$(array_get "current_args" 1)
-    func=$(normalize_string "$func")
-
     local argc=$(array_count "current_args")
     is_posi_int "$argc" || {
         error_exit "Failed to pharse args."
     }
 
+    array_shift "current_args" "action"
+    action=$(normalize_string "$action")
+    [[ "$action" == "callfunc" ]] || quit
+
+    array_shift "current_args" "func"
+    func=$(normalize_string "$func")
+
     is_func "$func" || {
         error_exit "Function '$func' does not exist."
     }
-    array_splice "current_args" 0 2
+
     local params=$(string_join "current_args" ' ')
     local output=""
     safe_callfunc "$func" $(printf '%s ' "$params") | {
@@ -6882,7 +7135,7 @@ in_target_dir() {
 # Integrate operations
 integrate_ops() {
     string_to_array "$(current_args)" "current_args"
-    extract_args args
+    extract_args "args"
     local parg1=$(array_get "args" 1)
     local action="$parg1"
     if [ -z "$action" ]; then
@@ -6900,7 +7153,8 @@ integrate_ops() {
 
     in_array "$action" "install" || verify_sig
     set_action "$action"
-    autorun_start
+    autorun_start &
+    disown %+
 
     local option_force=$(array_get "args" "f" "force")
     local option_yes=$(array_get "args" "y" "yes")
@@ -6920,9 +7174,11 @@ integrate_ops() {
             last_release_date="$(gdate "$last_release_date")"
             [ -n "$last_release_date" ] && version+=" released on ${last_release_date}"
         }
+
         is_bisu_file || {
             version+="; using bisu framework v${BISU_VERSION}"
         }
+
         [ -n "$(current_utility_info_uri)" ] && {
             version+="; for more info please visit $(current_utility_info_uri)"
         }
