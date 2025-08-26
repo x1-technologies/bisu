@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250825Z1
+# Version: v1-20250826Z1
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -1665,9 +1665,9 @@ rtrim_v1() {
 trim_v2() {
     local str chars raw_ci ci endpoints critical_point len use_awk
     str="$1"
-    chars="${2-}"
-    raw_ci="$3"
-    endpoints="${4-3}"
+    chars="${2:-}"
+    raw_ci="${3:-false}"
+    endpoints="${4:-3}"
 
     # validate ci param
     in_array "$raw_ci" "true" "false" || raw_ci="false"
@@ -1688,7 +1688,7 @@ trim_v2() {
     fi
 
     # threshold: environment override allowed
-    critical_point="${TRIM_CRITICAL_POINT-4096}"
+    critical_point="${TRIM_CRITICAL_POINT:-4096}"
     if ! [[ "$critical_point" =~ ^[1-9][0-9]*$ ]]; then
         critical_point=4096
     fi
@@ -1719,22 +1719,29 @@ trim_v2() {
             echo "$str"
             return 0
         else
-            # large input: use awk (original robust behavior)
-            str=$(
-                awk -v chars="[$chars]" -v IGNORECASE="$ci" -v endpoints="$endpoints" '
-                {
-                    if (endpoints == "1") {
+            # large input: use awk (robust for UTF-8)
+            # For whitespace, ensure a valid class is used
+            if [[ "$endpoints" == "1" ]]; then
+                str=$(
+                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                        { gsub("^" chars "+", ""); print }
+                    ' <<<"$str" 2>/dev/null
+                )
+            elif [[ "$endpoints" == "2" ]]; then
+                str=$(
+                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                        { gsub(chars "+$", ""); print }
+                    ' <<<"$str" 2>/dev/null
+                )
+            else
+                str=$(
+                    awk -v chars="[$chars]" -v IGNORECASE="$ci" '{
                         gsub("^" chars "+", "")
-                    } else if (endpoints == "2") {
                         gsub(chars "+$", "")
-                    } else {
-                        gsub("^" chars "+", "")
-                        gsub(chars "+$", "")
-                    }
-                    print
-                }
-                ' <<<"$str" 2>/dev/null
-            )
+                        print 
+                    }' <<<"$str" 2>/dev/null
+                )
+            fi
             echo "$str"
             return 0
         fi
@@ -1742,22 +1749,29 @@ trim_v2() {
 
     # ---- custom chars branch ----
     if ((use_awk == 1)); then
-        # large input: fallback to awk (preserve original logic)
-        str=$(
-            awk -v chars="[$chars]" -v IGNORECASE="$ci" -v endpoints="$endpoints" '
-            {
-                if (endpoints == "1") {
+        # large input: use awk (robust for UTF-8)
+        # For whitespace, ensure a valid class is used
+        if [[ "$endpoints" == "1" ]]; then
+            str=$(
+                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                    { gsub("^" chars "+", ""); print }
+                ' <<<"$str" 2>/dev/null
+            )
+        elif [[ "$endpoints" == "2" ]]; then
+            str=$(
+                awk -v chars="[$chars]" -v IGNORECASE="$ci" '
+                    { gsub(chars "+$", ""); print }
+                ' <<<"$str" 2>/dev/null
+            )
+        else
+            str=$(
+                awk -v chars="[$chars]" -v IGNORECASE="$ci" '{
                     gsub("^" chars "+", "")
-                } else if (endpoints == "2") {
                     gsub(chars "+$", "")
-                } else {
-                    gsub("^" chars "+", "")
-                    gsub(chars "+$", "")
-                }
-                print
-            }
-            ' <<<"$str" 2>/dev/null
-        )
+                    print 
+                }' <<<"$str" 2>/dev/null
+            )
+        fi
         echo "$str"
         return 0
     fi
@@ -1871,5 +1885,92 @@ set_source_guard_v1() {
     source() { __source_guard "$@"; }
     .() { __source_guard "$@"; }
 
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# Function to acquire a lock to prevent multiple instances
+acquire_lock_v1() {
+    local lock_file=$(current_lock_file)
+    [ -n "$lock_file" ] || error_exit "❗️ Failed to acquire 🔒 lock."
+    exec 200>"$lock_file" || error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
+    flock -n 200 || {
+        lock_held
+        error_exit "🔒 An instance is running: $lock_file"
+    }
+}
+
+# archived work, correctly works, lack of performance
+# Function to release the lock
+release_lock_v1() {
+    [ "$LOCK_HELD" -eq 0 ] || return 0
+
+    local lock_file=$(current_lock_file)
+    is_file "$lock_file" || {
+        return 0
+    }
+
+    flock -u 200 && saferm "$lock_file" || {
+        log_msg "❗️ Failed to remove lock file: ${lock_file}" "true"
+        return 1
+    }
+
+    log_msg "✅ Released 🔒 lock_file: ${lock_file}" "true"
+    return 0
+}
+
+# archived work, correctly works, lack of performance
+# Function: gdate
+# Description: function for converting ISO8601 time format to natural language format
+gdate_v1() {
+    local input=$(normalize_iso_datetime "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    local fmt=$(trim "$2")
+    fmt="${fmt:-+%a %b %-e %H:%M:%S %Z %Y}"
+    local compact=$(trim "$3")
+    in_array "$compact" "true" "false" || compact="true"
+
+    # Process date components
+    clean=$(printf '%s\n' "$input" | awk -v C="$compact" '
+        BEGIN{FS="[T ]"}
+        {
+            split($1,d,"-")
+            if (length(d[1])!=4 || length(d[2])!=2 || length(d[3])!=2) exit
+            t = (NF>1 ? $2 : "")
+            sub(/[+-].*|Z$/, "", t)
+            split(t,tokens,":")
+            h = (tokens[1]=="" ? "00" : tokens[1])
+            m = (tokens[2]=="" ? "00" : tokens[2])
+            s = (tokens[3]=="" ? "00" : tokens[3])
+            if (C=="true" && h=="00" && m=="00" && s=="00") {
+                printf "%04d-%02d-%02d\n", d[1], d[2], d[3]
+            } else {
+                printf "%04d-%02d-%02d %02d:%02d:%02d\n", d[1], d[2], d[3], h, m, s
+            }
+        }' 2>/dev/null)
+
+    [ -z "$clean" ] && {
+        printf ''
+        return 1
+    }
+
+    # Convert date to timestamp
+    ts=$(date -j -u -f "%Y-%m-%d %H:%M:%S" "$clean 00:00:00" "+%s" 2>/dev/null || date -u -d "$clean" "+%s" 2>/dev/null) || {
+        printf ''
+        return 1
+    }
+
+    # Format the output
+    out=$(date -u -r "$ts" "$fmt" 2>/dev/null || date -u -d "@$ts" "$fmt" 2>/dev/null) || {
+        printf ''
+        return 1
+    }
+
+    # Remove extra parts
+    printf '%s\n' "$out" | awk -v C="$compact" '{ if (C=="true") gsub("00:00:00", ""); print }' 2>/dev/null | tr -s ' '
     return 0
 }
