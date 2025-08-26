@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.500"
+export BISU_VERSION="10.2.510"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-26Z"
 # Minimal Bash Version
@@ -2480,13 +2480,14 @@ fileext() {
 }
 
 # Get file info
-get_file_info() {
+extract_file_info() {
     local file_path=$(trim "$1")
     file_path=$(file_real_path "$file_path")
-    if [ -z "$file_path" ]; then
-        printf ''
-        return 1
-    fi
+    [ -n "$file_path" ] || return 1
+
+    local receiver_var_name=$(trim "$2")
+    is_valid_var_name "$receiver_var_name" || return 1
+    declare -n var_ref="$receiver_var_name"
 
     local filename=""
     local file_ext=""
@@ -2527,7 +2528,8 @@ get_file_info() {
     array_set "rs" "is_file" "$file_is_file"
     array_set "rs" "file_has_ext" "$file_has_ext"
 
-    array_dump "rs" || return 1
+    @set "var_ref" "${rs[@]}" || return 1
+    eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
 
@@ -2584,7 +2586,7 @@ cp_p() {
         return 1
     fi
 
-    local file_info=("$(get_file_info "$target_path")")
+    extract_file_info "$target_path" "file_info"
     target_path=$(array_get "file_info" "file_path")
     target_dir=$(array_get "file_info" "file_dir")
 
@@ -4959,6 +4961,10 @@ yaml_to_array() {
         input=$(trim "$1")
     fi
 
+    local receiver_var_name=$(trim "$2")
+    is_valid_var_name "$receiver_var_name" || return 1
+    declare -n var_ref="$receiver_var_name"
+
     local rs=()
     # Read the input line by line
     while IFS=':' read -r key value; do
@@ -4970,16 +4976,11 @@ yaml_to_array() {
         [ -z "$key" ] && continue
 
         # Set the key-value pair
-        array_set "rs" "$key" "$value" || {
-            printf ''
-            return 1
-        }
-    done <<<"$input" || {
-        printf ''
-        return 1
-    }
+        array_set "rs" "$key" "$value" || return 1
+    done <<<"$input" || return 1
 
-    array_dump "rs" || return 1
+    @set "var_ref" "${rs[@]}" || return 1
+    eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
 
@@ -4992,6 +4993,10 @@ json_to_array() {
     else
         input=$(trim "$1")
     fi
+
+    local receiver_var_name=$(trim "$2")
+    is_valid_var_name "$receiver_var_name" || return 1
+    declare -n var_ref="$receiver_var_name"
 
     local rs=()
     # Read the input line by line
@@ -5017,17 +5022,12 @@ json_to_array() {
             [ -z "$key" ] && continue
 
             # Set the key-value pair
-            array_set "rs" "$key" "$value" || {
-                printf ''
-                return 1
-            }
+            array_set "rs" "$key" "$value" || return 1
         fi
-    done <<<"$input" || {
-        printf ''
-        return 1
-    }
+    done <<<"$input" || return 1
 
-    array_dump "rs" || return 1
+    @set "var_ref" "${rs[@]}" || return 1
+    eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
 
@@ -5181,15 +5181,16 @@ urldecode() {
 }
 
 # Normalize a URL and analyze its components
-get_url_info() {
+extract_url_info() {
     local url scheme domain path remaining_url normalized_url
     local url_is_encoded unencoded_url unencoded_req_path encoded_url encoded_req_path
 
     url=$(trim "$1")
-    [ -n "$url" ] || {
-        printf ''
-        return 1
-    }
+    [ -n "$url" ] || return 1
+
+    local receiver_var_name=$(trim "$2")
+    is_valid_var_name "$receiver_var_name" || return 1
+    declare -n var_ref="$receiver_var_name"
 
     # Step 1: Extract scheme if present
     if [[ "$url" =~ ^([a-zA-Z][a-zA-Z0-9+.-]*):\/\/(.*)$ ]]; then
@@ -5202,7 +5203,6 @@ get_url_info() {
 
     # Step 2: Validate scheme (only allow http, https, ftp)
     if [[ ! "$scheme" =~ ^(http|https|ftp)$ ]]; then
-        printf ''
         return 1
     fi
 
@@ -5211,13 +5211,11 @@ get_url_info() {
         domain="${BASH_REMATCH[1]}"
         path="${BASH_REMATCH[2]:-/}" # default to '/' if empty
     else
-        printf ''
         return 1
     fi
 
     # Step 4: Validate domain (basic alphanumeric, dots, hyphens)
     if [[ ! "$domain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-        printf ''
         return 1
     fi
 
@@ -5255,7 +5253,8 @@ get_url_info() {
     array_set "rs" "encoded_req_path" "$encoded_req_path"
     array_set "rs" "encoded_url" "$encoded_url"
 
-    array_dump "rs" || return 1
+    @set "var_ref" "${rs[@]}" || return 1
+    eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
 
@@ -6368,38 +6367,6 @@ exec_when_quit() {
     array_unique_push "BISU_EXIT_WITH_COMMANDS" "$command" || {
         return 1
     }
-    return 0
-}
-
-# Execute a command when quit
-separate_command() {
-    local input=$(printf '%s ' "$@") # Full input string
-    local cmd
-    local args
-    local params=""
-
-    # Step 1: Extract command and parameters using `awk` + `while IFS` to handle space and empty string
-    while IFS= read -r word; do
-        if [ -z "$cmd" ]; then
-            cmd="$word" # First word is the command
-        else
-            params="$params $word" # Everything after is considered a parameter
-        fi
-    done <<<"$(printf '%s\n' "$input" | awk '{for(i=1;i<=NF;i++) print $i}')" 2>/dev/null || {
-        printf ''
-        return 1
-    }
-
-    if [ -z "$cmd" ]; then
-        printf ''
-        return 1
-    fi
-
-    local rs=()
-    array_set "rs" "command" "$cmd"
-    array_set "rs" "args" "$params"
-
-    echo "${rs[@]}"
     return 0
 }
 
