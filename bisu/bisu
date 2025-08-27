@@ -4,18 +4,18 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
-## Official Web Site: https://bisu.cc
+## Official Web Site: https://bisu.dev
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## curl -sL https://g.bisu.cc/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
+## curl -sL https://g.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.510"
+export BISU_VERSION="10.2.520"
 # Set BISU's last release date
-export BISU_LAST_RELEASE_DATE="2025-08-26Z"
+export BISU_LAST_RELEASE_DATE="2025-08-27Z"
 # Minimal Bash Version
 export MINIMAL_BASH_VERSION="5.0.0"
 # BISU info uri
-export BISU_INFO_URI="https://bisu.cc"
+export BISU_INFO_URI="https://bisu.dev"
 # Default title
 export DEFAULT_TITLE="-bash"
 # Auto line-break length
@@ -45,9 +45,9 @@ export TRIM_CRITICAL_POINT=102400
 # Error message prefix
 export ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # BISU File URL
-export BISU_FILE_URL="https://g.bisu.cc/bisu-file"
+export BISU_FILE_URL="https://g.bisu.dev/bisu-file"
 # BISU ASC File URL
-export BISU_ASC_FILE_URL="https://g.bisu.cc/bisu-asc-file"
+export BISU_ASC_FILE_URL="https://g.bisu.dev/bisu-asc-file"
 # Global Variables
 TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
 HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
@@ -763,9 +763,8 @@ quit() {
     fi
 
     is_posi_int "$pid" || {
-        kill -TERM -$$ &>/dev/null &
-        disown %+ &>/dev/null
-        exit 1
+        error_log "Can not terminate the specified process, incorrect pid of '${pid}'" "⚠️"
+        return 1
     }
 
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || exit 1
@@ -1007,10 +1006,52 @@ log_msg() {
     return 0
 }
 
+# Emoji verification
+is_emoji() {
+    local char=$(trim "$1")
+
+    # Empty or multi-char string is not emoji
+    [[ -z "$char" ]] && return 1
+
+    # Single-char emojis (general ranges)
+    case "$char" in
+    # Emoticons block
+    [$'\U1F600'-$'\U1F64F']) return 0 ;;
+    # Misc Symbols and Pictographs
+    [$'\U1F300'-$'\U1F5FF']) return 0 ;;
+    # Transport and Map symbols
+    [$'\U1F680'-$'\U1F6FF']) return 0 ;;
+    # Supplemental Symbols and Pictographs
+    [$'\U1F900'-$'\U1F9FF']) return 0 ;;
+    # Symbols & Dingbats
+    [$'\U2600'-$'\U26FF']) return 0 ;;
+    [$'\U2700'-$'\U27BF']) return 0 ;;
+    esac
+
+    # Flag emojis (regional indicator pairs) → 2 chars: U+1F1E6–U+1F1FF
+    if [[ ${#char} -eq 8 ]]; then # each RI is 4-byte UTF-8
+        local c1=${char:0:4} c2=${char:4:4}
+        case "$c1$c2" in
+        [$'\U1F1E6'-$'\U1F1FF'][$'\U1F1E6'-$'\U1F1FF']) return 0 ;;
+        esac
+    fi
+
+    # Family/skin-tone sequences (joined with U+200D, variation selectors)
+    # Detect presence of key emoji parts + ZWJ
+    if [[ "$char" == *$'\u200d'* ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Function: error_log
 error_log() {
     local error_msg="$1"
-    log_msg "${ERROR_MSG_PREFIX}$error_msg" "true"
+    local emoji_label=$(trim "$2")
+    is_emoji "$emoji_label" || emoji_label="❗️"
+    error_msg="${emoji_label} ${error_msg}"
+    log_msg "$error_msg" "true" || return 1
     return 0
 }
 
@@ -1942,18 +1983,18 @@ exec_command() {
         if [[ "$logging" == "true" ]]; then
             debug_mode_on && eval "$(printf '%s' "$phrase")" 2>&1 || eval "$(printf '%s' "$phrase")" 2>/dev/null |
                 tee -a -- "$(current_log_file)" || {
-                log_msg "❗️ Last execution failure was from: $phrase" "true"
+                error_log "Last execution failure was from: $phrase"
                 return 1
             }
         else
             debug_mode_on && eval "$(printf '%s' "$phrase")" 2>&1 || eval "$(printf '%s' "$phrase")" 2>/dev/null || {
-                log_msg "❗️ Last execution failure was from: $phrase" "true"
+                error_log "Last execution failure was from: $phrase"
                 return 1
             }
         fi
     else
         pid=$(safe_fork "$phrase" "true" "$logging") || {
-            log_msg "❗️ Last execution failure was from: $phrase" "true"
+            error_log "Last execution failure was from: $phrase"
             return 1
         }
     fi
@@ -2040,14 +2081,11 @@ file_real_path() {
 add_env_path() {
     local new_path=$(trim "$1")
 
-    # Check if the argument is provided
-    if [ -z "$new_path" ]; then
-        error_log "No path provided to append."
-        return 1
-    fi
-
     # Check if the directory exists
-    #s_dir "$new_path" || return 1
+    is_dir "$new_path" || {
+        error_log "The directory '${new_path}' does not exist."
+        return 1
+    }
 
     # Convert to absolute path
     new_path=$(cd "$new_path" && pwd -P)
@@ -2552,11 +2590,11 @@ mkdir_p() {
     # Check if the directory exists, if not, create it
     if ! file_exists "$dir"; then
         bash -c "mkdir -p \"$dir\"" &>/dev/null || {
-            error_log "Failed to mkdir: $dir"
+            error_log "Failed to mkdir: '${dir}'"
             return 1
         }
         bash -c "chmod -R 755 \"$dir\"" &>/dev/null || {
-            error_log "Failed to change permissions for $dir"
+            error_log "Failed to change permissions for '${dir}'"
             return 1
         }
     fi
@@ -2581,8 +2619,14 @@ cp_p() {
     local failure_msg=""
 
     # Check if the source_path exists
+    if ! file_exists "$source_path"; then
+        error_log "Source path '${source_path}' does not exist."
+        return 1
+    fi
+
+    # Check the source_path's permission
     if [[ ! -e "$source_path" ]]; then
-        error_log "Source $source_path does not exist."
+        error_log "Permission denied on file: '${source_path}'."
         return 1
     fi
 
@@ -6307,7 +6351,7 @@ release_lock() {
     }
 
     flock -u 200 && saferm "$lock_file" || {
-        log_msg "❗️ Failed to remove lock file: ${lock_file}" "true"
+        error_log "Failed to remove lock file: ${lock_file}"
         return 1
     }
 
@@ -6342,17 +6386,23 @@ revert_title() {
 # Add new element to pending to load script list, param 1 as the to load script file
 import_script() {
     local script=$(trim "$1")
-    if ! is_file "$script"; then
-        error_exit "Failed to import script: $script"
-    fi
-    source "$script" 2>/dev/null || { error_exit "Failed to import script: $script"; }
+    is_file "$script" || {
+        error_log "Failed to import script: $script"
+        return 1
+    }
+    source "$script" 2>/dev/null || {
+        error_log "Failed to import script: $script"
+        return 1
+    }
+    return 0
 }
 
 # Automatically import required scripts
 load_required_scripts() {
-    if ! is_array "BISU_REQUIRED_SCRIPTS"; then
-        error_exit "Invalid BISU_REQUIRED_SCRIPTS array."
-    fi
+    is_array "BISU_REQUIRED_SCRIPTS" || {
+        error_log "Invalid BISU_REQUIRED_SCRIPTS array." "⚠️"
+        return 1
+    }
 
     for script in "${BISU_REQUIRED_SCRIPTS[@]}"; do
         import_script "$script"
@@ -6416,8 +6466,6 @@ register_current_command() {
         array_unique "BISU_AUTORUN"
     array_is_available "EXIT_WITH_COMMANDS" &&
         indexed_array_merge "BISU_EXIT_WITH_COMMANDS" "EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS" && array_unique "BISU_EXIT_WITH_COMMANDS"
-
-    bisu_start_flag
 }
 
 # Parse command-line arguments into an associative storage backend.
@@ -6830,7 +6878,7 @@ continuous_exec() {
         fi
 
         [ -n "$op_name" ] && [ "$count" -gt 0 ] && {
-            log_msg "The operation [$op_name] has been failed. Attempting retry $count..."
+            error_log "The operation [${op_name}] has been failed. Attempting retry ${count}..." "⚠️"
         }
 
         pid=$(safe_fork "$phrase") || return 1
@@ -6972,7 +7020,7 @@ autorun_start() {
 
                 {
                     safe_fork "$(printf '%s ' "$command")" || {
-                        log_msg "❗️ Last execution failure was from: $command (Initialization Task)" "true"
+                        error_log "Last execution failure was from: $command (Initialization Task)"
                         continue
                     }
                 } &
@@ -6995,7 +7043,10 @@ execution_time() {
 
 # Function to initialize BISU
 initialize() {
+    # prepare for the start and set the prevention for reinitialization
     START_TIME=$(time_ms)
+    [ "$BISU_START_FLAG" -eq 0 ] || return 0
+    bisu_start_flag
     # order#1 set source guard
     set_source_guard
     # order#2 register current command
