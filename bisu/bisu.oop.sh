@@ -5,11 +5,13 @@
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 
 # ================================================================ BISU OOP Engine Start =======================================================================
-# Version: v7-20250828Z1
+# Version: v7-20250828Z2
 # If you need basic OO-ability in bash5, please copy the entire block quoted between the start and end divider lines.
+
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
 
+# Trim spaces at both ends
 class.trim() {
     local str="$1"
     str="${str#"${str%%[![:space:]]*}"}" # ltrim
