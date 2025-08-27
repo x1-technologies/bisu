@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250826Z3
+# Version: v1-20250827Z1
 
 # archived work, works correctly, improved version of get_args()
 # Parse command-line arguments into an associative storage backend.
@@ -1208,6 +1208,156 @@ array_get_v1() {
     return 0
 }
 
+# archived work, functionally correct, lack of performance
+# Set the specified key/value pairs in either indexed or associative arrays
+# Usage: array_set arr key1 val1 [key2 val2 ...]
+# Returns 0 on success, 1 on failure
+array_set_v2() {
+    local array_name key value is_assoc i max_index idx tmp_name __tmp_ref
+    array_name=$(trim "$1")
+    shift
+
+    is_array "$array_name" || return 1
+    declare -n _ref="$array_name"
+
+    if is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    # Process key/value pairs
+    while [[ $# -gt 1 ]]; do
+        key="$(trim "$1")"
+        value="$2"
+        shift 2
+
+        # ignore empty keys
+        [[ -z "$key" ]] && continue
+
+        # associative array set (fast path)
+        if [[ $is_assoc -eq 1 ]]; then
+            _ref["$key"]="$value"
+            continue
+        fi
+
+        # indexed array numeric index set (fast path)
+        if [[ "$key" =~ ^[0-9]+$ ]]; then
+            _ref[$key]="$value"
+            continue
+        fi
+
+        # Non-numeric key for an indexed array -> migrate to associative array
+        # Create a unique temporary associative container
+        tmp_name="__array_mig_tmp_$$_$RANDOM"
+        declare -gA "$tmp_name"
+        declare -n __tmp_ref="$tmp_name"
+
+        # Determine maximal numeric index (safe O(n) scan)
+        max_index=-1
+        for i in "${!_ref[@]}"; do
+            # only consider numeric indices (defensive)
+            if [[ "$i" =~ ^[0-9]+$ ]]; then
+                ((i > max_index)) && max_index=$i
+            fi
+        done
+
+        # Copy values from original indexed array into tmp in ASC numeric order
+        if ((max_index >= 0)); then
+            for ((idx = 0; idx <= max_index; idx++)); do
+                # Check existence of the element to avoid creating holes
+                if [[ ${_ref[idx]+_} ]]; then
+                    __tmp_ref["$idx"]="${_ref[idx]}"
+                fi
+            done
+        fi
+
+        # Unset original and re-declare as associative, then rebind _ref
+        unset -v "$array_name"
+        declare -gA "$array_name"
+        declare -n _ref="$array_name"
+
+        # Restore entries from tmp in the same ASC numeric order
+        if ((max_index >= 0)); then
+            for ((idx = 0; idx <= max_index; idx++)); do
+                if [[ ${__tmp_ref[$idx]+_} ]]; then
+                    _ref["$idx"]="${__tmp_ref[$idx]}"
+                fi
+            done
+        fi
+
+        # Clean up temporary container
+        unset -v "__tmp_ref"
+        unset -v "$tmp_name"
+
+        # mark as associative and set the requested key
+        is_assoc=1
+        _ref["$key"]="$value"
+    done
+
+    return 0
+}
+
+# archived work, functionally correct, lack of performance
+# Get an element from a indexed or assoc array, if multiple keys,
+# return the first non-empty value found.
+# Usage: array_get arr key1 [key2 ...]
+# Returns: 0 on success (prints value), 1 on failure (prints nothing)
+array_get_v2() {
+    local array_name key val is_assoc idx
+    array_name=$(trim "$1")
+    shift
+
+    is_array "$array_name" || {
+        printf ''
+        return 1
+    }
+    declare -n _ref="$array_name"
+
+    if is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    val=""
+    for key in "$@"; do
+        [[ -z "$key" ]] && continue
+
+        if [[ $is_assoc -eq 1 ]]; then
+            # Safe existence test for associative element
+            [[ ${_ref[$key]+_} ]] || continue
+            val="${_ref[$key]}"
+        else
+            # Indexed array: key must be a non-negative integer and within bounds
+            [[ "$key" =~ ^[0-9]+$ ]] || continue
+            idx=$key
+            if ((idx >= 0 && idx < ${#_ref[@]})); then
+                # element may be unset; check existence
+                [[ ${_ref[$idx]+_} ]] || continue
+                val="${_ref[$idx]}"
+            else
+                continue
+            fi
+        fi
+
+        # Treat EMPTY_EXPR as an explicit empty sentinel if it exists
+        if [[ ${EMPTY_EXPR+set} && "$val" == "${EMPTY_EXPR}" ]]; then
+            val=""
+        fi
+
+        # Stop at first non-empty value
+        if [[ -n "$val" ]]; then
+            printf '%s' "$val"
+            return 0
+        fi
+    done
+
+    # Nothing found
+    printf ''
+    return 1
+}
+
 # archived work, works correctly
 # Encode a string to Base10
 # Concatenated 3-digit zero-padded ASCII decimals.
@@ -1847,6 +1997,104 @@ ltrim_v2() {
 #   case_insensitive: "true"|"false" (validated via in_array; default "false")
 rtrim_v2() {
     trim "$1" "$2" "$3" "2" || return 1
+    return 0
+}
+
+# archived work, correctly works
+# Adaptive, POSIX-aware trim function (UTF-8 friendly, high-performance)
+# Usage: trim "string" [chars] [case_insensitive]
+#   chars: characters to trim (default: POSIX space class)
+#   case_insensitive: "true"|"false"
+# Behavior: adaptive threshold controlled by TRIM_CRITICAL_POINT (non-negative int, default 4096).
+#           For inputs >= threshold the function uses awk (robust for large/UTF-8 data).
+#           For smaller inputs it uses pure-Bash paths for best performance.
+trim_v3() {
+    local str="$1"
+    local chars="${2:-}"
+    local raw_ci="${3:-false}"
+    local endpoints="${4:-3}"
+    local critical_point len use_awk ci
+
+    # Validate and normalize parameters
+    [[ "$raw_ci" =~ ^(true|false)$ ]] || raw_ci="false"
+    ci=$([[ "$raw_ci" == "true" ]] && echo 1 || echo 0)
+    [[ "$endpoints" =~ ^[123]$ ]] || endpoints=3
+
+    # Read from stdin if no arguments
+    [[ $# -eq 0 ]] && str=$(cat)
+
+    # Threshold for adaptive path
+    critical_point="${TRIM_CRITICAL_POINT:-4096}"
+    [[ "$critical_point" =~ ^[1-9][0-9]*$ ]] || critical_point=4096
+
+    # Choose fast Bash path vs awk path
+    len=${#str}
+    use_awk=$((len >= critical_point ? 1 : 0))
+
+    # ---- whitespace default fast-path ----
+    if [[ "$chars" =~ ^[[:space:]]*$ ]]; then
+        if ((use_awk == 0)); then
+            # Pure Bash trimming for small strings (UTF-8 safe)
+            ((endpoints == 1 || endpoints == 3)) && str="${str#"${str%%[![:space:]]*}"}"
+            ((endpoints == 2 || endpoints == 3)) && str="${str%"${str##*[![:space:]]}"}"
+            echo "$str"
+            return 0
+        else
+            # Large input: robust awk path
+            if ((endpoints == 1)); then
+                str=$(awk -v chars='[[:space:]]' -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); print }' <<<"$str" 2>/dev/null)
+            elif ((endpoints == 2)); then
+                str=$(awk -v chars='[[:space:]]' -v IGNORECASE="$ci" '{ gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null)
+            else
+                str=$(awk -v chars='[[:space:]]' -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null)
+            fi
+            echo "$str"
+            return 0
+        fi
+    fi
+
+    # ---- custom characters branch ----
+    if ((use_awk == 1)); then
+        # Large input: awk path, robust UTF-8
+        case $endpoints in
+        1) str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); print }' <<<"$str" 2>/dev/null) ;;
+        2) str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '{ gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null) ;;
+        3) str=$(awk -v chars="[$chars]" -v IGNORECASE="$ci" '{ gsub("^" chars "+",""); gsub(chars "+$",""); print }' <<<"$str" 2>/dev/null) ;;
+        esac
+        echo "$str"
+        return 0
+    fi
+
+    # Small input & custom chars: pure Bash trimming
+    local -A trim_map=()
+    local ch chkey
+    while IFS= read -r -n1 ch; do
+        [[ -z "$ch" ]] && continue
+        chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
+        trim_map["$chkey"]=1
+    done <<<"$chars"
+
+    # Left trim
+    if ((endpoints == 1 || endpoints == 3)); then
+        while [[ -n "$str" ]]; do
+            ch="${str:0:1}"
+            chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
+            [[ ${trim_map[$chkey]+_} ]] || break
+            str=${str#?}
+        done
+    fi
+
+    # Right trim
+    if ((endpoints == 2 || endpoints == 3)); then
+        while [[ -n "$str" ]]; do
+            ch="${str: -1}"
+            chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
+            [[ ${trim_map[$chkey]+_} ]] || break
+            str=${str%?}
+        done
+    fi
+
+    echo "$str"
     return 0
 }
 
