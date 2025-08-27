@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-export BISU_VERSION="10.2.520"
+export BISU_VERSION="10.2.530"
 # Set BISU's last release date
 export BISU_LAST_RELEASE_DATE="2025-08-27Z"
 # Minimal Bash Version
@@ -811,7 +811,7 @@ dump() {
 # Description: According to its naming
 current_command() {
     if [ -z "$CURRENT_COMMAND" ]; then
-        output "Invalid current command"
+        printf '%s\n' "Invalid current command"
         kill -TERM -$$ &>/dev/null &
         disown %+ &>/dev/null
         exit 1
@@ -831,7 +831,7 @@ current_args() {
 # Description: According to its naming
 current_file_path() {
     if [ -z $CURRENT_FILE_PATH ] || ! is_file "$CURRENT_FILE_PATH"; then
-        output "Invalid current file path: $CURRENT_FILE_PATH"
+        printf '%s\n' "Invalid current file path: $CURRENT_FILE_PATH"
         kill -TERM -$$ &>/dev/null &
         disown %+ &>/dev/null
         exit 1
@@ -843,7 +843,7 @@ current_file_path() {
 # Description: According to its naming
 current_filename() {
     if [ -z $CURRENT_FILE_NAME ]; then
-        output "Invalid current file name"
+        printf '%s\n' "Invalid current file name"
         kill -TERM -$$ &>/dev/null &
         disown %+ &>/dev/null
         exit 1
@@ -855,7 +855,7 @@ current_filename() {
 # Description: According to its naming
 user_conf_dir() {
     if [ -z $USER_CONF_DIR ]; then
-        output "Invalid user conf dir"
+        printf '%s\n' "Invalid user conf dir"
         kill -TERM -$$ &>/dev/null &
         disown %+ &>/dev/null
         exit 1
@@ -2958,7 +2958,7 @@ array_splice() {
 
     [ "$position" -ge "$array_count" ] && return 0
 
-    [ $((position + quantity)) -gt "$array_count" ] && quantity=$((array_count - position))
+    ((position + quantity > array_count)) && quantity=$((array_count - position))
 
     local new_array
     new_array=$(printf '%s\n' "${arr_ref[@]}" |
@@ -2974,86 +2974,89 @@ array_splice() {
 # Usage: array_set arr key1 val1 [key2 val2 ...]
 # Returns 0 on success, 1 on failure
 array_set() {
-    local array_name key value is_assoc i max_index idx tmp_name __tmp_ref
+    local array_name key value is_assoc tmp_var tmp_ref ref numeric_indices sorted_idx idx i
+
+    # first arg: array name (trim provided by caller)
     array_name=$(trim "$1")
     shift
 
+    # ensure array exists (helper expected to exist)
     is_array "$array_name" || return 1
-    declare -n _ref="$array_name"
 
+    # name reference to target array
+    declare -n ref="$array_name"
+
+    # detect whether it is already associative (helper expected to exist)
     if is_assoc_array "$array_name"; then
         is_assoc=1
     else
         is_assoc=0
     fi
 
-    # Process key/value pairs
-    while [[ $# -gt 1 ]]; do
-        key="$(trim "$1")"
+    # Process each key/value pair
+    while (($# > 1)); do
+        key=$(trim "$1")
         value="$2"
         shift 2
 
         # ignore empty keys
         [[ -z "$key" ]] && continue
 
-        # associative array set (fast path)
-        if [[ $is_assoc -eq 1 ]]; then
-            _ref["$key"]="$value"
+        # fast path: already associative
+        if ((is_assoc)); then
+            ref["$key"]="$value"
             continue
         fi
 
-        # indexed array numeric index set (fast path)
-        if [[ "$key" =~ ^[0-9]+$ ]]; then
-            _ref[$key]="$value"
+        # fast path: numeric index -> keep indexed array
+        case "$key" in
+        '' | *[!0-9]*) ;; # non-numeric -> fall through to migration
+        *)
+            ref[$key]="$value"
             continue
-        fi
+            ;;
+        esac
 
-        # Non-numeric key for an indexed array -> migrate to associative array
-        # Create a unique temporary associative container
-        tmp_name="__array_mig_tmp_$$_$RANDOM"
-        declare -gA "$tmp_name"
-        declare -n __tmp_ref="$tmp_name"
+        # ---------- migration: indexed -> associative ----------
+        # create a unique temporary associative array name (sanitized)
+        tmp_var="__array_mig_${array_name//[^a-zA-Z0-9_]/}_$$_$RANDOM"
+        declare -gA "$tmp_var"
+        declare -n tmp_ref="$tmp_var"
 
-        # Determine maximal numeric index (safe O(n) scan)
-        max_index=-1
-        for i in "${!_ref[@]}"; do
-            # only consider numeric indices (defensive)
-            if [[ "$i" =~ ^[0-9]+$ ]]; then
-                ((i > max_index)) && max_index=$i
-            fi
+        # copy only existing numeric indices into temporary container
+        numeric_indices=()
+        for i in "${!ref[@]}"; do
+            case "$i" in
+            '' | *[!0-9]*) ;; # skip non-numeric keys (defensive)
+            *)
+                numeric_indices+=("$i")
+                tmp_ref["$i"]="${ref[$i]}"
+                ;;
+            esac
         done
 
-        # Copy values from original indexed array into tmp in ASC numeric order
-        if ((max_index >= 0)); then
-            for ((idx = 0; idx <= max_index; idx++)); do
-                # Check existence of the element to avoid creating holes
-                if [[ ${_ref[idx]+_} ]]; then
-                    __tmp_ref["$idx"]="${_ref[idx]}"
-                fi
-            done
-        fi
-
-        # Unset original and re-declare as associative, then rebind _ref
+        # destroy original and re-declare as associative
         unset -v "$array_name"
         declare -gA "$array_name"
-        declare -n _ref="$array_name"
+        declare -n ref="$array_name"
 
-        # Restore entries from tmp in the same ASC numeric order
-        if ((max_index >= 0)); then
-            for ((idx = 0; idx <= max_index; idx++)); do
-                if [[ ${__tmp_ref[$idx]+_} ]]; then
-                    _ref["$idx"]="${__tmp_ref[$idx]}"
-                fi
+        # restore numeric entries in ascending numeric order (stable)
+        if ((${#numeric_indices[@]})); then
+            IFS=$'\n' sorted_idx=($(printf '%s\n' "${numeric_indices[@]}" | sort -n))
+            unset IFS
+            for idx in "${sorted_idx[@]}"; do
+                ref["$idx"]="${tmp_ref[$idx]}"
             done
+            unset sorted_idx
         fi
 
-        # Clean up temporary container
-        unset -v "__tmp_ref"
-        unset -v "$tmp_name"
+        # cleanup temporary container
+        unset -v tmp_ref
+        unset -v "$tmp_var"
 
-        # mark as associative and set the requested key
+        # mark as associative and set requested key
         is_assoc=1
-        _ref["$key"]="$value"
+        ref["$key"]="$value"
     done
 
     return 0
@@ -3068,41 +3071,48 @@ array_get() {
     array_name=$(trim "$1")
     shift
 
+    # Array must exist
     is_array "$array_name" || {
         printf ''
         return 1
     }
-    declare -n _ref="$array_name"
 
+    # name reference to target
+    declare -n ref="$array_name"
+
+    # detect associative vs indexed (helper expected to exist)
     if is_assoc_array "$array_name"; then
         is_assoc=1
     else
         is_assoc=0
     fi
 
-    val=""
+    # iterate keys in order; return first non-empty value
     for key in "$@"; do
+        # skip empty keys
         [[ -z "$key" ]] && continue
 
-        if [[ $is_assoc -eq 1 ]]; then
-            # Safe existence test for associative element
-            [[ ${_ref[$key]+_} ]] || continue
-            val="${_ref[$key]}"
+        val=""
+
+        if ((is_assoc)); then
+            # fast direct-existence check for associative arrays
+            # -v works for array elements in bash and is fastest builtin check
+            [[ -v ref["$key"] ]] || continue
+            val="${ref[$key]}"
         else
-            # Indexed array: key must be a non-negative integer and within bounds
-            [[ "$key" =~ ^[0-9]+$ ]] || continue
-            idx=$key
-            if ((idx >= 0 && idx < ${#_ref[@]})); then
-                # element may be unset; check existence
-                [[ ${_ref[$idx]+_} ]] || continue
-                val="${_ref[$idx]}"
-            else
-                continue
-            fi
+            # indexed array: accept only non-negative integer indices
+            case "$key" in
+            '' | *[!0-9]*) continue ;; # non-numeric -> skip
+            *) idx=$key ;;
+            esac
+
+            # existence check avoids bounds calculation and handles sparse arrays
+            [[ -v ref[$idx] ]] || continue
+            val="${ref[$idx]}"
         fi
 
-        # Treat EMPTY_EXPR as an explicit empty sentinel if it exists
-        if [[ ${EMPTY_EXPR+set} && "$val" == "${EMPTY_EXPR}" ]]; then
+        # Treat EMPTY_EXPR sentinel as explicit empty if defined
+        if [[ ${EMPTY_EXPR+set} && "${val}" == "${EMPTY_EXPR}" ]]; then
             val=""
         fi
 
@@ -3113,7 +3123,7 @@ array_get() {
         fi
     done
 
-    # Nothing found
+    # nothing found
     printf ''
     return 1
 }
@@ -7017,7 +7027,6 @@ autorun_start() {
         {
             for command in "${BISU_AUTORUN[@]}"; do
                 log_msg "🕒 Autorun command executing: $command" "true"
-
                 {
                     safe_fork "$(printf '%s ' "$command")" || {
                         error_log "Last execution failure was from: $command (Initialization Task)"
@@ -7028,7 +7037,7 @@ autorun_start() {
 
                 log_msg "✅ Autorun command done: $command" "true"
             done
-        } &
+        }
 
     return 0
 }
@@ -7172,7 +7181,6 @@ integrate_ops() {
     in_array "$action" "install" || verify_sig
     set_action "$action"
     autorun_start &
-    disown %+
 
     local option_force=$(array_get "args" "f" "force")
     local option_yes=$(array_get "args" "y" "yes")
