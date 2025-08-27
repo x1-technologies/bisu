@@ -2,9 +2,11 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124
-# ================================================================ Bash OOP Engine Start =======================================================================
-# Version: v7-20250822Z1
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
+
+# ================================================================ BISU OOP Engine Start =======================================================================
+# Version: v7-20250828Z1
+# If you need basic OO-ability in bash5, please copy the entire block quoted between the start and end divider lines.
 # Wrapper for sed to handle extended regex compatibly across systems.
 class.sed() { sed -E "$@" 2>/dev/null; } || class.sed() { sed -r "$@" 2>/dev/null; }
 
@@ -116,7 +118,7 @@ class.append() {
 
 # Begin class definition, handling inheritance.
 @class() {
-    export __BISU_CLASS_NAME=($(printf '%s ' "$@"))
+    __BISU_CLASS_NAME=($(printf '%s ' "$@"))
     local name vars
     for name in "${__BISU_CLASS_NAME[@]:1}"; do
         vars="__BISU_CLASS_V_$name"
@@ -220,4 +222,4 @@ class.new() {
         fi
     done
 }
-# ================================================================ Bash OOP Engine End =========================================================================
+# ================================================================ BISU OOP Engine End =========================================================================
