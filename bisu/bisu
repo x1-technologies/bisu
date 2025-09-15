@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://go.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.2"
+readonly BISU_VERSION="11.0.3"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2025-09-15Z"
@@ -25,7 +25,7 @@ export BISU_DEFAULT_TITLE="-bash"
 # Auto line-break length
 export BISU_LINE_BREAK_LENGTH=240
 # Required external commands list
-export BISU_REQUIRES_EXTERNAL_COMMANDS=(
+export BISU_REQUIRED_EXTERNAL_COMMANDS=(
     'bash' 'awk' 'sed' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'date' 'whoami' 'hostname' 'gpg'
 )
 # Read-only actions avoiding AML lock
@@ -35,7 +35,7 @@ export BISU_ACTIONS_RO=(
 # Auto run commands
 export BISU_AUTORUN=()
 # Required scripts
-export BISU_REQUIRES_SCRIPTS=()
+export BISU_REQUIRED_SCRIPTS=()
 # Exit with commands
 export BISU_EXIT_WITH_COMMANDS=()
 # fork limit for per process
@@ -105,13 +105,13 @@ export BISU_CURRENT_UTIL_COMMAND=""
 # The action currently specified
 export BISU_CURRENT_UTIL_ACTION=""
 # Required external commands list
-BISU_CURRENT_UTIL_REQUIRES_COMMANDS=(${BISU_CURRENT_UTIL_REQUIRES_COMMANDS[@]:-})
+BISU_CURRENT_UTIL_REQUIRED_COMMANDS=(${BISU_CURRENT_UTIL_REQUIRED_COMMANDS[@]:-})
 # Read-only actions avoiding AML lock for user definitions
 BISU_CURRENT_UTIL_ACTIONS_RO=(${BISU_CURRENT_UTIL_ACTIONS_RO[@]:-})
 # Auto run commands
 BISU_CURRENT_UTIL_AUTORUN_COMMANDS=(${BISU_CURRENT_UTIL_AUTORUN_COMMANDS[@]:-})
 # Required scripts
-BISU_CURRENT_UTIL_REQUIRES_SCRIPTS=(${BISU_CURRENT_UTIL_REQUIRES_SCRIPTS[@]:-})
+BISU_CURRENT_UTIL_REQUIRED_SCRIPTS=(${BISU_CURRENT_UTIL_REQUIRED_SCRIPTS[@]:-})
 # Exit with commands
 BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS=(${BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS[@]:-})
 # Set this utility's name
@@ -4376,12 +4376,12 @@ Bisu::check_bash_version() {
 # Function: Bisu::check_bisu_version
 # Description: Verifies that the installed BISU version is greater than or equal to the specified required version.
 Bisu::check_bisu_version() {
-    local expr="${BISU_SELF_REQUIRES_BISU_VERSION:-}"
+    local expr="${BISU_VERSION_REQUIREMENT:-}"
     local result=$(Bisu::compare_version "$expr" "$BISU_VERSION")
     local current_filename="$(Bisu::current_filename)"
     local bisu_filename="$(Bisu::bisu_filename)"
     if [[ $result == 0 ]] && [[ "$current_filename" != "$bisu_filename" ]]; then
-        Bisu::error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($BISU_SELF_REQUIRES_BISU_VERSION)."
+        Bisu::error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($BISU_VERSION_REQUIREMENT)."
     fi
 }
 
@@ -6797,9 +6797,9 @@ Bisu::check_commands_list() {
     local invalid_commands_count=0
     local invalid_commands=""
 
-    Bisu::is_array "BISU_REQUIRES_EXTERNAL_COMMANDS" || Bisu::error_exit "Invalid array of BISU_REQUIRES_EXTERNAL_COMMANDS."
+    Bisu::is_array "BISU_REQUIRED_EXTERNAL_COMMANDS" || Bisu::error_exit "Invalid array of BISU_REQUIRED_EXTERNAL_COMMANDS."
 
-    invalid_commands=($(Bisu::command_exists_async "${BISU_REQUIRES_EXTERNAL_COMMANDS[@]}"))
+    invalid_commands=($(Bisu::command_exists_async "${BISU_REQUIRED_EXTERNAL_COMMANDS[@]}"))
     invalid_commands_count=$(Bisu::array_count "invalid_commands")
     invalid_commands=$(printf '%s, ' "${invalid_commands[@]}")
     # Report the invalid commandString if any
@@ -6947,12 +6947,12 @@ Bisu::import_script() {
 
 # Automatically import required scripts
 Bisu::load_required_scripts() {
-    Bisu::is_array "BISU_REQUIRES_SCRIPTS" || {
-        Bisu::error_log "Invalid BISU_REQUIRES_SCRIPTS array." "⚠️"
+    Bisu::is_array "BISU_REQUIRED_SCRIPTS" || {
+        Bisu::error_log "Invalid BISU_REQUIRED_SCRIPTS array." "⚠️"
         return 1
     }
 
-    for script in "${BISU_REQUIRES_SCRIPTS[@]}"; do
+    for script in "${BISU_REQUIRED_SCRIPTS[@]}"; do
         Bisu::import_script "$script"
     done
 
@@ -7001,11 +7001,11 @@ Bisu::register_current_command() {
     }
 
     # normalization of arrays allowed to manually modify them
-    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRES_COMMANDS" &&
-        Bisu::indexed_array_merge "BISU_REQUIRES_EXTERNAL_COMMANDS" "BISU_CURRENT_UTIL_REQUIRES_COMMANDS" "BISU_REQUIRES_EXTERNAL_COMMANDS" &&
-        Bisu::array_unique "BISU_REQUIRES_EXTERNAL_COMMANDS"
-    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRES_SCRIPTS" &&
-        Bisu::indexed_array_merge "BISU_REQUIRES_SCRIPTS" "BISU_CURRENT_UTIL_REQUIRES_SCRIPTS" "BISU_REQUIRES_SCRIPTS" && Bisu::array_unique "BISU_REQUIRES_SCRIPTS"
+    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRED_COMMANDS" &&
+        Bisu::indexed_array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "BISU_CURRENT_UTIL_REQUIRED_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS" &&
+        Bisu::array_unique "BISU_REQUIRED_EXTERNAL_COMMANDS"
+    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRED_SCRIPTS" &&
+        Bisu::indexed_array_merge "BISU_REQUIRED_SCRIPTS" "BISU_CURRENT_UTIL_REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS" && Bisu::array_unique "BISU_REQUIRED_SCRIPTS"
     Bisu::array_is_available "BISU_CURRENT_UTIL_ACTIONS_RO" && Bisu::indexed_array_merge "BISU_ACTIONS_RO" "BISU_CURRENT_UTIL_ACTIONS_RO" "BISU_ACTIONS_RO" &&
         Bisu::array_unique "BISU_ACTIONS_RO"
     Bisu::array_is_available "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" && Bisu::indexed_array_merge "BISU_AUTORUN" "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" "BISU_AUTORUN" &&
