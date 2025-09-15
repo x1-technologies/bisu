@@ -9,10 +9,10 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.0"
+readonly BISU_VERSION="11.0.1"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-09-11Z"
+readonly BISU_LAST_RELEASE_DATE="2025-09-15Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
@@ -25,7 +25,7 @@ export BISU_DEFAULT_TITLE="-bash"
 # Auto line-break length
 export BISU_LINE_BREAK_LENGTH=240
 # Required external commands list
-export BISU_REQUIRED_EXTERNAL_COMMANDS=(
+export BISU_REQUIRES_EXTERNAL_COMMANDS=(
     'bash' 'awk' 'sed' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'date' 'whoami' 'hostname' 'gpg'
 )
 # Read-only actions avoiding AML lock
@@ -35,7 +35,7 @@ export BISU_ACTIONS_RO=(
 # Auto run commands
 export BISU_AUTORUN=()
 # Required scripts
-export BISU_REQUIRED_SCRIPTS=()
+export BISU_REQUIRES_SCRIPTS=()
 # Exit with commands
 export BISU_EXIT_WITH_COMMANDS=()
 # fork limit for per process
@@ -105,13 +105,13 @@ export BISU_CURRENT_UTIL_COMMAND=""
 # The action currently specified
 export BISU_CURRENT_UTIL_ACTION=""
 # Required external commands list
-BISU_CURRENT_UTIL_REQUIRED_COMMANDS=(${BISU_CURRENT_UTIL_REQUIRED_COMMANDS[@]:-})
+BISU_CURRENT_UTIL_REQUIRES_COMMANDS=(${BISU_CURRENT_UTIL_REQUIRES_COMMANDS[@]:-})
 # Read-only actions avoiding AML lock for user definitions
 BISU_CURRENT_UTIL_ACTIONS_RO=(${BISU_CURRENT_UTIL_ACTIONS_RO[@]:-})
 # Auto run commands
 BISU_CURRENT_UTIL_AUTORUN_COMMANDS=(${BISU_CURRENT_UTIL_AUTORUN_COMMANDS[@]:-})
 # Required scripts
-BISU_CURRENT_UTIL_REQUIRED_SCRIPTS=(${BISU_CURRENT_UTIL_REQUIRED_SCRIPTS[@]:-})
+BISU_CURRENT_UTIL_REQUIRES_SCRIPTS=(${BISU_CURRENT_UTIL_REQUIRES_SCRIPTS[@]:-})
 # Exit with commands
 BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS=(${BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS[@]:-})
 # Set this utility's name
@@ -1116,8 +1116,9 @@ Bisu::error_exit() {
             current_line_text=$(sed "${current_lineno}q;d" "$current_file_path" 2>/dev/null)
             local current_charno
             current_charno=$(awk '{match($0,/[^[:space:]]/); print (RSTART?RSTART:1)}' <<<"$current_line_text")
-            Bisu::log_add "<fg_bright_yellow>(Tracing: ${current_file_path}:${current_lineno}:${current_charno}, \
-${parent_file}:${parent_lineno}:${parent_charno}</fg_bright_yellow>)"
+            Bisu::log_add "<fg_bright_yellow>Quitted ${status_code}:\n \
+    ${current_file_path}:${current_lineno}:${current_charno}\n \
+    ${parent_file}:${parent_lineno}:${parent_charno}</fg_bright_yellow>"
         }
         Bisu::log_flush
     }
@@ -2056,43 +2057,106 @@ Bisu::confirm() {
     done
 }
 
-# Get the file's real path and verify the base folder's existence
+# Get the file's real path and optionally verify that the path exists.
 Bisu::file_real_path() {
-    # Trim spaces and handle parameters
-    local file=$(Bisu::trim "$1")
-    local check_base_existence=$(Bisu::trim "${2:-false}")
-    Bisu::in_array "${check_base_existence}" "true" "false" || check_base_existence="false"
+    local file
+    local check_base_existence
+    local orig_trimmed
+    local root_like
 
-    # Expand shell variables and tilde (~) safely
-    file=$(eval printf '%s' "$file")
-    file=$(printf '%s\n' "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}' 2>/dev/null)
+    file=$(Bisu::trim "$1")
+    orig_trimmed=$file
+    check_base_existence=$(Bisu::trim "${2:-false}")
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
 
-    # Convert relative paths to absolute paths
-    case "$file" in
-    /*) : ;;                                              # Already absolute
-    .) file="$(pwd)" ;;                                   # Convert "." to PWD
-    ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
-    ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
-    ../*) file="$(cd "${file%/*}" && pwd)/${file##*/}" ;; # Handle "../file"
-    *) file="$(pwd)/$file" ;;                             # Convert other relative paths
-    esac
+    # If the original trimmed input was empty, preserve emptiness and skip expansion.
+    if [[ -z $orig_trimmed ]]; then
+        file=""
+    else
+        # Expand shell variables and tilde (kept to match original semantics).
+        file=$(eval printf '%s' "$orig_trimmed")
 
-    # Normalize redundant slashes and remove `./` safely using POSIX awk
-    file=$(printf '%s\n' "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}' 2>/dev/null)
+        # If eval produced an empty result, preserve empty (do not convert to $PWD).
+        if [[ -z $file ]]; then
+            file=""
+        else
+            # Leading ~ expansion only (no user-name expansion).
+            if [[ $file == ~* ]]; then
+                file="${HOME}${file:1}"
+            fi
 
-    # Remove trailing slashes (except root "/") and spaces
-    file=$(printf '%s\n' "$file" | awk '{
-        if (length($0) > 1) gsub(/\/+$/, ""); 
-        gsub(/ *$/, ""); 
-        print $0
-    }' 2>/dev/null)
+            # Build an absolute-like string for syntactic normalization:
+            # - If already absolute, normalize that.
+            # - If relative, prefix with $PWD (but we will canonicalize syntactically).
+            local absolute=false
+            local combined
+            if [[ $file == /* ]]; then
+                absolute=true
+                combined="$file"
+            else
+                absolute=false
+                combined="${PWD%/}/$file"
+            fi
 
-    # Ensure the root path is handled correctly, i.e., "/" should not be turned into ""
-    if [[ "$file" == "/" ]]; then
+            # Split on '/' and process components into a stack (pure bash).
+            local -a parts
+            IFS='/' read -r -a parts <<<"$combined"
+            local -a stack
+            local part
+            for part in "${parts[@]}"; do
+                case "$part" in
+                '' | '.')
+                    # empty segment (from //) or current dir -> ignore
+                    continue
+                    ;;
+                '..')
+                    # parent dir: pop if possible; if at root (absolute + empty stack) do nothing
+                    if ((${#stack[@]} > 0)); then
+                        unset 'stack[${#stack[@]}-1]'
+                    else
+                        # If not absolute (shouldn't normally happen because combined used PWD),
+                        # we would keep ".." to preserve semantics. But combined is absolute here.
+                        :
+                    fi
+                    ;;
+                *)
+                    stack+=("$part")
+                    ;;
+                esac
+            done
+
+            # Reconstruct path from stack
+            if [[ $absolute == true ]]; then
+                if ((${#stack[@]} == 0)); then
+                    file="/"
+                else
+                    # join with '/'
+                    file="/${stack[*]}"
+                    file="${file// /\/}"
+                fi
+            else
+                # relative (edge-case): join without leading slash
+                if ((${#stack[@]} == 0)); then
+                    file=""
+                else
+                    file="${stack[*]}"
+                    file="${file// /\/}"
+                fi
+            fi
+        fi
+    fi
+
+    # If original input was root-like (one or more slashes), ensure "/"
+    root_like=false
+    if [[ -n $orig_trimmed && $orig_trimmed =~ ^/+$ ]]; then
+        root_like=true
+    fi
+
+    if [[ -z $file && $root_like == true ]]; then
         file="/"
     fi
 
-    # If `check_base_existence` is true, verify the file or directory exists
+    # Final output: obey check_base_existence flag exactly like original function.
     if [[ "$check_base_existence" == "true" ]]; then
         [ -e "$file" ] && printf '%s' "$file" || printf ''
     else
@@ -2575,22 +2639,18 @@ Bisu::extract_file_info() {
         file_has_ext="true"
     fi
 
-    if [ "$file_has_ext" == "false" ]; then
-        file_dir="$file_path"
-        filename=""
-    fi
-
     local rs=()
     Bisu::array_set "rs" "filename" "$filename"
     Bisu::array_set "rs" "file_ext" "$file_ext"
     Bisu::array_set "rs" "file_path" "$file_path"
     Bisu::array_set "rs" "file_dir" "$file_dir"
-    Bisu::array_set "rs" "Bisu::file_exists" "$file_exists"
-    Bisu::array_set "rs" "Bisu::is_dir" "$file_is_dir"
-    Bisu::array_set "rs" "Bisu::is_file" "$file_is_file"
+    Bisu::array_set "rs" "file_exists" "$file_exists"
+    Bisu::array_set "rs" "is_dir" "$file_is_dir"
+    Bisu::array_set "rs" "is_file" "$file_is_file"
     Bisu::array_set "rs" "file_has_ext" "$file_has_ext"
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -2998,7 +3058,7 @@ Bisu::array_splice() {
 # Usage: Bisu::array_set arr key1 val1 [key2 val2 ...]
 # Returns 0 on success, 1 on failure
 Bisu::array_set() {
-    local array_name key value is_assoc tmp_var tmp_ref ref numeric_indices sorted_idx idx i
+    local array_name key value is_assoc tmp_var tmp_ref ref numeric_indices sorted_idx idx i old_IFS
 
     # first arg: array name (Bisu::trim provided by caller)
     array_name=$(Bisu::trim "$1")
@@ -3036,7 +3096,7 @@ Bisu::array_set() {
         case "$key" in
         '' | *[!0-9]*) ;; # non-numeric -> fall through to migration
         *)
-            ref[$key]="$value"
+            ref["$key"]="$value"
             continue
             ;;
         esac
@@ -3066,8 +3126,17 @@ Bisu::array_set() {
 
         # restore numeric entries in ascending numeric order (stable)
         if ((${#numeric_indices[@]})); then
-            IFS=$'\n' sorted_idx=($(printf '%s\n' "${numeric_indices[@]}" | sort -n))
-            unset IFS
+            # Use bash builtin mapfile when more than one index to avoid word-splitting issues
+            if ((${#numeric_indices[@]} > 1)); then
+                old_IFS=$IFS
+                IFS=$'\n'
+                # sort numerically; use printf + sort (external) only when necessary for ordering
+                mapfile -t sorted_idx < <(printf '%s\n' "${numeric_indices[@]}" | sort -n)
+                IFS=$old_IFS
+            else
+                sorted_idx=("${numeric_indices[@]}")
+            fi
+
             for idx in "${sorted_idx[@]}"; do
                 ref["$idx"]="${tmp_ref[$idx]}"
             done
@@ -3133,11 +3202,6 @@ Bisu::array_get() {
             # existence check avoids bounds calculation and handles sparse arrays
             [[ -v ref[$idx] ]] || continue
             val="${ref[$idx]}"
-        fi
-
-        # Treat BISU_EMPTY_EXPR sentinel as explicit empty if defined
-        if [[ ${BISU_EMPTY_EXPR+set} && "${val}" == "${BISU_EMPTY_EXPR}" ]]; then
-            val=""
         fi
 
         # Stop at first non-empty value
@@ -4312,12 +4376,12 @@ Bisu::check_bash_version() {
 # Function: Bisu::check_bisu_version
 # Description: Verifies that the installed BISU version is greater than or equal to the specified required version.
 Bisu::check_bisu_version() {
-    local expr="${BISU_CURRENT_UTIL_REQUIRED_BISU_VERSION:-}"
+    local expr="${BISU_SELF_REQUIRES_BISU_VERSION:-}"
     local result=$(Bisu::compare_version "$expr" "$BISU_VERSION")
     local current_filename="$(Bisu::current_filename)"
     local bisu_filename="$(Bisu::bisu_filename)"
     if [[ $result == 0 ]] && [[ "$current_filename" != "$bisu_filename" ]]; then
-        Bisu::error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($BISU_CURRENT_UTIL_REQUIRED_BISU_VERSION)."
+        Bisu::error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($BISU_SELF_REQUIRES_BISU_VERSION)."
     fi
 }
 
@@ -5504,7 +5568,8 @@ Bisu::yaml_to_array() {
         Bisu::array_set "rs" "$key" "$value" || return 1
     done <<<"$input" || return 1
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -5551,7 +5616,8 @@ Bisu::json_to_array() {
         fi
     done <<<"$input" || return 1
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -5778,7 +5844,8 @@ Bisu::extract_url_info() {
     Bisu::array_set "rs" "encoded_req_path" "$encoded_req_path"
     Bisu::array_set "rs" "encoded_url" "$encoded_url"
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -6730,9 +6797,9 @@ Bisu::check_commands_list() {
     local invalid_commands_count=0
     local invalid_commands=""
 
-    Bisu::is_array "BISU_REQUIRED_EXTERNAL_COMMANDS" || Bisu::error_exit "Invalid array of BISU_REQUIRED_EXTERNAL_COMMANDS."
+    Bisu::is_array "BISU_REQUIRES_EXTERNAL_COMMANDS" || Bisu::error_exit "Invalid array of BISU_REQUIRES_EXTERNAL_COMMANDS."
 
-    invalid_commands=($(Bisu::command_exists_async "${BISU_REQUIRED_EXTERNAL_COMMANDS[@]}"))
+    invalid_commands=($(Bisu::command_exists_async "${BISU_REQUIRES_EXTERNAL_COMMANDS[@]}"))
     invalid_commands_count=$(Bisu::array_count "invalid_commands")
     invalid_commands=$(printf '%s, ' "${invalid_commands[@]}")
     # Report the invalid commandString if any
@@ -6880,12 +6947,12 @@ Bisu::import_script() {
 
 # Automatically import required scripts
 Bisu::load_required_scripts() {
-    Bisu::is_array "BISU_REQUIRED_SCRIPTS" || {
-        Bisu::error_log "Invalid BISU_REQUIRED_SCRIPTS array." "⚠️"
+    Bisu::is_array "BISU_REQUIRES_SCRIPTS" || {
+        Bisu::error_log "Invalid BISU_REQUIRES_SCRIPTS array." "⚠️"
         return 1
     }
 
-    for script in "${BISU_REQUIRED_SCRIPTS[@]}"; do
+    for script in "${BISU_REQUIRES_SCRIPTS[@]}"; do
         Bisu::import_script "$script"
     done
 
@@ -6934,11 +7001,11 @@ Bisu::register_current_command() {
     }
 
     # normalization of arrays allowed to manually modify them
-    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRED_COMMANDS" &&
-        Bisu::indexed_array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "BISU_CURRENT_UTIL_REQUIRED_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS" &&
-        Bisu::array_unique "BISU_REQUIRED_EXTERNAL_COMMANDS"
-    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRED_SCRIPTS" &&
-        Bisu::indexed_array_merge "BISU_REQUIRED_SCRIPTS" "BISU_CURRENT_UTIL_REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS" && Bisu::array_unique "BISU_REQUIRED_SCRIPTS"
+    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRES_COMMANDS" &&
+        Bisu::indexed_array_merge "BISU_REQUIRES_EXTERNAL_COMMANDS" "BISU_CURRENT_UTIL_REQUIRES_COMMANDS" "BISU_REQUIRES_EXTERNAL_COMMANDS" &&
+        Bisu::array_unique "BISU_REQUIRES_EXTERNAL_COMMANDS"
+    Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRES_SCRIPTS" &&
+        Bisu::indexed_array_merge "BISU_REQUIRES_SCRIPTS" "BISU_CURRENT_UTIL_REQUIRES_SCRIPTS" "BISU_REQUIRES_SCRIPTS" && Bisu::array_unique "BISU_REQUIRES_SCRIPTS"
     Bisu::array_is_available "BISU_CURRENT_UTIL_ACTIONS_RO" && Bisu::indexed_array_merge "BISU_ACTIONS_RO" "BISU_CURRENT_UTIL_ACTIONS_RO" "BISU_ACTIONS_RO" &&
         Bisu::array_unique "BISU_ACTIONS_RO"
     Bisu::array_is_available "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" && Bisu::indexed_array_merge "BISU_AUTORUN" "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" "BISU_AUTORUN" &&
@@ -7514,10 +7581,13 @@ Bisu::autorun_start() {
 
 # Utility elapsed time
 Bisu::execution_time() {
-    Bisu::is_posi_numeric "$BISU_START_TIME" || {
-        BISU_START_TIME=$(Bisu::time_ms)
-    }
-    Bisu::debug_mode_on && printf '%s\n' "Elapsed: $(echo "($(Bisu::time_ms) - $BISU_START_TIME)" | bc) ms"
+    Bisu::is_posi_numeric "$BISU_START_TIME" || BISU_START_TIME=$(Bisu::time_ms)
+    if Bisu::debug_mode_on; then
+        local execution_time=$(echo "($(Bisu::time_ms) - $BISU_START_TIME)" | bc)
+        local fg_color="\033[32m"
+        [ $execution_time -lt 600 ] 2>/dev/null || fg_color="\033[93m"
+        echo -e "${fg_color}Elapsed: ${execution_time} ms\033[0m"
+    fi
 }
 
 # Function to Bisu::initialize BISU
@@ -7551,6 +7621,8 @@ Bisu::callfunc() {
     [[ "$action" == "callfunc" ]] || Bisu::quit
 
     Bisu::array_shift "current_args" "func"
+    [ -n "$func" ] || Bisu::error_exit "Function '' does not exist."
+
     Bisu::is_func "$func" || {
         func="Bisu::${func}"
         Bisu::is_func "$func" || Bisu::error_exit "Function '$func' does not exist."
@@ -7741,7 +7813,7 @@ Bisu::install_script() {
         local bisu_filename=$(Bisu::bisu_filename)
         local current_filename=$(Bisu::current_filename)
         local backup_dir="$(Bisu::user_backup_dir)/$date_str"
-        local current_util_version="$(Bisu::exec_command "${target_path} Bisu::callfunc Bisu::current_util_version")"
+        local current_util_version="$(Bisu::exec_command "${target_path} callfunc current_util_version")"
         current_util_version=$(Bisu::strtolower "$current_util_version")
         Bisu::string_starts_with "$current_util_version" "v" || current_util_version="v$current_util_version"
         local backup_path="${backup_dir}/${current_filename}.${current_util_version}_${uuid}"
@@ -7751,16 +7823,17 @@ Bisu::install_script() {
         Bisu::log_msg "Your previous installation has been backed up to: $backup_path"
     fi
 
-    local verify_sig sig_file sig_file_target_path
+    local verify_sig sig_file sig_file_target_path sig_filename
     if Bisu::is_bisu_file; then
         verify_sig="$BISU_VERIFY_SIG"
     else
         verify_sig="$BISU_CURRENT_UTIL_VERIFY_SIG"
     fi
 
-    Bisu::normalize_bool "Bisu::verify_sig" "false"
+    Bisu::normalize_bool "verify_sig" "false"
     if [[ "$verify_sig" == "true" ]]; then
         sig_file="${current_file_path}.asc"
+        sig_filename=$(basename "$sig_file")
         sig_file_target_path="${target_path}.asc"
         if ! Bisu::is_file "$sig_file"; then
             local sig_file_url
@@ -7779,13 +7852,14 @@ Bisu::install_script() {
         fi
     fi
 
-    Bisu::log_msg "Moving $current_filename to path: $target_path"
     if [[ "$verify_sig" == "true" ]]; then
         Bisu::is_file "$sig_file" || Bisu::error_exit "Failed to install $current_filename"
         Bisu::verify_sig
-        Bisu::move_file "$sig_file" "$sig_file_target_path" || Bisu::error_exit "Failed to install ${current_filename}, please check for permissions."
+        Bisu::log_msg "Moving $sig_filename to path: $sig_file_target_path"
+        Bisu::move_file "$sig_file" "$sig_file_target_path" || Bisu::error_exit "Failed to install ${current_filename}[2], please check for permissions."
     fi
-    Bisu::move_file "$current_file_path" "$target_path" || Bisu::error_exit "Failed to install ${current_filename}, please check for permissions."
+    Bisu::log_msg "Moving $current_filename to path: $target_path"
+    Bisu::move_file "$current_file_path" "$target_path" || Bisu::error_exit "Failed to install ${current_filename}[1], please check for permissions."
     Bisu::log_msg "Done."
 }
 
