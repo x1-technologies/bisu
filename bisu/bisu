@@ -7,9 +7,9 @@
 ## Official Web Site: https://bisu.dev
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## curl -sL https://g.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
+## curl -sL https://go.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.1"
+readonly BISU_VERSION="11.0.2"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2025-09-15Z"
@@ -50,10 +50,10 @@ export BISU_TRIM_CRITICAL_POINT=102400
 # Error message prefix
 export BISU_ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # BISU File URL
-readonly BISU_FILE_URL="https://g.bisu.dev/bisu-file"
+readonly BISU_FILE_URL="https://go.bisu.dev/bisu-file"
 export BISU_FILE_URL
 # BISU ASC File URL
-readonly BISU_ASC_FILE_URL="https://g.bisu.dev/bisu-asc-file"
+readonly BISU_ASC_FILE_URL="https://go.bisu.dev/bisu-asc-file"
 export BISU_ASC_FILE_URL
 # Global Variables
 TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
