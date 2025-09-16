@@ -9,10 +9,10 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://go.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.3"
+readonly BISU_VERSION="11.0.4"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-09-15Z"
+readonly BISU_LAST_RELEASE_DATE="2025-09-17Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
@@ -1183,7 +1183,7 @@ Bisu::target_dir() {
         target_dir="$BISU_TERMUX_TARGET_PATH_PREFIX"
     fi
 
-    target_dir=$(Bisu::file_real_path "$target_dir")
+    target_dir=$(Bisu::normalize_path "$target_dir")
     printf '%s' "$target_dir"
 }
 
@@ -2057,111 +2057,63 @@ Bisu::confirm() {
     done
 }
 
-# Get the file's real path and optionally verify that the path exists.
-Bisu::file_real_path() {
-    local file
-    local check_base_existence
-    local orig_trimmed
-    local root_like
-
-    file=$(Bisu::trim "$1")
-    orig_trimmed=$file
-    check_base_existence=$(Bisu::trim "${2:-false}")
+# Get the file's real path and verify the base folder's existence
+Bisu::normalize_path() {
+    # Trim spaces and handle parameters
+    local file=$(Bisu::trim "$1")
+    local check_base_existence=$(Bisu::trim "${2:-false}")
     Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
 
-    # If the original trimmed input was empty, preserve emptiness and skip expansion.
-    if [[ -z $orig_trimmed ]]; then
-        file=""
-    else
-        # Expand shell variables and tilde (kept to match original semantics).
-        file=$(eval printf '%s' "$orig_trimmed")
-
-        # If eval produced an empty result, preserve empty (do not convert to $PWD).
-        if [[ -z $file ]]; then
-            file=""
-        else
-            # Leading ~ expansion only (no user-name expansion).
-            if [[ $file == ~* ]]; then
-                file="${HOME}${file:1}"
-            fi
-
-            # Build an absolute-like string for syntactic normalization:
-            # - If already absolute, normalize that.
-            # - If relative, prefix with $PWD (but we will canonicalize syntactically).
-            local absolute=false
-            local combined
-            if [[ $file == /* ]]; then
-                absolute=true
-                combined="$file"
-            else
-                absolute=false
-                combined="${PWD%/}/$file"
-            fi
-
-            # Split on '/' and process components into a stack (pure bash).
-            local -a parts
-            IFS='/' read -r -a parts <<<"$combined"
-            local -a stack
-            local part
-            for part in "${parts[@]}"; do
-                case "$part" in
-                '' | '.')
-                    # empty segment (from //) or current dir -> ignore
-                    continue
-                    ;;
-                '..')
-                    # parent dir: pop if possible; if at root (absolute + empty stack) do nothing
-                    if ((${#stack[@]} > 0)); then
-                        unset 'stack[${#stack[@]}-1]'
-                    else
-                        # If not absolute (shouldn't normally happen because combined used PWD),
-                        # we would keep ".." to preserve semantics. But combined is absolute here.
-                        :
-                    fi
-                    ;;
-                *)
-                    stack+=("$part")
-                    ;;
-                esac
-            done
-
-            # Reconstruct path from stack
-            if [[ $absolute == true ]]; then
-                if ((${#stack[@]} == 0)); then
-                    file="/"
-                else
-                    # join with '/'
-                    file="/${stack[*]}"
-                    file="${file// /\/}"
-                fi
-            else
-                # relative (edge-case): join without leading slash
-                if ((${#stack[@]} == 0)); then
-                    file=""
-                else
-                    file="${stack[*]}"
-                    file="${file// /\/}"
-                fi
-            fi
-        fi
+    # If the input is empty after trimming, preserve original semantics: return empty
+    if [ -z "$file" ]; then
+        printf ''
+        return 0
     fi
 
-    # If original input was root-like (one or more slashes), ensure "/"
-    root_like=false
-    if [[ -n $orig_trimmed && $orig_trimmed =~ ^/+$ ]]; then
-        root_like=true
-    fi
+    # Expand shell variables safely (preserve original eval behavior)
+    file=$(eval printf '%s' "$file")
 
-    if [[ -z $file && $root_like == true ]]; then
-        file="/"
+    # Replace a leading tilde (~) with $HOME using shell (preserves original behavior of replacing only leading '~')
+    # This avoids spawning awk just for that substitution and keeps semantics identical to prior gsub(/^~/, ENVIRON["HOME"])
+    if [ "${file#"${file%%[!~]*}"}" != "$file" ]; then
+        # crude but safe check for leading '~' — the intent is only to replace the first leading '~' char
+        :
     fi
+    case "$file" in
+    ~*) file="${HOME}${file#~}" ;;
+    esac
 
-    # Final output: obey check_base_existence flag exactly like original function.
+    # Convert relative paths to absolute paths
+    case "$file" in
+    /*) : ;;                                              # Already absolute
+    .) file="$(pwd)" ;;                                   # Convert "." to PWD
+    ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
+    ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
+    ../*) file="$(cd "${file%/*}" && pwd)/${file##*/}" ;; # Handle "../file"
+    *) file="$(pwd)/$file" ;;                             # Convert other relative paths
+    esac
+
+    # ---- Single awk pass: normalize slashes, remove /./ and /.$, trim trailing spaces and slashes ----
+    file=$(printf '%s\n' "$file" | awk '{
+        s=$0
+        gsub(/\/+/, "/", s)         # collapse repeated slashes
+        gsub(/\/\.\//, "/", s)      # remove /./ segments
+        sub(/\/\.$/, "", s)         # remove trailing /. if present
+        sub(/[ \t\r\n]+$/, "", s)   # trim trailing whitespace
+        if (length(s) > 1) sub(/\/+$/, "", s) # remove trailing slashes except for root
+        print s
+    }' 2>/dev/null) || {
+        printf ''
+        return 1
+    }
+
+    # If `check_base_existence` is true, verify the file or directory exists
     if [[ "$check_base_existence" == "true" ]]; then
         [ -e "$file" ] && printf '%s' "$file" || printf ''
     else
         printf '%s' "$file"
     fi
+    return 0
 }
 
 # Function: Bisu::add_env_path
@@ -2540,8 +2492,8 @@ Bisu::is_sub_folder_of() {
     local sub_folder=$(Bisu::trim "$1")
     local parent_folder=$(Bisu::trim "$2")
 
-    sub_folder=$(Bisu::file_real_path "$sub_folder" "true")
-    parent_folder=$(Bisu::file_real_path "$parent_folder" "true")
+    sub_folder=$(Bisu::normalize_path "$sub_folder" "true")
+    parent_folder=$(Bisu::normalize_path "$parent_folder" "true")
 
     # Ensure both parent and sub folder are valid directories
     if [ -z "$sub_folder" ] || [ -z "$parent_folder" ]; then
@@ -2561,7 +2513,7 @@ Bisu::is_top_folder() {
     local dirpath=$(Bisu::trim "$1")
     Bisu::is_dir "$dirpath" || return 1
 
-    dirpath=$(Bisu::file_real_path "$dirpath" "true")
+    dirpath=$(Bisu::normalize_path "$dirpath" "true")
     [ -n "$dirpath" ] || return 1
 
     local parent_dir=$(dirname "$dirpath")
@@ -2608,7 +2560,7 @@ Bisu::fileext() {
 # Get file info
 Bisu::extract_file_info() {
     local file_path=$(Bisu::trim "$1")
-    file_path=$(Bisu::file_real_path "$file_path")
+    file_path=$(Bisu::normalize_path "$file_path")
     [ -n "$file_path" ] || return 1
 
     local receiver_var_name=$(Bisu::trim "$2")
@@ -2669,7 +2621,7 @@ Bisu::files_count() {
 # Bisu::mkdir_p
 Bisu::mkdir_p() {
     local dir=$(Bisu::trim "$1")
-    dir=$(Bisu::file_real_path "$dir")
+    dir=$(Bisu::normalize_path "$dir")
 
     # Check if the directory exists, if not, create it
     if ! Bisu::file_exists "$dir"; then
@@ -2775,8 +2727,8 @@ Bisu::saferm() {
     timing=${timing:-"immediately"}
     local rm_command=""
 
-    path=$(Bisu::file_real_path "$path" "true")
-    parent_dir=$(Bisu::file_real_path "$parent_dir" "true")
+    path=$(Bisu::normalize_path "$path" "true")
+    parent_dir=$(Bisu::normalize_path "$parent_dir" "true")
 
     if [ -z "$path" ] || [ -z "$parent_dir" ]; then
         return 1
