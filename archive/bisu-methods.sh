@@ -160,6 +160,7 @@ Bisu::normalize_path_v2() {
     else
         printf '%s' "$file"
     fi
+    return 0
 }
 
 # archived work, works correctly
@@ -216,6 +217,7 @@ Bisu::normalize_path_v3() {
     else
         printf '%s' "$file"
     fi
+    return 0
 }
 
 # archived work, works correctly
