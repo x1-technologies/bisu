@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250917Z2
+# Version: v1-20250917Z3
 
 # archived work, works correctly
 # Get the file's real path and verify the base folder's existence
@@ -216,6 +216,81 @@ Bisu::normalize_path_v3() {
     else
         printf '%s' "$file"
     fi
+}
+
+# archived work, works correctly
+# Get the file's real path and verify the base folder's existence
+Bisu::normalize_path_v4() {
+    # Trim spaces and handle parameters (assumes Bisu::trim and Bisu::in_array exist)
+    local file=$(Bisu::trim "$1")
+    local check_base_existence=$(Bisu::trim "${2:-false}")
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
+
+    # Preserve original semantics: empty input (after trim) -> return empty string
+    if [ -z "$file" ]; then
+        printf ''
+        return 0
+    fi
+
+    # Expand shell variables safely (preserve original eval behavior)
+    file=$(eval printf '%s' "$file")
+
+    # Replace a leading tilde (~) with $HOME (exactly like original awk behavior for leading '~')
+    case "$file" in
+    ~*) file="${HOME}${file#~}" ;;
+    esac
+
+    # Convert relative paths to absolute paths (kept identical to original logic)
+    case "$file" in
+    /*) : ;;                                              # Already absolute
+    .) file="$(pwd)" ;;                                   # Convert "." to PWD
+    ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
+    ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
+    ../*) file="$(cd "${file%/*}" && pwd)/${file##*/}" ;; # Handle "../file"
+    *) file="$(pwd)/$file" ;;                             # Convert other relative paths
+    esac
+
+    # --------------------------
+    # Path normalization (pure bash, adaptive low-cost loop)
+    # - collapse repeated slashes using parameter-expansion in a loop until no '//' remains
+    # - remove '/./' segments
+    # - remove trailing '/.' if present
+    # - trim trailing whitespace
+    # - remove trailing slashes except for root '/'
+    # --------------------------
+
+    # Adaptive low-cost collapse of repeated '//' sequences (logarithmic behavior for long runs)
+    while [[ "$file" == *//* ]]; do
+        file=${file//\/\//\/}
+    done
+
+    # remove all '/./' occurrences
+    file=${file//\/.\//\/}
+
+    # remove trailing '/.' if present
+    case "$file" in
+    */.) file=${file%/.} ;;
+    esac
+
+    # trim trailing whitespace (spaces, tabs, newlines) using parameter-expansion idiom
+    # compute trailing whitespace suffix then remove it
+    local _trail="${file##*[![:space:]]}"
+    file="${file%"$_trail"}"
+
+    # remove trailing slashes but keep root "/" intact
+    if [ "$file" != "/" ]; then
+        file="${file%"${file##*[!/]}"}"
+        # if result becomes empty (input was non-empty but all slashes), coerce to "/"
+        [ -z "$file" ] && file="/"
+    fi
+
+    # Final output: if check_base_existence requested, only output if path exists; else output normalized path
+    if [[ "$check_base_existence" == "true" ]]; then
+        [ -e "$file" ] && printf '%s' "$file" || printf ''
+    else
+        printf '%s' "$file"
+    fi
+    return 0
 }
 
 # archived work, works correctly
