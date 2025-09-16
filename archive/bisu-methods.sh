@@ -4,15 +4,21 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20250912Z1
+# Version: v1-20250917Z1
 
-# archived work, works correctly, lack of performance
+# archived work, works correctly
 # Get the file's real path and verify the base folder's existence
 Bisu::file_real_path_v1() {
     # Trim spaces and handle parameters
     local file=$(Bisu::trim "$1")
     local check_base_existence=$(Bisu::trim "${2:-false}")
-    Bisu::in_array "${check_base_existence}" "true" "false" || check_base_existence="false"
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
+
+    # If the input is empty after trimming, do not convert to "/" — return empty (preserve original semantics)
+    if [ -z "$file" ]; then
+        printf ''
+        return 0
+    fi
 
     # Expand shell variables and tilde (~) safely
     file=$(eval printf '%s' "$file")
@@ -28,22 +34,127 @@ Bisu::file_real_path_v1() {
     *) file="$(pwd)/$file" ;;                             # Convert other relative paths
     esac
 
-    # Normalize redundant slashes and remove `./` safely using POSIX awk
-    file=$(printf '%s\n' "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}' 2>/dev/null)
-
-    # Remove trailing slashes (except root "/") and spaces
+    # ---- Single awk pass: normalize slashes, remove /./ and /.$, trim trailing spaces and slashes ----
     file=$(printf '%s\n' "$file" | awk '{
-        if (length($0) > 1) gsub(/\/+$/, ""); 
-        gsub(/ *$/, ""); 
-        print $0
+        s=$0
+        gsub(/\/+/, "/", s)         # collapse repeated slashes
+        gsub(/\/\.\//, "/", s)     # remove /./ segments
+        sub(/\/\.$/, "", s)        # remove trailing /. if present
+        sub(/[ \t\r\n]+$/, "", s)  # trim trailing whitespace
+        if (length(s) > 1) sub(/\/+$/, "", s) # remove trailing slashes except for root
+        print s
     }' 2>/dev/null)
 
-    # Ensure the root path is handled correctly, i.e., "/" should not be turned into ""
-    if [[ "$file" == "/" ]]; then
+    # If `check_base_existence` is true, verify the file or directory exists
+    if [[ "$check_base_existence" == "true" ]]; then
+        [ -e "$file" ] && printf '%s' "$file" || printf ''
+    else
+        printf '%s' "$file"
+    fi
+    return 0
+}
+
+# archived work, works correctly
+# Get the file's real path and optionally verify that the path exists.
+Bisu::file_real_path_v2() {
+    local file
+    local check_base_existence
+    local orig_trimmed
+    local root_like
+
+    file=$(Bisu::trim "$1")
+    orig_trimmed=$file
+    check_base_existence=$(Bisu::trim "${2:-false}")
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
+
+    # If the original trimmed input was empty, preserve emptiness and skip expansion.
+    if [[ -z $orig_trimmed ]]; then
+        file=""
+    else
+        # Expand shell variables and tilde (kept to match original semantics).
+        file=$(eval printf '%s' "$orig_trimmed")
+
+        # If eval produced an empty result, preserve empty (do not convert to $PWD).
+        if [[ -z $file ]]; then
+            file=""
+        else
+            # Leading ~ expansion only (no user-name expansion).
+            if [[ $file == ~* ]]; then
+                file="${HOME}${file:1}"
+            fi
+
+            # Build an absolute-like string for syntactic normalization:
+            # - If already absolute, normalize that.
+            # - If relative, prefix with $PWD (but we will canonicalize syntactically).
+            local absolute=false
+            local combined
+            if [[ $file == /* ]]; then
+                absolute=true
+                combined="$file"
+            else
+                absolute=false
+                combined="${PWD%/}/$file"
+            fi
+
+            # Split on '/' and process components into a stack (pure bash).
+            local -a parts
+            IFS='/' read -r -a parts <<<"$combined"
+            local -a stack
+            local part
+            for part in "${parts[@]}"; do
+                case "$part" in
+                '' | '.')
+                    # empty segment (from //) or current dir -> ignore
+                    continue
+                    ;;
+                '..')
+                    # parent dir: pop if possible; if at root (absolute + empty stack) do nothing
+                    if ((${#stack[@]} > 0)); then
+                        unset 'stack[${#stack[@]}-1]'
+                    else
+                        # If not absolute (shouldn't normally happen because combined used PWD),
+                        # we would keep ".." to preserve semantics. But combined is absolute here.
+                        :
+                    fi
+                    ;;
+                *)
+                    stack+=("$part")
+                    ;;
+                esac
+            done
+
+            # Reconstruct path from stack
+            if [[ $absolute == true ]]; then
+                if ((${#stack[@]} == 0)); then
+                    file="/"
+                else
+                    # join with '/'
+                    file="/${stack[*]}"
+                    file="${file// /\/}"
+                fi
+            else
+                # relative (edge-case): join without leading slash
+                if ((${#stack[@]} == 0)); then
+                    file=""
+                else
+                    file="${stack[*]}"
+                    file="${file// /\/}"
+                fi
+            fi
+        fi
+    fi
+
+    # If original input was root-like (one or more slashes), ensure "/"
+    root_like=false
+    if [[ -n $orig_trimmed && $orig_trimmed =~ ^/+$ ]]; then
+        root_like=true
+    fi
+
+    if [[ -z $file && $root_like == true ]]; then
         file="/"
     fi
 
-    # If `check_base_existence` is true, verify the file or directory exists
+    # Final output: obey check_base_existence flag exactly like original function.
     if [[ "$check_base_existence" == "true" ]]; then
         [ -e "$file" ] && printf '%s' "$file" || printf ''
     else
