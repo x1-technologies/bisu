@@ -209,7 +209,10 @@ Bisu::normalize_path_v3() {
         sub(/[ \t\r\n]+$/, "", s)   # trim trailing whitespace
         if (length(s) > 1) sub(/\/+$/, "", s) # remove trailing slashes except for root
         print s
-    }' 2>/dev/null)
+    }' 2>/dev/null) || {
+        printf ''
+        return 1
+    }
 
     # If `check_base_existence` is true, verify the file or directory exists
     if [[ "$check_base_existence" == "true" ]]; then
