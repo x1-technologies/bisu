@@ -9,10 +9,10 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://go.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.4"
+readonly BISU_VERSION="11.0.5"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-09-17Z"
+readonly BISU_LAST_RELEASE_DATE="2025-09-18Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
@@ -725,7 +725,7 @@ Bisu::command_exists_async() {
 Bisu::is_func() {
     local command=$(Bisu::trim "$1")
     [ -n "$command" ] || return 1
-    [[ "$(type -t "$command")" == "function" ]] &>/dev/null || return 1
+    declare -F "$command" &>/dev/null || return 1
 
     return 0
 }
@@ -970,6 +970,18 @@ Bisu::current_log_file() {
     printf '%s' "$log_file"
 }
 
+# Function: Bisu::current_tmpdir
+# Description: According to its naming
+Bisu::tmpdir() {
+    if [ -z $TMPDIR ]; then
+        printf '%s\n' "Invalid tmpdir"
+        kill -TERM $BISU_CURRENT_UTIL_PID &>/dev/null &
+        disown %+ &>/dev/null
+        exit 1
+    fi
+    printf '%s' "$TMPDIR"
+}
+
 # Add a log record to buffer
 Bisu::log_add() {
     Bisu::is_array "BISU_LOG_BUFFER" || {
@@ -1139,7 +1151,7 @@ Bisu::current_lock_file() {
         fi
 
         if ! Bisu::is_dir "$lock_file_dir"; then
-            lock_file_dir="$HOME/.local/var/run"
+            lock_file_dir=$(Bisu::tmpdir)
             Bisu::mkdir_p "$lock_file_dir"
         fi
 
@@ -2059,33 +2071,21 @@ Bisu::confirm() {
 
 # Get the file's real path and verify the base folder's existence
 Bisu::normalize_path() {
-    # Trim spaces and handle parameters
+    # Trim spaces and handle parameters (assumes Bisu::trim and Bisu::in_array exist)
     local file=$(Bisu::trim "$1")
     local check_base_existence=$(Bisu::trim "${2:-false}")
     Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
 
-    # If the input is empty after trimming, preserve original semantics: return empty
+    # Preserve original semantics: empty input (after trim) -> return empty string
     if [ -z "$file" ]; then
         printf ''
         return 0
     fi
 
-    # Expand shell variables safely (preserve original eval behavior)
-    file=$(eval printf '%s' "$file")
-
-    # Replace a leading tilde (~) with $HOME using shell (preserves original behavior of replacing only leading '~')
-    # This avoids spawning awk just for that substitution and keeps semantics identical to prior gsub(/^~/, ENVIRON["HOME"])
-    if [ "${file#"${file%%[!~]*}"}" != "$file" ]; then
-        # crude but safe check for leading '~' — the intent is only to replace the first leading '~' char
-        :
-    fi
+    # Convert relative paths to absolute paths (kept identical to original logic)
     case "$file" in
+    /*) : ;; # Already absolute
     ~*) file="${HOME}${file#~}" ;;
-    esac
-
-    # Convert relative paths to absolute paths
-    case "$file" in
-    /*) : ;;                                              # Already absolute
     .) file="$(pwd)" ;;                                   # Convert "." to PWD
     ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
     ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
@@ -2093,21 +2093,41 @@ Bisu::normalize_path() {
     *) file="$(pwd)/$file" ;;                             # Convert other relative paths
     esac
 
-    # ---- Single awk pass: normalize slashes, remove /./ and /.$, trim trailing spaces and slashes ----
-    file=$(printf '%s\n' "$file" | awk '{
-        s=$0
-        gsub(/\/+/, "/", s)         # collapse repeated slashes
-        gsub(/\/\.\//, "/", s)      # remove /./ segments
-        sub(/\/\.$/, "", s)         # remove trailing /. if present
-        sub(/[ \t\r\n]+$/, "", s)   # trim trailing whitespace
-        if (length(s) > 1) sub(/\/+$/, "", s) # remove trailing slashes except for root
-        print s
-    }' 2>/dev/null) || {
-        printf ''
-        return 1
-    }
+    # --------------------------
+    # Path normalization (pure bash, adaptive low-cost loop)
+    # - collapse repeated slashes using parameter-expansion in a loop until no '//' remains
+    # - remove '/./' segments
+    # - remove trailing '/.' if present
+    # - trim trailing whitespace
+    # - remove trailing slashes except for root '/'
+    # --------------------------
 
-    # If `check_base_existence` is true, verify the file or directory exists
+    # Adaptive low-cost collapse of repeated '//' sequences (logarithmic behavior for long runs)
+    while [[ "$file" == *//* ]]; do
+        file=${file//\/\//\/}
+    done
+
+    # remove all '/./' occurrences
+    file=${file//\/.\//\/}
+
+    # remove trailing '/.' if present
+    case "$file" in
+    */.) file=${file%/.} ;;
+    esac
+
+    # trim trailing whitespace (spaces, tabs, newlines) using parameter-expansion idiom
+    # compute trailing whitespace suffix then remove it
+    local _trail="${file##*[![:space:]]}"
+    file="${file%"$_trail"}"
+
+    # remove trailing slashes but keep root "/" intact
+    if [ "$file" != "/" ]; then
+        file="${file%"${file##*[!/]}"}"
+        # if result becomes empty (input was non-empty but all slashes), coerce to "/"
+        [ -z "$file" ] && file="/"
+    fi
+
+    # Final output: if check_base_existence requested, only output if path exists; else output normalized path
     if [[ "$check_base_existence" == "true" ]]; then
         [ -e "$file" ] && printf '%s' "$file" || printf ''
     else
@@ -6246,38 +6266,97 @@ Bisu::reliable_curl() {
     return 0
 }
 
-# Generate a regular Bisu::nanoid
+# Generate a secure, URL-friendly nanoID-like string matching strict nanoID standards.
+# Usage: Bisu::nanoid [length] [case_mode: lowercase|uppercase|mixed]
+# Defaults: length=21, case_mode=mixed
 Bisu::nanoid() {
-    local length having_dash case_mode alphabet alpha_len rand byte
-    local result="" i=0
+    local length case_mode alphabet alpha_len result i=0
+    local threshold num_bytes random_str byte_array array_len k=0 num_attempts=0
+    local extra_factor=3 max_attempts=100
 
-    # Parse args: length, having_dash (true|false), case_mode (lowercase|uppercase|mixed)
-    [ "$1" ] && length=$(Bisu::trim "$1")
-    Bisu::is_posi_int "$length" || length=21
-    [ "$2" ] && case_mode=$(Bisu::trim "$2")
-    Bisu::in_array "$case_mode" "lowercase" "uppercase" "mixed" || case_mode="mixed"
-    [ "$3" ] && having_dash=$(Bisu::trim "$3")
-    Bisu::in_array "$having_dash" "true" "false" || having_dash="false"
+    # Parse and validate length
+    length=${1:-21}
+    length=$(Bisu::trim "$length")
+    if ! Bisu::is_posi_int "$length"; then
+        length=21
+    fi
 
-    # Define alphabet
-    alphabet='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
-    [[ "$having_dash" == "true" ]] && alphabet="-${alphabet}"
-    case "$case_mode" in
-    lowercase) alphabet=$(printf '%s' "$alphabet" | tr 'A-Z' 'a-z') ;;
-    uppercase) alphabet=$(printf '%s' "$alphabet" | tr 'a-z' 'A-Z') ;;
+    # Parse and validate case_mode
+    case_mode=${2:-mixed}
+    case_mode=$(Bisu::trim "$case_mode")
+    if ! Bisu::in_array "$case_mode" "lowercase" "uppercase" "mixed"; then
+        case_mode=mixed
+    fi
+
+    # Apply case transformation
+    case $case_mode in
+    lowercase)
+        alphabet='abcdefghijklmnopqrstuvwxyz'
+        ;;
+    uppercase)
+        alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        ;;
+    mixed)
+        # Base alphabet (64 chars: 0-9, a-z, A-Z, _-)
+        alphabet='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-'
+        ;;
     esac
 
     alpha_len=${#alphabet}
+    if [[ $alpha_len -eq 0 ]]; then
+        Bisu::error_log "Invalid nanoid alphabet." "⚠️"
+        printf ''
+        return 1
+    fi
 
-    while [ "$i" -lt "$length" ]; do
-        byte=$(dd if=/dev/urandom bs=1 count=1 2>/dev/null | od -An -tu1 2>/dev/null)
-        byte=$(Bisu::trim "$byte")
-        [ "$byte" ] && [ "$byte" -lt "$alpha_len" ] &&
-            result+="${alphabet:byte:1}" &&
-            i=$((i + 1))
+    # Compute threshold for unbiased rejection sampling (nanoID standard)
+    threshold=$(((256 / alpha_len) * alpha_len))
+
+    # Batch-generate random bytes (secure from /dev/urandom)
+    num_bytes=$((length * extra_factor))
+    random_str=$(dd if=/dev/urandom bs=1 count=$num_bytes 2>/dev/null | od -An -tu1 2>/dev/null | tr -s ' \n' ' ')
+    IFS=' ' read -ra byte_array <<<"$random_str"
+    array_len=${#byte_array[@]}
+
+    # Build result with rejection sampling for uniformity
+    while [[ $i -lt $length ]]; do
+        # Regenerate if exhausted (rare)
+        if [[ $k -ge $array_len ]]; then
+            local additional=$(((length - i) * extra_factor))
+            random_str=$(dd if=/dev/urandom bs=1 count=$additional 2>/dev/null | od -An -tu1 2>/dev/null | tr -s ' \n' ' ')
+            IFS=' ' read -ra additional_bytes <<<"$random_str"
+            byte_array+=("${additional_bytes[@]}")
+            array_len=${#byte_array[@]}
+            if [[ $array_len -eq $k ]]; then
+                Bisu::error_log "Failed to generate random bytes for nanoid." "⚠️"
+                printf ''
+                return 1
+            fi
+        fi
+
+        local byte=${byte_array[$k]}
+        ((k++))
+
+        # Reject for unbiased distribution
+        if [[ $byte -ge $threshold ]]; then
+            continue
+        fi
+
+        local idx=$((byte % alpha_len))
+        result+="${alphabet:$idx:1}"
+        ((i++))
+        ((num_attempts++))
+
+        # Safety limit on attempts
+        if [[ $num_attempts -gt $((max_attempts * length)) ]]; then
+            Bisu::error_log "Excessive attempts generating ID of nanoid; Attempt limit: ${max_attempts}" "⚠️"
+            printf ''
+            return 1
+        fi
     done
 
     printf '%s\n' "$result"
+    return 0
 }
 
 # Generate a secure random UUIDv4 (128 bits)
@@ -6834,8 +6913,8 @@ Bisu::bisu_start_flag() {
 Bisu::acquire_lock() {
     local lock_file=$(Bisu::current_lock_file)
     [ -n "$lock_file" ] || Bisu::error_exit "❗️ Failed to acquire 🔒 lock."
-    exec 200>"$lock_file" || Bisu::error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
-    flock -n 200 || {
+    exec 200>"$lock_file" 2>/dev/null || Bisu::error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
+    flock -n 200 2>/dev/null || {
         Bisu::lock_held
         Bisu::error_exit "🔒 An instance is running: $lock_file"
     }
@@ -6844,13 +6923,12 @@ Bisu::acquire_lock() {
 # Function to release the lock
 Bisu::release_lock() {
     [ "$BISU_LOCK_HELD" -eq 0 ] || return 0
-
     local lock_file=$(Bisu::current_lock_file)
     Bisu::is_file "$lock_file" || {
         return 0
     }
 
-    flock -u 200 && Bisu::saferm "$lock_file" || {
+    flock -u 200 2>/dev/null && Bisu::saferm "$lock_file" || {
         Bisu::error_log "Failed to remove lock file: ${lock_file}"
         return 1
     }
@@ -7672,7 +7750,7 @@ Bisu::integrate_ops() {
 
     Bisu::in_array "$action" "install" || Bisu::verify_sig
     Bisu::set_action "$action"
-    Bisu::autorun_start &
+    Bisu::autorun_start
 
     local option_force=$(Bisu::array_get "args" "f" "force")
     local option_yes=$(Bisu::array_get "args" "y" "yes")
@@ -7739,6 +7817,7 @@ Bisu::integrate_ops() {
         Bisu::install_script
         ;;
     "view-log")
+        Bisu::command_exists "vi" || Bisu::error_exit "Please install vi first."
         vi "$(Bisu::current_log_file)" 2>/dev/null
         ;;
     "callfunc")
