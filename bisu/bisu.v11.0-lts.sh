@@ -4,21 +4,21 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
-## Official Web Site: https://bisu.dev
+## Official Web Site: https://bisu.x1.autos
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## curl -sL https://g.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
+## curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.0"
+readonly BISU_VERSION="11.0.7"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-09-11Z"
+readonly BISU_LAST_RELEASE_DATE="2025-10-20Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
 export BISU_MINIMAL_BASH_VERSION
 # BISU info uri
-readonly BISU_INFO_URI="https://bisu.dev"
+readonly BISU_INFO_URI="https://bisu.x1.autos"
 export BISU_INFO_URI
 # Default title
 export BISU_DEFAULT_TITLE="-bash"
@@ -50,10 +50,10 @@ export BISU_TRIM_CRITICAL_POINT=102400
 # Error message prefix
 export BISU_ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # BISU File URL
-readonly BISU_FILE_URL="https://g.bisu.dev/bisu-file"
+readonly BISU_FILE_URL="https://g.x1.autos/bisu-file"
 export BISU_FILE_URL
 # BISU ASC File URL
-readonly BISU_ASC_FILE_URL="https://g.bisu.dev/bisu-asc-file"
+readonly BISU_ASC_FILE_URL="https://g.x1.autos/bisu-asc-file"
 export BISU_ASC_FILE_URL
 # Global Variables
 TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
@@ -725,7 +725,7 @@ Bisu::command_exists_async() {
 Bisu::is_func() {
     local command=$(Bisu::trim "$1")
     [ -n "$command" ] || return 1
-    [[ "$(type -t "$command")" == "function" ]] &>/dev/null || return 1
+    declare -F "$command" &>/dev/null || return 1
 
     return 0
 }
@@ -970,6 +970,18 @@ Bisu::current_log_file() {
     printf '%s' "$log_file"
 }
 
+# Function: Bisu::current_tmpdir
+# Description: According to its naming
+Bisu::tmpdir() {
+    if [ -z $TMPDIR ]; then
+        printf '%s\n' "Invalid tmpdir"
+        kill -TERM $BISU_CURRENT_UTIL_PID &>/dev/null &
+        disown %+ &>/dev/null
+        exit 1
+    fi
+    printf '%s' "$TMPDIR"
+}
+
 # Add a log record to buffer
 Bisu::log_add() {
     Bisu::is_array "BISU_LOG_BUFFER" || {
@@ -1116,8 +1128,9 @@ Bisu::error_exit() {
             current_line_text=$(sed "${current_lineno}q;d" "$current_file_path" 2>/dev/null)
             local current_charno
             current_charno=$(awk '{match($0,/[^[:space:]]/); print (RSTART?RSTART:1)}' <<<"$current_line_text")
-            Bisu::log_add "<fg_bright_yellow>(Tracing: ${current_file_path}:${current_lineno}:${current_charno}, \
-${parent_file}:${parent_lineno}:${parent_charno}</fg_bright_yellow>)"
+            Bisu::log_add "<fg_bright_yellow>Quitted ${status_code}:\n \
+    ${current_file_path}:${current_lineno}:${current_charno}\n \
+    ${parent_file}:${parent_lineno}:${parent_charno}</fg_bright_yellow>"
         }
         Bisu::log_flush
     }
@@ -1138,7 +1151,7 @@ Bisu::current_lock_file() {
         fi
 
         if ! Bisu::is_dir "$lock_file_dir"; then
-            lock_file_dir="$HOME/.local/var/run"
+            lock_file_dir=$(Bisu::tmpdir)
             Bisu::mkdir_p "$lock_file_dir"
         fi
 
@@ -1182,7 +1195,7 @@ Bisu::target_dir() {
         target_dir="$BISU_TERMUX_TARGET_PATH_PREFIX"
     fi
 
-    target_dir=$(Bisu::file_real_path "$target_dir")
+    target_dir=$(Bisu::normalize_path "$target_dir")
     printf '%s' "$target_dir"
 }
 
@@ -2057,19 +2070,22 @@ Bisu::confirm() {
 }
 
 # Get the file's real path and verify the base folder's existence
-Bisu::file_real_path() {
-    # Trim spaces and handle parameters
+Bisu::normalize_path() {
+    # Trim spaces and handle parameters (assumes Bisu::trim and Bisu::in_array exist)
     local file=$(Bisu::trim "$1")
     local check_base_existence=$(Bisu::trim "${2:-false}")
-    Bisu::in_array "${check_base_existence}" "true" "false" || check_base_existence="false"
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
 
-    # Expand shell variables and tilde (~) safely
-    file=$(eval printf '%s' "$file")
-    file=$(printf '%s\n' "$file" | awk '{gsub(/^~/, ENVIRON["HOME"]); print $0}' 2>/dev/null)
+    # Preserve original semantics: empty input (after trim) -> return empty string
+    if [ -z "$file" ]; then
+        printf ''
+        return 0
+    fi
 
-    # Convert relative paths to absolute paths
+    # Convert relative paths to absolute paths (kept identical to original logic)
     case "$file" in
-    /*) : ;;                                              # Already absolute
+    /*) : ;; # Already absolute
+    ~*) file="${HOME}${file#~}" ;;
     .) file="$(pwd)" ;;                                   # Convert "." to PWD
     ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
     ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
@@ -2077,27 +2093,47 @@ Bisu::file_real_path() {
     *) file="$(pwd)/$file" ;;                             # Convert other relative paths
     esac
 
-    # Normalize redundant slashes and remove `./` safely using POSIX awk
-    file=$(printf '%s\n' "$file" | awk '{gsub(/\/+/, "/"); gsub(/\/\.$/, ""); gsub(/\/\.\//, "/"); print $0}' 2>/dev/null)
+    # --------------------------
+    # Path normalization (pure bash, adaptive low-cost loop)
+    # - collapse repeated slashes using parameter-expansion in a loop until no '//' remains
+    # - remove '/./' segments
+    # - remove trailing '/.' if present
+    # - trim trailing whitespace
+    # - remove trailing slashes except for root '/'
+    # --------------------------
 
-    # Remove trailing slashes (except root "/") and spaces
-    file=$(printf '%s\n' "$file" | awk '{
-        if (length($0) > 1) gsub(/\/+$/, ""); 
-        gsub(/ *$/, ""); 
-        print $0
-    }' 2>/dev/null)
+    # Adaptive low-cost collapse of repeated '//' sequences (logarithmic behavior for long runs)
+    while [[ "$file" == *//* ]]; do
+        file=${file//\/\//\/}
+    done
 
-    # Ensure the root path is handled correctly, i.e., "/" should not be turned into ""
-    if [[ "$file" == "/" ]]; then
-        file="/"
+    # remove all '/./' occurrences
+    file=${file//\/.\//\/}
+
+    # remove trailing '/.' if present
+    case "$file" in
+    */.) file=${file%/.} ;;
+    esac
+
+    # trim trailing whitespace (spaces, tabs, newlines) using parameter-expansion idiom
+    # compute trailing whitespace suffix then remove it
+    local _trail="${file##*[![:space:]]}"
+    file="${file%"$_trail"}"
+
+    # remove trailing slashes but keep root "/" intact
+    if [ "$file" != "/" ]; then
+        file="${file%"${file##*[!/]}"}"
+        # if result becomes empty (input was non-empty but all slashes), coerce to "/"
+        [ -z "$file" ] && file="/"
     fi
 
-    # If `check_base_existence` is true, verify the file or directory exists
+    # Final output: if check_base_existence requested, only output if path exists; else output normalized path
     if [[ "$check_base_existence" == "true" ]]; then
         [ -e "$file" ] && printf '%s' "$file" || printf ''
     else
         printf '%s' "$file"
     fi
+    return 0
 }
 
 # Function: Bisu::add_env_path
@@ -2126,19 +2162,14 @@ Bisu::add_env_path() {
     fi
 }
 
-# Bisu::is_numeric - validate Go-style numeric literals (pure Bash5, no external commands)
-# Accepts: optional leading +/-, integer (dec/bin/oct/hex with underscores), decimal floats,
-#          hexadecimal floats (0x...p...), and optional trailing 'i' (imaginary).
-# Returns: 0 when legal, 1 otherwise.
-# Relies on: Bisu::trim "$1" exists (per your codebase).
+# Bisu::is_numeric - validate Go-style numeric literals (pure Bash5)
+# Returns 0 when legal, 1 otherwise. Relies on Bisu::trim "$1".
 Bisu::is_numeric() {
-    local s raw sign imag
-
-    # normalize and quick empty check
+    local raw s imag
     raw=$(Bisu::trim "$1")
     [[ -n $raw ]] || return 1
 
-    # strip trailing imaginary 'i' (if present)
+    # strip trailing imaginary 'i'
     if [[ ${raw: -1} == i ]]; then
         imag=1
         s=${raw:0:-1}
@@ -2151,107 +2182,56 @@ Bisu::is_numeric() {
     if [[ ${s:0:1} == '+' || ${s:0:1} == '-' ]]; then
         s=${s:1}
     fi
-
-    # must remain non-empty
     [[ -n $s ]] || return 1
 
-    # digit-group patterns (underscores only allowed BETWEEN digits)
+    # digit-group patterns (underscores allowed only between digits)
     local DEC='[0-9]+(_[0-9]+)*'
     local BIN='[01]+(_[01]+)*'
     local OCT='[0-7]+(_[0-7]+)*'
     local HEX='[0-9A-Fa-f]+(_[0-9A-Fa-f]+)*'
 
     # exponent patterns (digits may contain underscores between digits)
-    local DEC_EXP='[eE][+-]?[0-9]+(_[0-9]+)*'
-    local HEX_EXP='[pP][+-]?[0-9]+(_[0-9]+)*'
+    local DEC_EXP='[eE][+-]?'$DEC
+    local HEX_EXP='[pP][+-]?'$DEC
 
-    # ----- Helper regexes (used in [[ ... =~ ... ]]) -----
-    local re_dec_int="^(0|[1-9][0-9]*(_[0-9]+)*)$"
-    local re_dec_flt_a="^${DEC}\\.((${DEC})?)(${DEC_EXP})?$" # digits '.' [digits] [exp]
-    local re_dec_flt_b="^${DEC}${DEC_EXP}$"                  # digits exp
-    local re_dec_flt_c="^\\.(${DEC})(${DEC_EXP})?$"          # '.' digits [exp]
+    # decimal anchors
+    local re_dec_int="^(${DEC})$"
+    local re_dec_flt_a="^(${DEC})\\.(${DEC})?(${DEC_EXP})?$"
+    local re_dec_flt_b="^(${DEC})(${DEC_EXP})$"
+    local re_dec_flt_c="^\\.(${DEC})(${DEC_EXP})?$"
 
-    local re_hex_int="^${HEX}$"
-    local re_hex_mant1="^${HEX}\\.${HEX}?$"                         # hex '.' [hex]
-    local re_hex_mant2="^\\.${HEX}$"                                # '.' hex
-    local re_hex_float="^(${HEX}(\\.${HEX})?|\\.${HEX})${HEX_EXP}$" # mantissa + p-exp
-
-    local re_bin_int="^${BIN}$"
-    local re_oct_pref="^${OCT}$"
-    local re_oct_legacy="^${OCT}$"
-
-    # ----- Branch based on prefix ----- #
+    # ----- Branch by prefix/format ----- #
     if [[ $s =~ ^0[xX] ]]; then
-        # hex (integer or float). Allow single optional underscore right after prefix.
-        local rest="${s:2}"
-        if [[ ${rest:0:1} == "_" ]]; then
-            rest=${rest:1}
-            [[ -n $rest ]] || return 1
-        fi
-
-        # If there is a p/P, it must be a hex float (mantissa + p exponent)
-        if [[ $rest =~ [pP] ]]; then
-            # match mantissa and exponent using BASH_REMATCH
-            if [[ $rest =~ ^([^pP]+)[pP]([+-]?[0-9]+(_[0-9]+)*)$ ]]; then
-                local mant=${BASH_REMATCH[1]}
-                local exp=${BASH_REMATCH[2]}
-                # mantissa must be either HEX, HEX'.'HEX?, or '.'HEX (with correct underscore rules)
-                if [[ $mant =~ ^${HEX}$ ]] || [[ $mant =~ ^${HEX}\.$ ]] || [[ $mant =~ ^${HEX}\.${HEX}$ ]] || [[ $mant =~ ^\.${HEX}$ ]]; then
-                    # validate exponent digits (we used match above so it's fine)
-                    return 0
-                else
-                    return 1
-                fi
-            else
-                return 1
-            fi
-        else
-            # hex integer
-            if [[ $rest =~ ^${HEX}$ ]]; then
-                return 0
-            else
-                return 1
-            fi
-        fi
-    elif [[ $s =~ ^0[bB] ]]; then
-        # binary integer, optional single underscore after prefix allowed
-        local rest="${s:2}"
-        if [[ ${rest:0:1} == "_" ]]; then
-            rest=${rest:1}
-            [[ -n $rest ]] || return 1
-        fi
-        [[ $rest =~ ^${BIN}$ ]] && return 0 || return 1
-
-    elif [[ $s =~ ^0[oO] ]]; then
-        # octal with explicit prefix
-        local rest="${s:2}"
-        if [[ ${rest:0:1} == "_" ]]; then
-            rest=${rest:1}
-            [[ -n $rest ]] || return 1
-        fi
-        [[ $rest =~ ^${OCT}$ ]] && return 0 || return 1
-
-    elif [[ ${s:0:1} == 0 && ${#s} -gt 1 ]]; then
-        # legacy leading-zero octal (e.g., 0755). Allow optional '_' after leading zero.
-        local rest="${s:1}"
-        if [[ ${rest:0:1} == "_" ]]; then
-            rest=${rest:1}
-            [[ -n $rest ]] || return 1
-        fi
-        # rest must be octal-digit groups with underscores between digits
-        [[ $rest =~ ^${OCT}$ ]] && return 0 || return 1
-
-    else
-        # Decimal branch: integer or float
-        if [[ $s =~ $re_dec_int ]]; then
-            return 0
-        fi
-        if [[ $s =~ $re_dec_flt_a || $s =~ $re_dec_flt_b || $s =~ $re_dec_flt_c ]]; then
-            return 0
-        fi
-        # not a decimal number
+        # hex integer or hex float (0x...p...)
+        [[ $s =~ ^0[xX]_[0-9A-Fa-f] ]] && return 1
+        [[ $s =~ ^0[xX](${HEX}(\.${HEX})?|\.${HEX})${HEX_EXP}$ ]] && return 0
+        [[ $s =~ ^0[xX]${HEX}$ ]] && return 0
         return 1
     fi
+
+    if [[ $s =~ ^0[bB] ]]; then
+        [[ $s =~ ^0[bB]_[01] ]] && return 1
+        [[ $s =~ ^0[bB]${BIN}$ ]] && return 0 || return 1
+    fi
+
+    if [[ $s =~ ^0[oO] ]]; then
+        [[ $s =~ ^0[oO]_[0-7] ]] && return 1
+        [[ $s =~ ^0[oO]${OCT}$ ]] && return 0 || return 1
+    fi
+
+    # legacy leading-zero octal: only when it's an integer (no dot, no exponent/prefix)
+    if [[ ${#s} -gt 1 && $s =~ ^0 && ! $s =~ [.\'eEpP] && ! $s =~ ^0[xXbBoO] ]]; then
+        local rest="${s:1}"
+        [[ ${rest:0:1} == "_" ]] && return 1
+        [[ $rest =~ ^${OCT}$ ]] && return 0 || return 1
+    fi
+
+    # decimal integer or float (including forms like 0.625, .5, 1e3)
+    if [[ $s =~ $re_dec_int || $s =~ $re_dec_flt_a || $s =~ $re_dec_flt_b || $s =~ $re_dec_flt_c ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 # positive numeric validator
@@ -2376,70 +2356,214 @@ Bisu::is_unsigned_float() {
     return 0
 }
 
-# Increase a number to the next integer
+# Increase a number to the next integer (ceiling)
+# Usage: Bisu::ceil "<number>" [big_spec]
+#   big_spec: "true" -> use awk backup mode; "false" -> use fast Bash internal mode (default)
+# Returns: prints the ceil and returns 0 on success; prints '' and returns 1 on error.
 Bisu::ceil() {
-    # Trim input using awk
-    local input=$(Bisu::trim "$1")
-    local result
+    local input result
+    local big_spec
+    big_spec=$(Bisu::trim "${2:-false}")
+    Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
 
-    # Validate input is numeric
-    if ! Bisu::is_numeric "$input"; then
+    input=$(Bisu::trim "$1")
+    [[ -n $input ]] || {
+        printf ''
+        return 1
+    }
+
+    # reject imaginary numbers (not supported)
+    if [[ ${input: -1} == i ]]; then
         printf ''
         return 1
     fi
 
-    # Compute ceiling using awk
-    result=$(printf '%s\n' "$input" | awk '{
-        if ($1 == int($1)) {
-            print $1
-        } else if ($1 > 0) {
-            print int($1) + 1
-        } else {
-            print int($1)
+    # split sign for fast path handling
+    local s sign abs_nounders intpart frac
+    s=$input
+    sign=''
+    if [[ ${s:0:1} == '+' || ${s:0:1} == '-' ]]; then
+        sign=${s:0:1}
+        s=${s:1}
+    fi
+    [[ -n $s ]] || {
+        printf ''
+        return 1
+    }
+
+    # If complex numeric forms present or backup requested -> use awk backup
+    if [[ $big_spec == "true" || $s =~ [pP] || $s =~ [eE] || $s =~ ^0[xX] || $s =~ ^0[bB] || $s =~ ^0[oO] ]]; then
+        result=$(printf '%s\n' "$input" | awk '{
+            v = $0 + 0
+            if (v != v) { exit 1 }
+            if (v == int(v)) { printf "%d", int(v); exit 0 }
+            if (v > 0) { printf "%d", int(v) + 1; exit 0 }
+            printf "%d", int(v); exit 0
+        }' 2>/dev/null)
+        [[ -n $result ]] && {
+            printf '%s' "$result"
+            return 0
         }
-    }' 2>/dev/null)
-
-    # Check for empty result
-    if [ -z "$result" ]; then
         printf ''
         return 1
     fi
 
-    printf '%s' "$result"
-    return 0
+    # Fast Bash decimal handling (common cases)
+    abs_nounders=${s//_/}
+
+    if [[ $abs_nounders == *.* ]]; then
+        intpart=${abs_nounders%%.*}
+        frac=${abs_nounders#*.}
+        [[ -z $intpart ]] && intpart=0
+        [[ -z $frac ]] && frac=""
+
+        # exact integer (fraction empty or all zeros)
+        if [[ -z $frac || $frac =~ ^0+$ ]]; then
+            if [[ $sign == '-' && $intpart != 0 ]]; then
+                printf '%s' "-$intpart"
+                return 0
+            else
+                printf '%s' "$intpart"
+                return 0
+            fi
+        fi
+
+        # non-integer with fractional part
+        if [[ $sign == '-' ]]; then
+            # ceil(negative non-integer) => -intpart (except -0 -> 0)
+            if [[ $intpart == 0 ]]; then
+                printf '0'
+                return 0
+            else
+                printf '%s' "-$intpart"
+                return 0
+            fi
+        else
+            # positive non-integer: intpart + 1
+            result=$((intpart + 1))
+            printf '%s' "$result"
+            return 0
+        fi
+    else
+        # integer (no dot)
+        if [[ $abs_nounders =~ ^0+$ ]]; then
+            printf '0'
+            return 0
+        fi
+        if [[ $sign == '-' ]]; then
+            printf '%s' "-$abs_nounders"
+            return 0
+        else
+            printf '%s' "$abs_nounders"
+            return 0
+        fi
+    fi
 }
 
-# Decrease a number to the previous integer
+# Decrease a number to the previous integer (floor)
+# Usage: Bisu::floor "<number>" [big_spec]
+#   big_spec: "true" -> use awk backup mode; "false" -> use fast Bash internal mode (default)
+# Returns: prints the floor and returns 0 on success; prints '' and returns 1 on error.
 Bisu::floor() {
-    # Trim input using awk
-    local input=$(Bisu::trim "$1")
-    local result
+    local input result
+    local big_spec
+    big_spec=$(Bisu::trim "${2:-false}")
+    Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
 
-    # Validate input is numeric
+    input=$(Bisu::trim "$1")
+    [[ -n $input ]] || {
+        printf ''
+        return 1
+    }
+
+    # Reject imaginary numbers (not supported)
+    if [[ ${input: -1} == i ]]; then
+        printf ''
+        return 1
+    fi
+
+    # Validate numeric (relies on existing Bisu::is_numeric)
     if ! Bisu::is_numeric "$input"; then
         printf ''
         return 1
     fi
 
-    # Compute Bisu::floor using awk
-    result=$(printf '%s\n' "$input" | awk '{
-        if ($1 == int($1)) {
-            print $1
-        } else if ($1 > 0) {
-            print int($1)
-        } else {
-            print int($1) - 1
-        }
-    }' 2>/dev/null)
+    # Split sign for fast path handling
+    local s sign abs_nounders intpart frac
+    s=$input
+    sign=''
+    if [[ ${s:0:1} == '+' || ${s:0:1} == '-' ]]; then
+        sign=${s:0:1}
+        s=${s:1}
+    fi
+    [[ -n $s ]] || {
+        printf ''
+        return 1
+    }
 
-    # Check for empty result
-    if [ -z "$result" ]; then
+    # If complex numeric forms present or backup requested -> use awk backup
+    if [[ $big_spec == "true" || $s =~ [pP] || $s =~ [eE] || $s =~ ^0[xX] || $s =~ ^0[bB] || $s =~ ^0[oO] ]]; then
+        result=$(printf '%s\n' "$input" | awk '{
+            v = $0 + 0
+            if (v != v) { exit 1 }                           # not a number for awk
+            if (v == int(v)) { printf "%d", int(v); exit 0 } # exact integer
+            if (v >= 0) { printf "%d", int(v); exit 0 }      # positive non-integer -> trunc toward 0 is floor
+            printf "%d", int(v) - 1; exit 0                  # negative non-integer -> floor is int(v)-1
+        }' 2>/dev/null)
+        [[ -n $result ]] && {
+            printf '%s' "$result"
+            return 0
+        }
         printf ''
         return 1
     fi
 
-    printf '%s' "$result"
-    return 0
+    # ---------- Fast Bash internal mode (common decimal cases) ----------
+    abs_nounders=${s//_/}
+
+    if [[ $abs_nounders == *.* ]]; then
+        intpart=${abs_nounders%%.*}
+        frac=${abs_nounders#*.}
+        [[ -z $intpart ]] && intpart=0
+        [[ -z $frac ]] && frac=""
+
+        # exact integer (fraction empty or all zeros)
+        if [[ -z $frac || $frac =~ ^0+$ ]]; then
+            # respect sign except treat "-0" as "0"
+            if [[ $sign == '-' && $intpart != 0 ]]; then
+                printf '%s' "-$intpart"
+                return 0
+            else
+                printf '%s' "$intpart"
+                return 0
+            fi
+        fi
+
+        # non-integer with fractional part
+        if [[ $sign == '-' ]]; then
+            # negative non-integer -> floor = -(intpart + 1)
+            result=$((intpart + 1))
+            printf '%s' "-$result"
+            return 0
+        else
+            # positive non-integer -> floor is integer part
+            printf '%s' "$intpart"
+            return 0
+        fi
+    else
+        # No dot -> integer already (remove leading-zero groups gracefully)
+        if [[ $abs_nounders =~ ^0+$ ]]; then
+            printf '0'
+            return 0
+        fi
+        if [[ $sign == '-' ]]; then
+            printf '%s' "-$abs_nounders"
+            return 0
+        else
+            printf '%s' "$abs_nounders"
+            return 0
+        fi
+    fi
 }
 
 # Function: Bisu::is_file
@@ -2476,8 +2600,8 @@ Bisu::is_sub_folder_of() {
     local sub_folder=$(Bisu::trim "$1")
     local parent_folder=$(Bisu::trim "$2")
 
-    sub_folder=$(Bisu::file_real_path "$sub_folder" "true")
-    parent_folder=$(Bisu::file_real_path "$parent_folder" "true")
+    sub_folder=$(Bisu::normalize_path "$sub_folder" "true")
+    parent_folder=$(Bisu::normalize_path "$parent_folder" "true")
 
     # Ensure both parent and sub folder are valid directories
     if [ -z "$sub_folder" ] || [ -z "$parent_folder" ]; then
@@ -2497,7 +2621,7 @@ Bisu::is_top_folder() {
     local dirpath=$(Bisu::trim "$1")
     Bisu::is_dir "$dirpath" || return 1
 
-    dirpath=$(Bisu::file_real_path "$dirpath" "true")
+    dirpath=$(Bisu::normalize_path "$dirpath" "true")
     [ -n "$dirpath" ] || return 1
 
     local parent_dir=$(dirname "$dirpath")
@@ -2544,7 +2668,7 @@ Bisu::fileext() {
 # Get file info
 Bisu::extract_file_info() {
     local file_path=$(Bisu::trim "$1")
-    file_path=$(Bisu::file_real_path "$file_path")
+    file_path=$(Bisu::normalize_path "$file_path")
     [ -n "$file_path" ] || return 1
 
     local receiver_var_name=$(Bisu::trim "$2")
@@ -2575,22 +2699,18 @@ Bisu::extract_file_info() {
         file_has_ext="true"
     fi
 
-    if [ "$file_has_ext" == "false" ]; then
-        file_dir="$file_path"
-        filename=""
-    fi
-
     local rs=()
     Bisu::array_set "rs" "filename" "$filename"
     Bisu::array_set "rs" "file_ext" "$file_ext"
     Bisu::array_set "rs" "file_path" "$file_path"
     Bisu::array_set "rs" "file_dir" "$file_dir"
-    Bisu::array_set "rs" "Bisu::file_exists" "$file_exists"
-    Bisu::array_set "rs" "Bisu::is_dir" "$file_is_dir"
-    Bisu::array_set "rs" "Bisu::is_file" "$file_is_file"
+    Bisu::array_set "rs" "file_exists" "$file_exists"
+    Bisu::array_set "rs" "is_dir" "$file_is_dir"
+    Bisu::array_set "rs" "is_file" "$file_is_file"
     Bisu::array_set "rs" "file_has_ext" "$file_has_ext"
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -2609,7 +2729,7 @@ Bisu::files_count() {
 # Bisu::mkdir_p
 Bisu::mkdir_p() {
     local dir=$(Bisu::trim "$1")
-    dir=$(Bisu::file_real_path "$dir")
+    dir=$(Bisu::normalize_path "$dir")
 
     # Check if the directory exists, if not, create it
     if ! Bisu::file_exists "$dir"; then
@@ -2715,8 +2835,8 @@ Bisu::saferm() {
     timing=${timing:-"immediately"}
     local rm_command=""
 
-    path=$(Bisu::file_real_path "$path" "true")
-    parent_dir=$(Bisu::file_real_path "$parent_dir" "true")
+    path=$(Bisu::normalize_path "$path" "true")
+    parent_dir=$(Bisu::normalize_path "$parent_dir" "true")
 
     if [ -z "$path" ] || [ -z "$parent_dir" ]; then
         return 1
@@ -2998,7 +3118,7 @@ Bisu::array_splice() {
 # Usage: Bisu::array_set arr key1 val1 [key2 val2 ...]
 # Returns 0 on success, 1 on failure
 Bisu::array_set() {
-    local array_name key value is_assoc tmp_var tmp_ref ref numeric_indices sorted_idx idx i
+    local array_name key value is_assoc tmp_var tmp_ref ref numeric_indices sorted_idx idx i old_IFS
 
     # first arg: array name (Bisu::trim provided by caller)
     array_name=$(Bisu::trim "$1")
@@ -3036,7 +3156,7 @@ Bisu::array_set() {
         case "$key" in
         '' | *[!0-9]*) ;; # non-numeric -> fall through to migration
         *)
-            ref[$key]="$value"
+            ref["$key"]="$value"
             continue
             ;;
         esac
@@ -3066,8 +3186,17 @@ Bisu::array_set() {
 
         # restore numeric entries in ascending numeric order (stable)
         if ((${#numeric_indices[@]})); then
-            IFS=$'\n' sorted_idx=($(printf '%s\n' "${numeric_indices[@]}" | sort -n))
-            unset IFS
+            # Use bash builtin mapfile when more than one index to avoid word-splitting issues
+            if ((${#numeric_indices[@]} > 1)); then
+                old_IFS=$IFS
+                IFS=$'\n'
+                # sort numerically; use printf + sort (external) only when necessary for ordering
+                mapfile -t sorted_idx < <(printf '%s\n' "${numeric_indices[@]}" | sort -n)
+                IFS=$old_IFS
+            else
+                sorted_idx=("${numeric_indices[@]}")
+            fi
+
             for idx in "${sorted_idx[@]}"; do
                 ref["$idx"]="${tmp_ref[$idx]}"
             done
@@ -3133,11 +3262,6 @@ Bisu::array_get() {
             # existence check avoids bounds calculation and handles sparse arrays
             [[ -v ref[$idx] ]] || continue
             val="${ref[$idx]}"
-        fi
-
-        # Treat BISU_EMPTY_EXPR sentinel as explicit empty if defined
-        if [[ ${BISU_EMPTY_EXPR+set} && "${val}" == "${BISU_EMPTY_EXPR}" ]]; then
-            val=""
         fi
 
         # Stop at first non-empty value
@@ -4312,12 +4436,12 @@ Bisu::check_bash_version() {
 # Function: Bisu::check_bisu_version
 # Description: Verifies that the installed BISU version is greater than or equal to the specified required version.
 Bisu::check_bisu_version() {
-    local expr="${BISU_CURRENT_UTIL_REQUIRED_BISU_VERSION:-}"
+    local expr="${BISU_VERSION_REQUIREMENT:-}"
     local result=$(Bisu::compare_version "$expr" "$BISU_VERSION")
     local current_filename="$(Bisu::current_filename)"
     local bisu_filename="$(Bisu::bisu_filename)"
     if [[ $result == 0 ]] && [[ "$current_filename" != "$bisu_filename" ]]; then
-        Bisu::error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($BISU_CURRENT_UTIL_REQUIRED_BISU_VERSION)."
+        Bisu::error_exit "BISU version ($BISU_VERSION) is not as the satisfactory ($BISU_VERSION_REQUIREMENT)."
     fi
 }
 
@@ -5504,7 +5628,8 @@ Bisu::yaml_to_array() {
         Bisu::array_set "rs" "$key" "$value" || return 1
     done <<<"$input" || return 1
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -5551,7 +5676,8 @@ Bisu::json_to_array() {
         fi
     done <<<"$input" || return 1
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -5778,7 +5904,8 @@ Bisu::extract_url_info() {
     Bisu::array_set "rs" "encoded_req_path" "$encoded_req_path"
     Bisu::array_set "rs" "encoded_url" "$encoded_url"
 
-    Bisu::set "var_ref" "${rs[@]}" || return 1
+    local kv_str=$(Bisu::array_dump "rs")
+    Bisu::set "var_ref" "${kv_str[@]}" || return 1
     eval "declare -gA ${receiver_var_name}=($var_ref)" 2>/dev/null || return 1
     return 0
 }
@@ -6227,38 +6354,97 @@ Bisu::reliable_curl() {
     return 0
 }
 
-# Generate a regular Bisu::nanoid
+# Generate a secure, URL-friendly nanoID-like string matching strict nanoID standards.
+# Usage: Bisu::nanoid [length] [case_mode: lowercase|uppercase|mixed]
+# Defaults: length=21, case_mode=mixed
 Bisu::nanoid() {
-    local length having_dash case_mode alphabet alpha_len rand byte
-    local result="" i=0
+    local length case_mode alphabet alpha_len result i=0
+    local threshold num_bytes random_str byte_array array_len k=0 num_attempts=0
+    local extra_factor=3 max_attempts=100
 
-    # Parse args: length, having_dash (true|false), case_mode (lowercase|uppercase|mixed)
-    [ "$1" ] && length=$(Bisu::trim "$1")
-    Bisu::is_posi_int "$length" || length=21
-    [ "$2" ] && case_mode=$(Bisu::trim "$2")
-    Bisu::in_array "$case_mode" "lowercase" "uppercase" "mixed" || case_mode="mixed"
-    [ "$3" ] && having_dash=$(Bisu::trim "$3")
-    Bisu::in_array "$having_dash" "true" "false" || having_dash="false"
+    # Parse and validate length
+    length=${1:-21}
+    length=$(Bisu::trim "$length")
+    if ! Bisu::is_posi_int "$length"; then
+        length=21
+    fi
 
-    # Define alphabet
-    alphabet='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_'
-    [[ "$having_dash" == "true" ]] && alphabet="-${alphabet}"
-    case "$case_mode" in
-    lowercase) alphabet=$(printf '%s' "$alphabet" | tr 'A-Z' 'a-z') ;;
-    uppercase) alphabet=$(printf '%s' "$alphabet" | tr 'a-z' 'A-Z') ;;
+    # Parse and validate case_mode
+    case_mode=${2:-mixed}
+    case_mode=$(Bisu::trim "$case_mode")
+    if ! Bisu::in_array "$case_mode" "lowercase" "uppercase" "mixed"; then
+        case_mode=mixed
+    fi
+
+    # Apply case transformation
+    case $case_mode in
+    lowercase)
+        alphabet='abcdefghijklmnopqrstuvwxyz'
+        ;;
+    uppercase)
+        alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        ;;
+    mixed)
+        # Base alphabet (64 chars: 0-9, a-z, A-Z, _-)
+        alphabet='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-'
+        ;;
     esac
 
     alpha_len=${#alphabet}
+    if [[ $alpha_len -eq 0 ]]; then
+        Bisu::error_log "Invalid nanoid alphabet." "⚠️"
+        printf ''
+        return 1
+    fi
 
-    while [ "$i" -lt "$length" ]; do
-        byte=$(dd if=/dev/urandom bs=1 count=1 2>/dev/null | od -An -tu1 2>/dev/null)
-        byte=$(Bisu::trim "$byte")
-        [ "$byte" ] && [ "$byte" -lt "$alpha_len" ] &&
-            result+="${alphabet:byte:1}" &&
-            i=$((i + 1))
+    # Compute threshold for unbiased rejection sampling (nanoID standard)
+    threshold=$(((256 / alpha_len) * alpha_len))
+
+    # Batch-generate random bytes (secure from /dev/urandom)
+    num_bytes=$((length * extra_factor))
+    random_str=$(dd if=/dev/urandom bs=1 count=$num_bytes 2>/dev/null | od -An -tu1 2>/dev/null | tr -s ' \n' ' ')
+    IFS=' ' read -ra byte_array <<<"$random_str"
+    array_len=${#byte_array[@]}
+
+    # Build result with rejection sampling for uniformity
+    while [[ $i -lt $length ]]; do
+        # Regenerate if exhausted (rare)
+        if [[ $k -ge $array_len ]]; then
+            local additional=$(((length - i) * extra_factor))
+            random_str=$(dd if=/dev/urandom bs=1 count=$additional 2>/dev/null | od -An -tu1 2>/dev/null | tr -s ' \n' ' ')
+            IFS=' ' read -ra additional_bytes <<<"$random_str"
+            byte_array+=("${additional_bytes[@]}")
+            array_len=${#byte_array[@]}
+            if [[ $array_len -eq $k ]]; then
+                Bisu::error_log "Failed to generate random bytes for nanoid." "⚠️"
+                printf ''
+                return 1
+            fi
+        fi
+
+        local byte=${byte_array[$k]}
+        ((k++))
+
+        # Reject for unbiased distribution
+        if [[ $byte -ge $threshold ]]; then
+            continue
+        fi
+
+        local idx=$((byte % alpha_len))
+        result+="${alphabet:$idx:1}"
+        ((i++))
+        ((num_attempts++))
+
+        # Safety limit on attempts
+        if [[ $num_attempts -gt $((max_attempts * length)) ]]; then
+            Bisu::error_log "Excessive attempts generating ID of nanoid; Attempt limit: ${max_attempts}" "⚠️"
+            printf ''
+            return 1
+        fi
     done
 
     printf '%s\n' "$result"
+    return 0
 }
 
 # Generate a secure random UUIDv4 (128 bits)
@@ -6396,23 +6582,22 @@ Bisu::base10_decode() {
     return 0
 }
 
-# base26: alphabet A..Z (0..25). Each byte -> 2 letters (high, low)
-# Bisu::base26_encode "string" -> "AA...ZZ"   (2 chars per byte)
+# Bisu::base26_encode "string" -> base26 text (2 letters per byte)
 Bisu::base26_encode() {
-    local input result="" char ascii high low alphabet
+    local input result char ascii high low alphabet base
     input=$(Bisu::trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
-    alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ' # index 0->A .. 25->Z
+    alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    base=26
 
     while IFS= read -r -n1 char; do
         ascii=$(LC_ALL=C printf '%d' "'$char")
-        # compute base26 two-digit representation
-        high=$((ascii / 26))
-        low=$((ascii % 26))
+        high=$((ascii / base))
+        low=$((ascii % base))
         result+="${alphabet:high:1}${alphabet:low:1}"
     done <<<"$input"
 
@@ -6420,93 +6605,173 @@ Bisu::base26_encode() {
     return 0
 }
 
-# Bisu::base26_decode: decode A..Z pairs (base26) back to original bytes.
-# Accepts concatenated pairs "AABBCD..." (even length) or separated tokens like "AA BB C" (1-2 letters per token).
-# Returns '' and exit code 1 on invalid input.
+# Bisu::base26_decode "text" -> original bytes (ignores byte==0)
+# Accepts A-Z sequences or tokenized input with separators.
 Bisu::base26_decode() {
-    local input result="" token len ascii_val c0 c1 v0 v1 byte processed=0 i
-
+    local input result token len c0 c1 v0 v1 byte processed=0 i base ord
     input=$(Bisu::trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
-    # Normalize to uppercase to accept a..z or A..Z
     input=${input^^}
+    base=26
 
-    # If any non-letter present, parse tokens of 1..2 letters using pure-Bash regex (no external tools)
     if [[ "$input" =~ [^A-Z] ]]; then
         while [[ $input =~ ^[^A-Z]*([A-Z]{1,2})(.*)$ ]]; do
             token=${BASH_REMATCH[1]}
             input=${BASH_REMATCH[2]}
-
             len=${#token}
-            ((len >= 1 && len <= 2)) || {
-                printf ''
-                return 1
-            }
-
             if ((len == 1)); then
                 c0=${token:0:1}
-                v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65)) # 'A' -> 0
-                ((v0 >= 0 && v0 < 26)) || {
-                    printf ''
-                    return 1
-                }
+                ord=$(LC_ALL=C printf '%d' "'$c0")
+                v0=$((ord - 65))
                 byte=$v0
             else
                 c0=${token:0:1}
                 c1=${token:1:1}
-                v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65))
-                v1=$(($(LC_ALL=C printf '%d' "'$c1") - 65))
-                ((v0 >= 0 && v0 < 26 && v1 >= 0 && v1 < 26)) || {
-                    printf ''
-                    return 1
-                }
-                byte=$((v0 * 26 + v1))
+                ord=$(LC_ALL=C printf '%d' "'$c0")
+                v0=$((ord - 65))
+                ord=$(LC_ALL=C printf '%d' "'$c1")
+                v1=$((ord - 65))
+                byte=$((v0 * base + v1))
             fi
-
-            # Validate byte range and ignore NUL for portability
+            ((v0 >= 0 && v0 < base)) || {
+                printf ''
+                return 1
+            }
+            if ((len == 2)); then ((v1 >= 0 && v1 < base)) || {
+                printf ''
+                return 1
+            }; fi
             ((byte >= 0 && byte <= 255)) || {
                 printf ''
                 return 1
             }
-            if ((byte != 0)); then
-                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
-            fi
+            if ((byte != 0)); then result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")"); fi
             processed=1
         done
-
-        # If no tokens were processed, input was invalid
         ((processed == 1)) || {
             printf ''
             return 1
         }
-
     else
-        # Pure letters: must be even length (2 chars per byte)
         len=${#input}
         ((len % 2 == 0)) || {
             printf ''
             return 1
         }
-
         for ((i = 0; i < len; i += 2)); do
             c0=${input:i:1}
             c1=${input:i+1:1}
-            v0=$(($(LC_ALL=C printf '%d' "'$c0") - 65))
-            v1=$(($(LC_ALL=C printf '%d' "'$c1") - 65))
-            ((v0 >= 0 && v0 < 26 && v1 >= 0 && v1 < 26)) || {
+            ord=$(LC_ALL=C printf '%d' "'$c0")
+            v0=$((ord - 65))
+            ord=$(LC_ALL=C printf '%d' "'$c1")
+            v1=$((ord - 65))
+            ((v0 >= 0 && v0 < base && v1 >= 0 && v1 < base)) || {
                 printf ''
                 return 1
             }
-            byte=$((v0 * 26 + v1))
+            byte=$((v0 * base + v1))
             ((byte >= 0 && byte <= 255)) || {
                 printf ''
                 return 1
             }
-            # ignore NUL for portability
+            if ((byte != 0)); then result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")"); fi
+        done
+    fi
+
+    printf '%s' "$result"
+    return 0
+}
+
+# Bisu::base36_encode "string" -> base36 text (2 chars per byte)
+Bisu::base36_encode() {
+    local input result char ascii high low alphabet base
+    input=$(Bisu::trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    alphabet='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    base=36
+
+    # per-byte processing (fast, pure bash)
+    while IFS= read -r -n1 char; do
+        ascii=$(LC_ALL=C printf '%d' "'$char")
+        high=$((ascii / base))
+        low=$((ascii % base))
+        result+="${alphabet:high:1}${alphabet:low:1}"
+    done <<<"$input"
+
+    printf '%s' "$result"
+    return 0
+}
+
+# Bisu::base36_decode "text" -> original bytes (ignores byte==0)
+# Accepts either pure concatenated chars (even length) or tokenized input with separators.
+Bisu::base36_decode() {
+    local input result token len c0 c1 v0 v1 byte processed=0 i base
+    input=$(Bisu::trim "$1")
+    [ -n "$input" ] || {
+        printf ''
+        return 1
+    }
+
+    # normalize case so 'a'..'z' accepted as 'A'..'Z'
+    input=${input^^}
+    base=36
+
+    # tokenized input (contains separators / other chars)
+    if [[ "$input" =~ [^0-9A-Z] ]]; then
+        while [[ $input =~ ^[^0-9A-Z]*([0-9A-Z]{1,2})(.*)$ ]]; do
+            token=${BASH_REMATCH[1]}
+            input=${BASH_REMATCH[2]}
+            len=${#token}
+            if ((len == 1)); then
+                c0=${token:0:1}
+                if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
+                byte=$v0
+            else
+                c0=${token:0:1}
+                c1=${token:1:1}
+                if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
+                if [[ "$c1" =~ [0-9] ]]; then v1=$((c1)); else v1=$(($(LC_ALL=C printf '%d' "'$c1") - 55)); fi
+                byte=$((v0 * base + v1))
+            fi
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
+            # ignore NUL for portability (keeps behavior aligned with original)
+            if ((byte != 0)); then
+                result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
+            fi
+            processed=1
+        done
+        ((processed == 1)) || {
+            printf ''
+            return 1
+        }
+    else
+        # pure allowed-chars path must be even length (2 chars per byte)
+        len=${#input}
+        ((len % 2 == 0)) || {
+            printf ''
+            return 1
+        }
+        for ((i = 0; i < len; i += 2)); do
+            c0=${input:i:1}
+            c1=${input:i+1:1}
+            if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
+            if [[ "$c1" =~ [0-9] ]]; then v1=$((c1)); else v1=$(($(LC_ALL=C printf '%d' "'$c1") - 55)); fi
+            byte=$((v0 * base + v1))
+            ((byte >= 0 && byte <= 255)) || {
+                printf ''
+                return 1
+            }
             if ((byte != 0)); then
                 result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
             fi
@@ -6517,22 +6782,22 @@ Bisu::base26_decode() {
     return 0
 }
 
-# base36: alphabet 0..9 A..Z (0..35). Each byte -> 2 chars.
-# Bisu::base36_encode "string" -> "00...ZZ"   (2 chars per byte)
-Bisu::base36_encode() {
-    local input result char ascii high low alphabet len
+# Bisu::base62_encode "string" -> base62 text (2 chars per byte)
+Bisu::base62_encode() {
+    local input result char ascii high low alphabet base
     input=$(Bisu::trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
 
-    alphabet='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ' # index 0..35
+    alphabet='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+    base=62
 
     while IFS= read -r -n1 char; do
         ascii=$(LC_ALL=C printf '%d' "'$char")
-        high=$((ascii / 36))
-        low=$((ascii % 36))
+        high=$((ascii / base))
+        low=$((ascii % base))
         result+="${alphabet:high:1}${alphabet:low:1}"
     done <<<"$input"
 
@@ -6540,92 +6805,118 @@ Bisu::base36_encode() {
     return 0
 }
 
-# Bisu::base36_decode: decode base36 (0-9,A-Z) 2-char pairs back to original bytes.
-# Accepts concatenated pairs "00A1..." (even length) or separated tokens like "0A A1 2".
-# Returns '' and exit code 1 on invalid input.
-Bisu::base36_decode() {
-    local input result="" token len c0 c1 v0 v1 byte processed=0 i
-
+# Bisu::base62_decode "text" -> original bytes (ignores byte==0)
+# Accepts 0-9A-Za-z sequences or tokenized input with separators.
+Bisu::base62_decode() {
+    local input result token len c0 c1 v0 v1 byte processed=0 i base ord
     input=$(Bisu::trim "$1")
     [ -n "$input" ] || {
         printf ''
         return 1
     }
+    base=62
 
-    # Normalize to uppercase to accept a..z or A..Z
-    input=${input^^}
-
-    # If any char outside 0-9A-Z present, parse tokens of 1..2 allowed chars using pure-Bash regex
-    if [[ "$input" =~ [^0-9A-Z] ]]; then
-        while [[ $input =~ ^[^0-9A-Z]*([0-9A-Z]{1,2})(.*)$ ]]; do
+    if [[ "$input" =~ [^0-9A-Za-z] ]]; then
+        while [[ $input =~ ^[^0-9A-Za-z]*([0-9A-Za-z]{1,2})(.*)$ ]]; do
             token=${BASH_REMATCH[1]}
             input=${BASH_REMATCH[2]}
-
             len=${#token}
-            ((len >= 1 && len <= 2)) || {
-                printf ''
-                return 1
-            }
-
             if ((len == 1)); then
                 c0=${token:0:1}
                 if [[ "$c0" =~ [0-9] ]]; then
-                    v0=$((c0)) # '0'..'9' -> 0..9
+                    v0=$((c0))
                 else
-                    v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)) # 'A'->10
+                    ord=$(LC_ALL=C printf '%d' "'$c0")
+                    if ((ord >= 65 && ord <= 90)); then
+                        v0=$((ord - 55))
+                    elif ((ord >= 97 && ord <= 122)); then
+                        v0=$((ord - 61))
+                    else
+                        printf ''
+                        return 1
+                    fi
                 fi
-                ((v0 >= 0 && v0 < 36)) || {
-                    printf ''
-                    return 1
-                }
                 byte=$v0
             else
                 c0=${token:0:1}
                 c1=${token:1:1}
-                if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
-                if [[ "$c1" =~ [0-9] ]]; then v1=$((c1)); else v1=$(($(LC_ALL=C printf '%d' "'$c1") - 55)); fi
-                ((v0 >= 0 && v0 < 36 && v1 >= 0 && v1 < 36)) || {
-                    printf ''
-                    return 1
-                }
-                byte=$((v0 * 36 + v1))
+                if [[ "$c0" =~ [0-9] ]]; then
+                    v0=$((c0))
+                else
+                    ord=$(LC_ALL=C printf '%d' "'$c0")
+                    if ((ord >= 65 && ord <= 90)); then
+                        v0=$((ord - 55))
+                    elif ((ord >= 97 && ord <= 122)); then
+                        v0=$((ord - 61))
+                    else
+                        printf ''
+                        return 1
+                    fi
+                fi
+                if [[ "$c1" =~ [0-9] ]]; then
+                    v1=$((c1))
+                else
+                    ord=$(LC_ALL=C printf '%d' "'$c1")
+                    if ((ord >= 65 && ord <= 90)); then
+                        v1=$((ord - 55))
+                    elif ((ord >= 97 && ord <= 122)); then
+                        v1=$((ord - 61))
+                    else
+                        printf ''
+                        return 1
+                    fi
+                fi
+                byte=$((v0 * base + v1))
             fi
-
             ((byte >= 0 && byte <= 255)) || {
                 printf ''
                 return 1
             }
-            # ignore NUL byte for portability
             if ((byte != 0)); then
                 result+=$(printf '%b' "\\$(LC_ALL=C printf '%03o' "$byte")")
             fi
             processed=1
         done
-
-        # if no tokens processed, invalid input
         ((processed == 1)) || {
             printf ''
             return 1
         }
-
     else
-        # Pure allowed-chars: must be even length (2 chars per byte)
         len=${#input}
         ((len % 2 == 0)) || {
             printf ''
             return 1
         }
-
         for ((i = 0; i < len; i += 2)); do
             c0=${input:i:1}
             c1=${input:i+1:1}
-            if [[ "$c0" =~ [0-9] ]]; then v0=$((c0)); else v0=$(($(LC_ALL=C printf '%d' "'$c0") - 55)); fi
-            if [[ "$c1" =~ [0-9] ]]; then v1=$((c1)); else v1=$(($(LC_ALL=C printf '%d' "'$c1") - 55)); fi
-            ((v0 >= 0 && v0 < 36 && v1 >= 0 && v1 < 36)) || {
-                printf ''
-                return 1
-            }
-            byte=$((v0 * 36 + v1))
+            if [[ "$c0" =~ [0-9] ]]; then
+                v0=$((c0))
+            else
+                ord=$(LC_ALL=C printf '%d' "'$c0")
+                if ((ord >= 65 && ord <= 90)); then
+                    v0=$((ord - 55))
+                elif ((ord >= 97 && ord <= 122)); then
+                    v0=$((ord - 61))
+                else
+                    printf ''
+                    return 1
+                fi
+            fi
+            if [[ "$c1" =~ [0-9] ]]; then
+                v1=$((c1))
+            else
+                ord=$(LC_ALL=C printf '%d' "'$c1")
+                if ((ord >= 65 && ord <= 90)); then
+                    v1=$((ord - 55))
+                elif ((ord >= 97 && ord <= 122)); then
+                    v1=$((ord - 61))
+                else
+                    printf ''
+                    return 1
+                fi
+            fi
+            byte=$((v0 * base + v1))
             ((byte >= 0 && byte <= 255)) || {
                 printf ''
                 return 1
@@ -6709,6 +7000,10 @@ Bisu::random_string() {
         ;;
     "base36")
         result=$(Bisu::base36_encode "$needle")
+        result=$(Bisu::substr "$result" 0 "$byte_length")
+        ;;
+    "base62")
+        result=$(Bisu::base62_encode "$needle")
         result=$(Bisu::substr "$result" 0 "$byte_length")
         ;;
     "base64")
@@ -6815,8 +7110,8 @@ Bisu::bisu_start_flag() {
 Bisu::acquire_lock() {
     local lock_file=$(Bisu::current_lock_file)
     [ -n "$lock_file" ] || Bisu::error_exit "❗️ Failed to acquire 🔒 lock."
-    exec 200>"$lock_file" || Bisu::error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
-    flock -n 200 || {
+    exec 200>"$lock_file" 2>/dev/null || Bisu::error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
+    flock -n 200 2>/dev/null || {
         Bisu::lock_held
         Bisu::error_exit "🔒 An instance is running: $lock_file"
     }
@@ -6825,13 +7120,12 @@ Bisu::acquire_lock() {
 # Function to release the lock
 Bisu::release_lock() {
     [ "$BISU_LOCK_HELD" -eq 0 ] || return 0
-
     local lock_file=$(Bisu::current_lock_file)
     Bisu::is_file "$lock_file" || {
         return 0
     }
 
-    flock -u 200 && Bisu::saferm "$lock_file" || {
+    flock -u 200 2>/dev/null && Bisu::saferm "$lock_file" || {
         Bisu::error_log "Failed to remove lock file: ${lock_file}"
         return 1
     }
@@ -7514,10 +7808,13 @@ Bisu::autorun_start() {
 
 # Utility elapsed time
 Bisu::execution_time() {
-    Bisu::is_posi_numeric "$BISU_START_TIME" || {
-        BISU_START_TIME=$(Bisu::time_ms)
-    }
-    Bisu::debug_mode_on && printf '%s\n' "Elapsed: $(echo "($(Bisu::time_ms) - $BISU_START_TIME)" | bc) ms"
+    Bisu::is_posi_numeric "$BISU_START_TIME" || BISU_START_TIME=$(Bisu::time_ms)
+    if Bisu::debug_mode_on; then
+        local execution_time=$(echo "($(Bisu::time_ms) - $BISU_START_TIME)" | bc)
+        local fg_color="\033[32m"
+        [ $execution_time -lt 600 ] 2>/dev/null || fg_color="\033[93m"
+        echo -e "${fg_color}Elapsed: ${execution_time} ms\033[0m"
+    fi
 }
 
 # Function to Bisu::initialize BISU
@@ -7551,6 +7848,8 @@ Bisu::callfunc() {
     [[ "$action" == "callfunc" ]] || Bisu::quit
 
     Bisu::array_shift "current_args" "func"
+    [ -n "$func" ] || Bisu::error_exit "Function '' does not exist."
+
     Bisu::is_func "$func" || {
         func="Bisu::${func}"
         Bisu::is_func "$func" || Bisu::error_exit "Function '$func' does not exist."
@@ -7648,7 +7947,7 @@ Bisu::integrate_ops() {
 
     Bisu::in_array "$action" "install" || Bisu::verify_sig
     Bisu::set_action "$action"
-    Bisu::autorun_start &
+    Bisu::autorun_start
 
     local option_force=$(Bisu::array_get "args" "f" "force")
     local option_yes=$(Bisu::array_get "args" "y" "yes")
@@ -7715,6 +8014,7 @@ Bisu::integrate_ops() {
         Bisu::install_script
         ;;
     "view-log")
+        Bisu::command_exists "vi" || Bisu::error_exit "Please install vi first."
         vi "$(Bisu::current_log_file)" 2>/dev/null
         ;;
     "callfunc")
@@ -7741,7 +8041,7 @@ Bisu::install_script() {
         local bisu_filename=$(Bisu::bisu_filename)
         local current_filename=$(Bisu::current_filename)
         local backup_dir="$(Bisu::user_backup_dir)/$date_str"
-        local current_util_version="$(Bisu::exec_command "${target_path} Bisu::callfunc Bisu::current_util_version")"
+        local current_util_version="$(Bisu::exec_command "${target_path} callfunc current_util_version")"
         current_util_version=$(Bisu::strtolower "$current_util_version")
         Bisu::string_starts_with "$current_util_version" "v" || current_util_version="v$current_util_version"
         local backup_path="${backup_dir}/${current_filename}.${current_util_version}_${uuid}"
@@ -7751,16 +8051,17 @@ Bisu::install_script() {
         Bisu::log_msg "Your previous installation has been backed up to: $backup_path"
     fi
 
-    local verify_sig sig_file sig_file_target_path
+    local verify_sig sig_file sig_file_target_path sig_filename
     if Bisu::is_bisu_file; then
         verify_sig="$BISU_VERIFY_SIG"
     else
         verify_sig="$BISU_CURRENT_UTIL_VERIFY_SIG"
     fi
 
-    Bisu::normalize_bool "Bisu::verify_sig" "false"
+    Bisu::normalize_bool "verify_sig" "false"
     if [[ "$verify_sig" == "true" ]]; then
         sig_file="${current_file_path}.asc"
+        sig_filename=$(basename "$sig_file")
         sig_file_target_path="${target_path}.asc"
         if ! Bisu::is_file "$sig_file"; then
             local sig_file_url
@@ -7779,13 +8080,14 @@ Bisu::install_script() {
         fi
     fi
 
-    Bisu::log_msg "Moving $current_filename to path: $target_path"
     if [[ "$verify_sig" == "true" ]]; then
         Bisu::is_file "$sig_file" || Bisu::error_exit "Failed to install $current_filename"
         Bisu::verify_sig
-        Bisu::move_file "$sig_file" "$sig_file_target_path" || Bisu::error_exit "Failed to install ${current_filename}, please check for permissions."
+        Bisu::log_msg "Moving $sig_filename to path: $sig_file_target_path"
+        Bisu::move_file "$sig_file" "$sig_file_target_path" || Bisu::error_exit "Failed to install ${current_filename}[2], please check for permissions."
     fi
-    Bisu::move_file "$current_file_path" "$target_path" || Bisu::error_exit "Failed to install ${current_filename}, please check for permissions."
+    Bisu::log_msg "Moving $current_filename to path: $target_path"
+    Bisu::move_file "$current_file_path" "$target_path" || Bisu::error_exit "Failed to install ${current_filename}[1], please check for permissions."
     Bisu::log_msg "Done."
 }
 
