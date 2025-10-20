@@ -4,21 +4,21 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
-## Official Web Site: https://bisu.dev
+## Official Web Site: https://bisu.x1.autos
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## curl -sL https://go.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
+## curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.6"
+readonly BISU_VERSION="11.0.7"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-09-19Z"
+readonly BISU_LAST_RELEASE_DATE="2025-10-20Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
 export BISU_MINIMAL_BASH_VERSION
 # BISU info uri
-readonly BISU_INFO_URI="https://bisu.dev"
+readonly BISU_INFO_URI="https://bisu.x1.autos"
 export BISU_INFO_URI
 # Default title
 export BISU_DEFAULT_TITLE="-bash"
@@ -50,10 +50,10 @@ export BISU_TRIM_CRITICAL_POINT=102400
 # Error message prefix
 export BISU_ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # BISU File URL
-readonly BISU_FILE_URL="https://go.bisu.dev/bisu-file"
+readonly BISU_FILE_URL="https://g.x1.autos/bisu-file"
 export BISU_FILE_URL
 # BISU ASC File URL
-readonly BISU_ASC_FILE_URL="https://go.bisu.dev/bisu-asc-file"
+readonly BISU_ASC_FILE_URL="https://g.x1.autos/bisu-asc-file"
 export BISU_ASC_FILE_URL
 # Global Variables
 TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
