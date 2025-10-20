@@ -4,15 +4,15 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
 ################################################################### BISU Importer Start ########################################################################
-## Official Web Site: https://bisu.dev
-## Version: v11-20250915Z1
+## Official Web Site: https://bisu.x1.autos
+## Version: v11-20251020Z1
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Set the required version of BISU
 export BISU_VERSION_REQUIREMENT=">=11.0.0"
 export BISU_BOUND="./bisu"
 export BISU_BIN_PATH="/usr/local/bin/bisu"
 export BISU_TERMUX_BIN_PATH="/data/data/com.termux/files/usr/bin/bisu"
-export BISU_DL_COMMAND="curl -sL https://go.bisu.dev/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install"
+export BISU_DL_COMMAND="curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install"
 
 ## <user-customized-variables>
 # Set this utility's name
