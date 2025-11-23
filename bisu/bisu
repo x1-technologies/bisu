@@ -9,10 +9,10 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.8"
+readonly BISU_VERSION="11.0.10"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-11-22Z"
+readonly BISU_LAST_RELEASE_DATE="2025-11-23Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
@@ -985,8 +985,8 @@ Bisu::tmpdir() {
 # Add a log record to buffer
 Bisu::log_add() {
     Bisu::is_array "BISU_LOG_BUFFER" || {
-        Bisu::output "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
-        Bisu::quit 1
+        Bisu::log_msg "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
+        return 1
     }
 
     local msg="$1"
@@ -1005,8 +1005,8 @@ Bisu::log_add() {
 # Flush the log buffer to the log file
 Bisu::log_flush() {
     Bisu::is_array "BISU_LOG_BUFFER" || {
-        Bisu::output "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
-        Bisu::quit 1
+        Bisu::log_msg "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
+        return 1
     }
 
     local output_buffer=$(Bisu::trim "${1:-true}")
@@ -2070,69 +2070,105 @@ Bisu::confirm() {
 }
 
 # Get the file's real path and verify the base folder's existence
+# Normalize a filesystem path string and optionally verify existence.
+# Parameters:
+#   $1  - input path (string). If empty after trim -> returns empty string.
+#   $2  - preserve_relative_path (expects "true" or "false"; kept for API compatibility;
+#         original behavior converts relative paths to absolute; this parameter is
+#         validated but NOT applied to preserve original semantics).
+#   $3  - check_base_existence ("true"|"false"). If "true" the function prints the
+#         normalized path only when it exists; otherwise prints empty string.
+# Notes:
+#   - Uses Bisu::trim and Bisu::in_array which are assumed to exist (per original).
+#   - Uses pure-bash manipulations and safe subshells for cd to avoid changing caller cwd.
+#   - Returns 0 on success; prints result to stdout (empty string when requested/absent).
 Bisu::normalize_path() {
-    # Trim spaces and handle parameters (assumes Bisu::trim and Bisu::in_array exist)
-    local file=$(Bisu::trim "$1")
-    local check_base_existence=$(Bisu::trim "${2:-false}")
+    local file
+    file="$(Bisu::trim "$1")"
+    local preserve_relative_path
+    preserve_relative_path="$(Bisu::trim "$2")"
+    Bisu::in_array "$preserve_relative_path" "true" "false" || preserve_relative_path="true"
+    local check_base_existence
+    check_base_existence="$(Bisu::trim "$3")"
     Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
 
-    # Preserve original semantics: empty input (after trim) -> return empty string
+    # Preserve original semantics: empty input -> return empty string (and exit 0).
     if [ -z "$file" ]; then
         printf ''
         return 0
     fi
 
-    # Convert relative paths to absolute paths (kept identical to original logic)
+    # Expand leading tilde safely: ~ or ~user (only ~ for current user handled here)
     case "$file" in
-    /*) : ;; # Already absolute
-    ~*) file="${HOME}${file#~}" ;;
-    .) file="$(pwd)" ;;                                   # Convert "." to PWD
-    ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
-    ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
-    ../*) file="$(cd "${file%/*}" && pwd)/${file##*/}" ;; # Handle "../file"
-    *) file="$(pwd)/$file" ;;                             # Convert other relative paths
+    ~) file="${HOME}" ;;
+    ~/*) file="${HOME}/${file#~/}" ;;
+    esac
+
+    # Convert certain relative shorthands to absolute (match original behavior):
+    case "$file" in
+    /*) : ;;                                      # already absolute — no change
+    .) file="$(pwd)" ;;                           # single dot -> current working dir
+    ..) file="$(cd .. >/dev/null 2>&1 && pwd)" ;; # parent dir -> absolute
+    ./*) file="$(pwd)/${file#./}" ;;              # ./something -> pwd/something
+    ../*)                                         # ../foo -> resolve directory portion
+        {
+            # Use a subshell cd to avoid changing caller directory.
+            local _dirpart="${file%/*}"
+            local _basepart="${file##*/}"
+            # If path is exactly "../name" then _dirpart == ".."
+            file="$(cd "$_dirpart" >/dev/null 2>&1 && pwd)/$_basepart" || file="$(pwd)/$file"
+        }
+        ;;
+    *) file="$(pwd)/$file" ;; # other relative -> pwd/relative
     esac
 
     # --------------------------
-    # Path normalization (pure bash, adaptive low-cost loop)
-    # - collapse repeated slashes using parameter-expansion in a loop until no '//' remains
-    # - remove '/./' segments
-    # - remove trailing '/.' if present
-    # - trim trailing whitespace
-    # - remove trailing slashes except for root '/'
+    # Path normalization (pure bash)
+    #  - collapse repeated '//' sequences
+    #  - remove '/./' segments
+    #  - remove trailing '/.' if present
+    #  - trim trailing whitespace
+    #  - remove trailing slashes except for root '/'
     # --------------------------
 
-    # Adaptive low-cost collapse of repeated '//' sequences (logarithmic behavior for long runs)
+    # Collapse repeated slashes (iteratively until no double-slash remains).
+    # Use a lightweight loop; safe for extremely long sequences.
     while [[ "$file" == *//* ]]; do
-        file=${file//\/\//\/}
+        file="${file//\/\//\/}"
     done
 
-    # remove all '/./' occurrences
-    file=${file//\/.\//\/}
+    # Remove '/./' segments
+    file="${file//\/.\//\/}"
 
-    # remove trailing '/.' if present
+    # Remove trailing '/.' if present
     case "$file" in
-    */.) file=${file%/.} ;;
+    */.) file="${file%/.}" ;;
     esac
 
-    # trim trailing whitespace (spaces, tabs, newlines) using parameter-expansion idiom
-    # compute trailing whitespace suffix then remove it
-    local _trail="${file##*[![:space:]]}"
+    # Trim trailing whitespace characters (space, tab, newline)
+    local _trail="${file##*[!$' \t\n']}"
     file="${file%"$_trail"}"
 
-    # remove trailing slashes but keep root "/" intact
+    # Remove trailing slashes but preserve root '/'
     if [ "$file" != "/" ]; then
+        # Remove any trailing slashes
+        # "${file##*[!/]}" yields the trailing run of slashes; remove them
         file="${file%"${file##*[!/]}"}"
-        # if result becomes empty (input was non-empty but all slashes), coerce to "/"
+        # If result becomes empty (path was only slashes), coerce to '/'
         [ -z "$file" ] && file="/"
     fi
 
-    # Final output: if check_base_existence requested, only output if path exists; else output normalized path
-    if [[ "$check_base_existence" == "true" ]]; then
-        [ -e "$file" ] && printf '%s' "$file" || printf ''
+    # Final output: if check_base_existence requested, only output if path exists
+    if [ "$check_base_existence" = "true" ]; then
+        if [ -e "$file" ]; then
+            printf '%s' "$file"
+        else
+            printf ''
+        fi
     else
         printf '%s' "$file"
     fi
+
     return 0
 }
 
@@ -2221,6 +2257,7 @@ Bisu::relative_path() {
     fi
 
     printf '%s\n' "$rel"
+    return 0
 }
 
 # Function: Bisu::add_env_path
