@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.12"
+readonly BISU_VERSION="11.0.13"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2025-11-24Z"
@@ -1344,38 +1344,80 @@ Bisu::normalize_bool() {
     return 0
 }
 
-# Bisu::string_join - join array elements with a separator
-# Usage: Bisu::string_join "array_name" "sep" [big_spec]
-# big_spec: true=use awk algo, false=use pure bash (default).
+# Bisu::string_join
+# Description:
+#   Join array elements into a single string with a separator.
+#   Preferred signature: Bisu::string_join "array_name" "receiver_var" "sep" [big_spec]
+#   Backward-compatible signature: Bisu::string_join "array_name" "sep" [big_spec]
+# Params:
+#   $1 - source array variable name (required)
+#   $2 - either receiver variable name (preferred) OR separator (legacy)
+#   $3 - separator (preferred) OR big_spec (legacy)
+#   $4 - big_spec (preferred; true/false). Default false.
+# Notes:
+#   - If receiver_var is provided and valid, the joined string is assigned to it.
+#   - If no receiver_var, result is printed to stdout (legacy behavior).
+#   - Respects Bisu helper functions: Bisu::trim, Bisu::is_valid_var_name,
+#     Bisu::array_is_available, Bisu::in_array, Bisu::set
 Bisu::string_join() {
-    local array_name sep big_spec
-    array_name=$(Bisu::trim "$1")
-    sep="$2"
+    local src_name raw2 sep big_spec receiver joined
+    src_name="$(Bisu::trim "$1")"
+    raw2="$(Bisu::trim "$2")"
 
-    declare -n arr_ref="$array_name"
-    Bisu::array_is_available "$array_name" || {
-        printf ''
+    # Determine whether raw2 is a valid receiver var name.
+    if [[ -n "$raw2" ]] && Bisu::is_valid_var_name "$raw2"; then
+        # Preferred mode: $2 is receiver var
+        receiver="$raw2"
+        sep="$3"
+        big_spec="$(Bisu::trim "${4:-false}")"
+    else
+        # Legacy mode: $2 is separator
+        receiver=""
+        sep="$raw2"
+        big_spec="$(Bisu::trim "${3:-false}")"
+    fi
+
+    # Normalize big_spec
+    Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
+
+    # Validate source array availability
+    declare -n arr_ref="$src_name" 2>/dev/null
+    Bisu::array_is_available "$src_name" || {
+        # If receiver specified, set it to empty (follow robust assignment pattern), then fail
+        if [[ -n "$receiver" ]]; then
+            declare -n out_ref="$receiver" 2>/dev/null
+            Bisu::set "out_ref" "" >/dev/null 2>&1 || true
+            # also attempt rehydrate global var
+            eval "declare -g ${receiver}=\"\"" 2>/dev/null || true
+        else
+            printf ''
+        fi
         return 1
     }
 
-    big_spec=$(Bisu::trim "${3:-false}")
-    Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
-
-    if [[ $big_spec == "true" ]]; then
-        # Original awk algorithm for big-spec reference
-        printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
+    # Build joined string using chosen algorithm
+    if [[ "$big_spec" == "true" ]]; then
+        # Use awk for potentially very large data sets (preserves original logic).
+        # Capture stdout of pipeline into variable (safely).
+        joined="$(printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
         {
             if (NR == 1) out = $0;
             else out = out sep $0;
         }
-        END { print out }' 2>/dev/null || {
-            printf ''
+        END { if (NR == 0) print ""; else print out }' 2>/dev/null)" || {
+            # On awk failure, set joined to empty and fail
+            joined=""
+            if [[ -n "$receiver" ]]; then
+                Bisu::set "out_ref" "$joined" >/dev/null 2>&1 || true
+                eval "declare -g ${receiver}=\"\$joined\"" 2>/dev/null || true
+            else
+                printf '%s\n' "$joined"
+            fi
             return 1
         }
     else
-        # Pure Bash5 implementation (fastest)
-        local out=""
-        local first=true
+        # Pure Bash join (fast and stable)
+        local out="" first=true elem
         for elem in "${arr_ref[@]}"; do
             if $first; then
                 out="$elem"
@@ -1384,9 +1426,24 @@ Bisu::string_join() {
                 out+="$sep$elem"
             fi
         done
-        printf '%s\n' "$out"
+        joined="$out"
     fi
 
+    # Materialize result: if receiver provided, assign to it (follow yaml_to_array pattern).
+    if [[ -n "$receiver" ]]; then
+        # Create name reference and set via Bisu::set (assumed helper) and rehydrate as global var.
+        declare -n out_ref="$receiver" 2>/dev/null
+        Bisu::set "out_ref" "$joined" || {
+            # Fallback: try direct assignment to name
+            eval "declare -g ${receiver}=\"\$joined\"" 2>/dev/null || out_ref="$joined"
+        }
+        # Ensure global var exists with the string value (best-effort)
+        eval "declare -g ${receiver}=\"\$joined\"" 2>/dev/null || out_ref="$joined"
+        return 0
+    fi
+
+    # Legacy behavior: print to stdout
+    printf '%s\n' "$joined"
     return 0
 }
 
@@ -1928,48 +1985,77 @@ Bisu::str_ireplace() {
     return 0
 }
 
-# Convert a string into an array (lossless, robust)
+# Bisu::string_to_array
+# Description:
+#   Convert an input string into a global array (indexed or associative) using the
+#   Bisu-style ref-processing pattern: stage -> dump -> set -> rehydrate.
+# Usage:
+#   Bisu::string_to_array "<input>" "receiver_array_name" [delim]
+# Params:
+#   $1 - input string (trimmed). Empty/blank -> return 0 (empty array).
+#   $2 - receiver array variable name (required, validated via Bisu::is_valid_var_name).
+#   $3 - delimiter for splitting when not newline-delimited (default: single space).
 Bisu::string_to_array() {
-    local input="$1"
-    local array_name=$(Bisu::trim "$2")
+    local input array_name delim delim_awk rs_kv idx line
+    input="$1"
+    array_name="$(Bisu::trim "$2")"
     Bisu::is_valid_var_name "$array_name" || return 1
 
+    # Name reference to target array; ensure it's empty before materialization
     declare -n arr_ref="$array_name"
     arr_ref=()
 
-    # Empty input → nothing
-    input=$(Bisu::trim "$input" "() ")
+    # Normalize input (allow callers to pass raw string)
+    input="$(Bisu::trim "$input")"
+    # Empty input -> nothing to do (leave array empty)
     [ -n "$input" ] || return 0
 
-    # Matched assoc supplement
+    # If input looks like "key = value" (assoc), materialize associative array directly
     if [[ "$input" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+        # Use Bisu::set to write into the nameref, then rehydrate as associative
         Bisu::set "arr_ref" "$input" || return 1
         eval "declare -gA ${array_name}=($arr_ref)" 2>/dev/null || return 1
         return 0
     fi
 
-    # If input contains newline (from Bisu::current_args), use mapfile directly
+    # If input contains newline(s), treat as multi-line list (lossless)
     if [[ "$input" == *$'\n'* ]]; then
         mapfile -t arr_ref <<<"$input"
         return 0
     fi
 
-    # Else split by delimiter (default = space, can be customized)
-    local delim="${3:-" "}"
-    local delim_awk
+    # Default delimiter (single space) unless provided
+    delim="${3:-" "}"
+
+    # Escape delimiter for awk FS where needed
     case "$delim" in
     '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|') delim_awk="\\$delim" ;;
     $'\t') delim_awk="\\t" ;;
     *) delim_awk="$delim" ;;
     esac
 
-    mapfile -t arr_ref < <(
-        printf '%s\n' "$input" |
-            awk -v FS="$delim_awk" '{
+    # Stage parsed elements into local associative-like staging via Bisu::array_set
+    # Use numeric indices as keys to preserve order.
+    declare -a rs=()
+    idx=0
+    while IFS= read -r line; do
+        # Bisu::array_set(authoritative) used to ensure canonical staging behavior.
+        Bisu::array_set "rs" "$idx" "$line" || return 1
+        idx=$((idx + 1))
+    done < <(
+        printf '%s\n' "$input" | awk -v FS="$delim_awk" '{
             for (i = 1; i <= NF; i++) print $i;
             if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
         }'
     ) 2>/dev/null || return 1
+
+    # Dump staging to canonical representation and set into the named receiver,
+    # then rehydrate as a global indexed array (preserve order).
+    local kv_str
+    kv_str="$(Bisu::array_dump "rs")"
+    Bisu::set "arr_ref" "${kv_str[@]}" || return 1
+    # Rehydrate as global indexed array
+    eval "declare -ga ${array_name}=($arr_ref)" 2>/dev/null || return 1
 
     return 0
 }
@@ -3211,20 +3297,51 @@ Bisu::array_dump() {
     return 1
 }
 
-# Function: Bisu::array_copy
-# Description: to copy an array internally or globally
+# Bisu::array_copy
+# Description:
+#   Copy a Bisu-managed array (indexed or associative) from one variable name to another.
+#   Preserves array type and uses Bisu's ref-processing pattern: dump -> set -> rehydrate.
+# Usage:
+#   Bisu::array_copy "source_array_name" "destination_array_name"
 Bisu::array_copy() {
-    local array_name=$(Bisu::trim "$1")
-    declare -n arr_ref="$array_name"
-    local new_array_name=$(Bisu::trim "$2")
-    declare -n new_arr_ref="$new_array_name"
+    local src_name dst_name declare_out is_assoc kv_str
 
-    if ! Bisu::is_array "$array_name" || ! Bisu::is_valid_var_name "$new_array_name"; then
-        return 1
+    # Normalize and validate names
+    src_name="$(Bisu::trim "$1")"
+    dst_name="$(Bisu::trim "$2")"
+    Bisu::is_valid_var_name "$dst_name" || return 1
+    Bisu::is_array "$src_name" || return 1
+
+    # If copying into the same name, nothing to do (safe no-op)
+    if [[ "$src_name" == "$dst_name" ]]; then
+        return 0
     fi
 
-    # Pass original array name, not nameref variable name, to Bisu::array_dump
-    new_arr_ref=($(Bisu::array_dump "$array_name"))
+    # Determine whether the source is associative (declare -A) or indexed (declare -a)
+    declare_out="$(declare -p "${src_name}" 2>/dev/null || true)"
+    if [[ "$declare_out" =~ "declare -A" ]]; then
+        is_assoc="true"
+    else
+        is_assoc="false"
+    fi
+
+    # Prepare destination name reference and clear existing contents (best-effort)
+    declare -n dst_ref="$dst_name" 2>/dev/null
+    dst_ref=()
+
+    # Obtain canonical dump of source array via Bisu helper
+    kv_str="$(Bisu::array_dump "$src_name")" || return 1
+
+    # Set the dumped representation into the named reference (Bisu pattern)
+    Bisu::set "dst_ref" "${kv_str[@]}" || return 1
+
+    # Rehydrate the global destination array preserving type
+    if [[ "$is_assoc" == "true" ]]; then
+        eval "declare -gA ${dst_name}=($kv_str)" 2>/dev/null || return 1
+    else
+        eval "declare -ga ${dst_name}=($kv_str)" 2>/dev/null || return 1
+    fi
+
     return 0
 }
 
