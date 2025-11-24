@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20251124Z1
+# Version: v1-20251124Z2
 
 # archived work, works correctly
 # Get the file's real path and verify the base folder's existence
@@ -804,5 +804,117 @@ Bisu::output_v2() {
             tee -a -- "$(Bisu::current_log_file)" || return 1
     fi
 
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Bisu::string_join - join array elements with a separator
+# Usage: Bisu::string_join "array_name" "sep" [big_spec]
+# big_spec: true=use awk algo, false=use pure bash (default).
+Bisu::string_join_v1() {
+    local array_name sep big_spec
+    array_name=$(Bisu::trim "$1")
+    sep="$2"
+
+    declare -n arr_ref="$array_name"
+    Bisu::array_is_available "$array_name" || {
+        printf ''
+        return 1
+    }
+
+    big_spec=$(Bisu::trim "${3:-false}")
+    Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
+
+    if [[ $big_spec == "true" ]]; then
+        # Original awk algorithm for big-spec reference
+        printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
+        {
+            if (NR == 1) out = $0;
+            else out = out sep $0;
+        }
+        END { print out }' 2>/dev/null || {
+            printf ''
+            return 1
+        }
+    else
+        # Pure Bash5 implementation (fastest)
+        local out=""
+        local first=true
+        for elem in "${arr_ref[@]}"; do
+            if $first; then
+                out="$elem"
+                first=false
+            else
+                out+="$sep$elem"
+            fi
+        done
+        printf '%s\n' "$out"
+    fi
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Convert a string into an array (lossless, robust)
+Bisu::string_to_array_v1() {
+    local input="$1"
+    local array_name=$(Bisu::trim "$2")
+    Bisu::is_valid_var_name "$array_name" || return 1
+
+    declare -n arr_ref="$array_name"
+    arr_ref=()
+
+    # Empty input → nothing
+    input=$(Bisu::trim "$input" "() ")
+    [ -n "$input" ] || return 0
+
+    # Matched assoc supplement
+    if [[ "$input" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+        Bisu::set "arr_ref" "$input" || return 1
+        eval "declare -gA ${array_name}=($arr_ref)" 2>/dev/null || return 1
+        return 0
+    fi
+
+    # If input contains newline (from Bisu::current_args), use mapfile directly
+    if [[ "$input" == *$'\n'* ]]; then
+        mapfile -t arr_ref <<<"$input"
+        return 0
+    fi
+
+    # Else split by delimiter (default = space, can be customized)
+    local delim="${3:-" "}"
+    local delim_awk
+    case "$delim" in
+    '.' | '[' | ']' | '\\' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '|') delim_awk="\\$delim" ;;
+    $'\t') delim_awk="\\t" ;;
+    *) delim_awk="$delim" ;;
+    esac
+
+    mapfile -t arr_ref < <(
+        printf '%s\n' "$input" |
+            awk -v FS="$delim_awk" '{
+            for (i = 1; i <= NF; i++) print $i;
+            if (length($0) > 0 && substr($0, length($0), 1) == FS) print "";
+        }'
+    ) 2>/dev/null || return 1
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function: Bisu::array_copy
+# Description: to copy an array internally or globally
+Bisu::array_copy_v1() {
+    local array_name=$(Bisu::trim "$1")
+    declare -n arr_ref="$array_name"
+    local new_array_name=$(Bisu::trim "$2")
+    declare -n new_arr_ref="$new_array_name"
+
+    if ! Bisu::is_array "$array_name" || ! Bisu::is_valid_var_name "$new_array_name"; then
+        return 1
+    fi
+
+    # Pass original array name, not nameref variable name, to Bisu::array_dump
+    new_arr_ref=($(Bisu::array_dump "$array_name"))
     return 0
 }
