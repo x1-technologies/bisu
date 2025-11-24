@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20251124Z3
+# Version: v1-20251124Z4
 
 # archived work, works correctly
 # Get the file's real path and verify the base folder's existence
@@ -1120,5 +1120,210 @@ Bisu::array_splice_v1() {
     }
 
     mapfile -t arr_ref <<<"$new_array" &>/dev/null
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function: Bisu::indexed_array_merge
+# Description: Function to merge 2 arrays into arg3, according to arg3's array name
+Bisu::indexed_array_merge_v1() {
+    local src1=$(Bisu::trim "$1")
+    local src2=$(Bisu::trim "$2")
+    local dest_name=$(Bisu::trim "$3")
+
+    # Validate arguments
+    if ! Bisu::is_indexed_array "$src1" || ! Bisu::is_indexed_array "$src2" || ! Bisu::is_valid_var_name "$dest_name"; then
+        return 1
+    fi
+
+    # Namerefs avoid copies and make in-place updates safe even if dest == src1/src2
+    declare -n _am_src1="$src1" _am_src2="$src2" _am_dest="$dest_name"
+
+    # Build unique union while preserving order of first appearance
+    local -a _am_merged=()
+    declare -A _am_seen=()
+    local _am_item
+    for _am_item in "${_am_src1[@]}" "${_am_src2[@]}"; do
+        if [[ -z ${_am_seen[$_am_item]+x} ]]; then
+            _am_merged+=("$_am_item")
+            _am_seen["$_am_item"]=1
+        fi
+    done
+
+    # Final assignment (handles empty correctly: yields dest=() not dest=("")
+    _am_dest=("${_am_merged[@]}")
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function: Bisu::assoc_array_merge
+# Description: Merge 2 associative arrays into arg3 (dest associative array)
+Bisu::assoc_array_merge_v1() {
+    local src1=$(Bisu::trim "$1")
+    local src2=$(Bisu::trim "$2")
+    local dest_name=$(Bisu::trim "$3")
+
+    # Validate arguments
+    if ! Bisu::is_array "$src1" || ! Bisu::is_array "$src2" || ! Bisu::is_valid_var_name "$dest_name"; then
+        return 1
+    fi
+
+    # Namerefs avoid copies and make in-place updates safe even if dest == src1/src2
+    declare -n _am_src1="$src1" _am_src2="$src2" _am_dest="$dest_name"
+
+    # Build merged associative array
+    #   - Preserve keys from src1 first
+    #   - Keys from src2 override if duplicated
+    #   - Ensures uniqueness by definition of associative arrays
+    declare -A _am_merged=()
+    local _am_key
+
+    # Copy all from src1
+    for _am_key in "${!_am_src1[@]}"; do
+        _am_merged["$_am_key"]="${_am_src1[$_am_key]}"
+    done
+
+    # Copy/override from src2
+    for _am_key in "${!_am_src2[@]}"; do
+        _am_merged["$_am_key"]="${_am_src2[$_am_key]}"
+    done
+
+    # Final assignment
+    _am_dest=()
+    for _am_key in "${!_am_merged[@]}"; do
+        _am_dest["$_am_key"]="${_am_merged[$_am_key]}"
+    done
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function to add an element to a specified global array from the bottom
+Bisu::array_push_v1() {
+    local array_name=$(Bisu::trim "$1")
+    local new_value="$2"
+    local value_type=$(Bisu::trim "${3:-string}")
+    local unique_values=$(Bisu::trim "${4:-false}")
+    Bisu::in_array "$unique_values" "true" "false" || unique_values="false"
+
+    # Validate the type parameter and input value
+    case "$value_type" in
+    int)
+        if ! Bisu::is_int "$new_value"; then
+            Bisu::error_log "Value must be an integer."
+            return 1
+        fi
+        ;;
+    float)
+        if ! Bisu::is_numeric "$new_value"; then
+            Bisu::error_log "Value must be a float."
+            return 1
+        fi
+        ;;
+    string)
+        # No specific validation for STRING
+        ;;
+    *)
+        Bisu::error_log "Invalid type specified. Use string, int, or float."
+        return 1
+        ;;
+    esac
+
+    # Ensure the global array exists
+    Bisu::is_array "$array_name" || {
+        Bisu::error_log "Array $array_name does not exist."
+        return 1
+    }
+
+    # Access the global array using indirect reference
+    Bisu::array_copy "$array_name" "array" || return 1
+
+    # Check if the value is already in the array (for unique values check)
+    for element in "${array[@]}"; do
+        if [[ "$unique_values" == "true" && "$element" == "$new_value" ]]; then
+            return 0
+        fi
+    done
+
+    # Append the new value to the array using indirect reference to modify the global array
+    eval "$array_name+=(\"$new_value\")"
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function to add an element to a specified global array from the bottom
+Bisu::array_unique_push_v1() {
+    local array_name="$1"
+    local new_value="$2"
+    local value_type="$3"
+
+    Bisu::array_push "$array_name" "$new_value" "$value_type" "true" || return 1
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function to add an element to a specified global array from the top
+Bisu::array_unshift_v1() {
+    local array_name=$(Bisu::trim "$1")
+    local new_value="$2"
+    local value_type=$(Bisu::trim "$3")
+    value_type=${value_type:-"string"}
+    local unique_values=$(Bisu::trim "$4")
+    Bisu::in_array "$unique_values" "true" "false" || unique_values="false"
+
+    case "$value_type" in
+    int)
+        if ! [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
+            Bisu::error_log "Value must be an integer."
+            return 1
+        fi
+        ;;
+    float)
+        if ! [[ "$new_value" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
+            Bisu::error_log "Value must be a float."
+            return 1
+        fi
+        ;;
+    string) ;;
+    *)
+        Bisu::error_log "Invalid type specified. Use string, int, or float."
+        return 1
+        ;;
+    esac
+
+    # Ensure the global array exists
+    Bisu::is_array "$array_name" || {
+        Bisu::error_log "Array $array_name does not exist."
+        return 1
+    }
+
+    # Access the global array using indirect reference
+    Bisu::array_copy "$array_name" "array" || return 1
+
+    # Check if the value is already in the array (for unique values check)
+    for element in "${array[@]}"; do
+        if [[ "$unique_values" == "true" && "$element" == "$new_value" ]]; then
+            return 0
+        fi
+    done
+
+    # Prepend the new value
+    eval "$array_name=(\"\$new_value\" \"\${$array_name[@]}\")"
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function to add an element to a specified global array from the top
+Bisu::array_unique_unshift_v1() {
+    local array_name="$1"
+    local new_value="$2"
+    local value_type="$3"
+
+    Bisu::array_unshift "$array_name" "$new_value" "$value_type" "true" || return 1
+
     return 0
 }
