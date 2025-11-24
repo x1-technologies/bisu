@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20251124Z2
+# Version: v1-20251124Z3
 
 # archived work, works correctly
 # Get the file's real path and verify the base folder's existence
@@ -389,6 +389,170 @@ Bisu::array_set_v1() {
     done
 
     return 0
+}
+
+# archived work, works correctly, not robust enough
+# Set the specified key/value pairs in either indexed or associative arrays
+# Usage: Bisu::array_set arr key1 val1 [key2 val2 ...]
+# Returns 0 on success, 1 on failure
+Bisu::array_set_v2() {
+    local array_name key value is_assoc tmp_var tmp_ref ref numeric_indices sorted_idx idx i IFS_bak
+
+    # first arg: array name (Bisu::trim provided by caller)
+    array_name=$(Bisu::trim "$1")
+    shift
+
+    # ensure array exists (helper expected to exist)
+    Bisu::is_array "$array_name" || return 1
+
+    # name reference to target array
+    declare -n ref="$array_name"
+
+    # detect whether it is already associative (helper expected to exist)
+    if Bisu::is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    # Process each key/value pair
+    while (($# > 1)); do
+        key=$(Bisu::trim "$1")
+        value="$2"
+        shift 2
+
+        # ignore empty keys
+        [[ -z "$key" ]] && continue
+
+        # fast path: already associative
+        if ((is_assoc)); then
+            ref["$key"]="$value"
+            continue
+        fi
+
+        # fast path: numeric index -> keep indexed array
+        case "$key" in
+        '' | *[!0-9]*) ;; # non-numeric -> fall through to migration
+        *)
+            ref["$key"]="$value"
+            continue
+            ;;
+        esac
+
+        # ---------- migration: indexed -> associative ----------
+        # create a unique temporary associative array name (sanitized)
+        tmp_var="__array_mig_${array_name//[^a-zA-Z0-9_]/}_${BISU_CURRENT_UTIL_PID}_${RANDOM}"
+        declare -gA "$tmp_var"
+        declare -n tmp_ref="$tmp_var"
+
+        # copy only existing numeric indices into temporary container
+        numeric_indices=()
+        for i in "${!ref[@]}"; do
+            case "$i" in
+            '' | *[!0-9]*) ;; # skip non-numeric keys (defensive)
+            *)
+                numeric_indices+=("$i")
+                tmp_ref["$i"]="${ref[$i]}"
+                ;;
+            esac
+        done
+
+        # destroy original and re-declare as associative
+        unset -v "$array_name"
+        declare -gA "$array_name"
+        declare -n ref="$array_name"
+
+        # restore numeric entries in ascending numeric order (stable)
+        if ((${#numeric_indices[@]})); then
+            # Use bash builtin mapfile when more than one index to avoid word-splitting issues
+            if ((${#numeric_indices[@]} > 1)); then
+                IFS_bak=$IFS
+                IFS=$'\n'
+                # sort numerically; use printf + sort (external) only when necessary for ordering
+                mapfile -t sorted_idx < <(printf '%s\n' "${numeric_indices[@]}" | sort -n)
+                IFS=$IFS_bak
+            else
+                sorted_idx=("${numeric_indices[@]}")
+            fi
+
+            for idx in "${sorted_idx[@]}"; do
+                ref["$idx"]="${tmp_ref[$idx]}"
+            done
+            unset sorted_idx
+        fi
+
+        # cleanup temporary container
+        unset -v tmp_ref
+        unset -v "$tmp_var"
+
+        # mark as associative and set requested key
+        is_assoc=1
+        ref["$key"]="$value"
+    done
+
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Get an element from a indexed or assoc array, if multiple keys,
+# return the first non-empty value found.
+# Usage: Bisu::array_get arr key1 [key2 ...]
+# Returns: 0 on success (prints value), 1 on failure (prints nothing)
+Bisu::array_get_v1() {
+    local array_name key val is_assoc idx
+    array_name=$(Bisu::trim "$1")
+    shift
+
+    # Array must exist
+    Bisu::is_array "$array_name" || {
+        printf ''
+        return 1
+    }
+
+    # name reference to target
+    declare -n ref="$array_name"
+
+    # detect associative vs indexed (helper expected to exist)
+    if Bisu::is_assoc_array "$array_name"; then
+        is_assoc=1
+    else
+        is_assoc=0
+    fi
+
+    # iterate keys in order; return first non-empty value
+    for key in "$@"; do
+        # skip empty keys
+        [[ -z "$key" ]] && continue
+
+        val=""
+
+        if ((is_assoc)); then
+            # fast direct-existence check for associative arrays
+            # -v works for array elements in bash and is fastest builtin check
+            [[ -v ref["$key"] ]] || continue
+            val="${ref[$key]}"
+        else
+            # indexed array: accept only non-negative integer indices
+            case "$key" in
+            '' | *[!0-9]*) continue ;; # non-numeric -> skip
+            *) idx=$key ;;
+            esac
+
+            # existence check avoids bounds calculation and handles sparse arrays
+            [[ -v ref[$idx] ]] || continue
+            val="${ref[$idx]}"
+        fi
+
+        # Stop at first non-empty value
+        if [[ -n "$val" ]]; then
+            printf '%s' "$val"
+            return 0
+        fi
+    done
+
+    # nothing found
+    printf ''
+    return 1
 }
 
 # Having issues with output format
@@ -916,5 +1080,45 @@ Bisu::array_copy_v1() {
 
     # Pass original array name, not nameref variable name, to Bisu::array_dump
     new_arr_ref=($(Bisu::array_dump "$array_name"))
+    return 0
+}
+
+# archived work, works correctly, not robust enough
+# Function: Bisu::array_splice
+# Description: To remove elements from an array
+Bisu::array_splice_v1() {
+    local array_name=$(Bisu::trim "$1")
+    declare -n arr_ref="$array_name"
+    local position
+    local quantity
+    local array_count=$(Bisu::array_count "$array_name")
+
+    Bisu::is_array "$array_name" || return 1
+    [ "${#arr_ref[@]}" -gt 0 ] || return 0
+
+    if [ $# -eq 2 ]; then
+        quantity=$(Bisu::trim "$2")
+        position=0
+    else
+        position=$(Bisu::trim "$2")
+        quantity=$(Bisu::trim "$3")
+    fi
+
+    if ! Bisu::is_nn_int "$position" || ! Bisu::is_nn_int "$quantity"; then
+        eval "$array_name=()"
+        return 1
+    fi
+
+    [ "$position" -ge "$array_count" ] && return 0
+
+    ((position + quantity > array_count)) && quantity=$((array_count - position))
+
+    local new_array
+    new_array=$(printf '%s\n' "${arr_ref[@]}" |
+        awk -v pos="$position" -v qty="$quantity" 'NR < pos + 1 || NR > pos + qty { print }' 2>/dev/null) || {
+        return 1
+    }
+
+    mapfile -t arr_ref <<<"$new_array" &>/dev/null
     return 0
 }
