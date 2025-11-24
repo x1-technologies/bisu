@@ -9,10 +9,10 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.10"
+readonly BISU_VERSION="11.0.11"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-11-23Z"
+readonly BISU_LAST_RELEASE_DATE="2025-11-24Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
@@ -430,7 +430,9 @@ Bisu::bisu_filename() {
     printf '%s' $(basename $(Bisu::bisu_file_path))
 }
 
-# Function: Bisu::output a message
+# Function: Bisu::output
+# Description: Outputs a message with optional styles, newline, and logging support.
+#              Unknown tags are treated as literal placeholders.
 Bisu::output() {
     local message="$1"
     local use_newline=$(Bisu::trim "$2")
@@ -438,9 +440,9 @@ Bisu::output() {
     local log_only=$(Bisu::trim "$3")
     Bisu::in_array "$log_only" "true" "false" || log_only="false"
 
-    # Style tag parsing
-    [[ $message == *\<*\>* ]] && {
-        # style table
+    # Only parse style tags if message contains '<' and '>'
+    if [[ $message == *\<*\>* ]]; then
+        # Predefined style codes
         declare -A style_codes=(
             [reset]=$'\033[0m' [bold]=$'\033[1m' [dim]=$'\033[2m' [underline]=$'\033[4m'
             [blink]=$'\033[5m' [reverse]=$'\033[7m' [hidden]=$'\033[8m'
@@ -455,26 +457,23 @@ Bisu::output() {
             [bg_bright_yellow]=$'\033[103m' [bg_bright_blue]=$'\033[104m' [bg_bright_magenta]=$'\033[105m'
             [bg_bright_cyan]=$'\033[106m' [bg_bright_white]=$'\033[107m'
         )
-        # Inject customized style codes
+
+        # Inject custom style codes if function exists
         if Bisu::is_func "$BISU_STYLE_CODE_INJECTION_FUNC"; then
-            local injected_style_codes="$(Bisu::safe_callfunc "$BISU_STYLE_CODE_INJECTION_FUNC" $(printf '%s ' "$@"))"
-            injected_style_codes="$(Bisu::trim "$injected_style_codes")"
-            [ -n "$injected_style_codes" ] && {
-                injected_style_codes=("$injected_style_codes")
-                Bisu::assoc_array_merge "style_codes" "injected_style_codes" "style_codes"
+            local injected="$(Bisu::safe_callfunc "$BISU_STYLE_CODE_INJECTION_FUNC" $(printf '%s ' "$@"))"
+            injected="$(Bisu::trim "$injected")"
+            [ -n "$injected" ] && {
+                injected=("$injected")
+                Bisu::assoc_array_merge "style_codes" "injected" "style_codes"
             }
         fi
 
-        # Stack of open tags: each entry "ttype:name:start_index"
-        # ttype is one of: fx, fg, bg, or "" for unknown (we still track to enforce positional pairing)
-        declare -a tag_stack=()
+        declare -a tag_stack=() # stack for open style tags
+        local result=""         # final output string
+        local seg=""            # accumulating normal text
+        local i=0 len=${#message}
 
-        result="" # built Bisu::output without tag symbols
-        seg=""    # accumulating plain text segment
-        i=0
-        len=${#message}
-
-        # helper: determine tag type from tag name
+        # Determine tag type
         _tag_type() {
             case "$1" in
             fg_*) echo "fg" ;;
@@ -484,16 +483,14 @@ Bisu::output() {
             esac
         }
 
-        # helper: compute current outer prefix (top of each type in remaining stack)
+        # Compute outer prefix from remaining stack
         _outer_prefix_from_stack() {
-            local prefix=""
-            # iterate stack left->right to find last occurrence per type
-            local t="" n="" start=""
+            local prefix="" t n
             local found_fx="" found_fg="" found_bg=""
             for entry in "${tag_stack[@]}"; do
                 t="${entry%%:*}"
                 n="${entry#*:}"
-                n="${n%%:*}" # remove possible :start if present
+                n="${n%%:*}"
                 case "$t" in
                 fx) found_fx="$n" ;;
                 fg) found_fg="$n" ;;
@@ -506,158 +503,109 @@ Bisu::output() {
             printf "%s" "$prefix"
         }
 
-        # single-pass parse
         while ((i < len)); do
-            ch="${message:i:1}"
+            local ch="${message:i:1}"
 
-            # ordinary char: accumulate
+            # Normal character accumulation
             if [[ "$ch" != "<" ]]; then
                 seg+="$ch"
                 ((i++))
                 continue
             fi
 
-            # encountered '<' — try to read tag up to next '>'
-            j=$((i + 1))
-            tag_content=""
+            # Potential tag
+            local j=$((i + 1)) tag_content=""
             while ((j < len)) && [[ "${message:j:1}" != ">" ]]; do
                 tag_content+="${message:j:1}"
                 ((j++))
             done
 
-            # if no closing '>' found: treat '<' as literal
+            # No closing '>', treat as literal
             if ((j >= len)); then
                 seg+="$ch"
                 ((i++))
                 continue
             fi
 
-            # We have a full tag: <tag_content>
-            full_tag="<${tag_content}>"
-            i=$((j + 1)) # advance past '>'
+            local full_tag="<${tag_content}>"
+            i=$((j + 1)) # move past '>'
 
-            # Flush accumulated segment with current outer prefix
-            outer_prefix="$(_outer_prefix_from_stack)"
-            if [[ -n "$seg" ]]; then
-                if [[ -n "$outer_prefix" ]]; then
-                    result+="${outer_prefix}${seg}${style_codes[reset]}"
-                else
-                    result+="$seg"
-                fi
+            # Flush accumulated segment
+            local outer="$(_outer_prefix_from_stack)"
+            [[ -n "$seg" ]] && {
+                [[ -n "$outer" ]] && result+="${outer}${seg}${style_codes[reset]}" || result+="$seg"
                 seg=""
-            fi
+            }
 
-            # Normalize tag name: first token up to whitespace (names allow letters/digits/underscore/hyphen)
-            raw_tag="$tag_content"
-            # strip leading and trailing spaces
-            raw_tag="${raw_tag#"${raw_tag%%[![:space:]]*}"}"
+            # Normalize tag
+            local raw_tag="${tag_content#"${tag_content%%[![:space:]]*}"}"
             raw_tag="${raw_tag%"${raw_tag##*[![:space:]]}"}"
-            if [[ -z "$raw_tag" ]]; then
-                # Per rule: paired-but-incorrect symbol removal applies only when closed; single empty tag stay literal now
+            [[ -z "$raw_tag" ]] && {
                 seg+="$full_tag"
                 continue
-            fi
+            }
 
-            # Check if closing tag
+            # Closing tag
             if [[ "${raw_tag:0:1}" == "/" ]]; then
-                close_name="${raw_tag:1}"
-                # If no open tag => unmatched closing, treat literal
+                local close_name="${raw_tag:1}"
                 if ((${#tag_stack[@]} == 0)); then
                     seg+="$full_tag"
                     continue
                 fi
-
-                # top format: "ttype:name:start"
-                top="${tag_stack[-1]}"
+                local top="${tag_stack[-1]}"
                 unset 'tag_stack[-1]'
-                tag_stack=("${tag_stack[@]}") # reindex
-                ttype="${top%%:*}"
-                rest="${top#*:}"
-                name="${rest%%:*}"
-                start_idx="${rest#*:}"
-
-                # If names match -> positional pairing succeeded
+                tag_stack=("${tag_stack[@]}")
+                local ttype="${top%%:*}"
+                local rest="${top#*:}"
+                local name="${rest%%:*}"
+                local start_idx="${rest#*:}"
                 if [[ "$name" == "$close_name" ]]; then
-                    # extract inner content that resides in result[start_idx:]
-                    inner_len=$((${#result} - start_idx))
-                    inner="${result:start_idx:inner_len}"
-                    # remove inner from result to replace with styled/kept content
+                    local inner_len=$((${#result} - start_idx))
+                    local inner="${result:start_idx:inner_len}"
                     result="${result:0:start_idx}"
-
-                    # If tag name maps to a style, apply style wrapper
-                    if [[ -n "${style_codes[$name]}" && -n "$ttype" ]]; then
-                        # Build outer-prefix after popping current (to restore outers)
-                        outer_prefix="$(_outer_prefix_from_stack)"
-                        # Compose: style_of_name + inner + reset + outer_prefix
-                        result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer_prefix}"
-                    else
-                        # Known positional pair but name not a style (or unknown type): remove tag symbols only, keep inner unchanged.
-                        result+="${inner}"
-                    fi
+                    [[ -n "${style_codes[$name]}" && -n "$ttype" ]] && {
+                        outer="$(_outer_prefix_from_stack)"
+                        result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer}"
+                    } || result+="$inner"
                 else
-                    # Names mismatch — per rule: remove tag symbols only (keep inner)
-                    inner_len=$((${#result} - start_idx))
-                    inner="${result:start_idx:inner_len}"
+                    local inner_len=$((${#result} - start_idx))
+                    local inner="${result:start_idx:inner_len}"
                     result="${result:0:start_idx}${inner}"
-                    # Do NOT reapply any outer prefix here (outer remains as is)
                 fi
-
                 continue
             fi
 
-            # Opening tag processing
-            tag_name="${raw_tag%%[[:space:]]*}"
-            ttype="$(_tag_type "$tag_name")"
-            tag_stack+=("${ttype}:${tag_name}:${#result}")
-            continue
+            # Opening tag
+            local tag_name="${raw_tag%%[[:space:]]*}"
+            local ttype="$(_tag_type "$tag_name")"
+            if [[ -n "$ttype" || -n "${style_codes[$tag_name]}" ]]; then
+                tag_stack+=("${ttype}:${tag_name}:${#result}")
+            else
+                # unknown tag, treat literally
+                result+="$full_tag"
+            fi
         done
 
-        # End of input: flush trailing seg
-        outer_prefix="$(_outer_prefix_from_stack)"
-        if [[ -n "$seg" ]]; then
-            if [[ -n "$outer_prefix" ]]; then
-                result+="${outer_prefix}${seg}${style_codes[reset]}"
-            else
-                result+="$seg"
-            fi
-        fi
+        # Flush remaining segment
+        local outer="$(_outer_prefix_from_stack)"
+        [[ -n "$seg" ]] && { [[ -n "$outer" ]] && result+="${outer}${seg}${style_codes[reset]}" || result+="$seg"; }
 
-        # Build a temporary buffer and reinsert at recorded offsets.
-        if ((${#tag_stack[@]})); then
-            tmp_result=""
-            i=0
-            idx_stack=0
-
-            for entry in "${tag_stack[@]}"; do
-                # entry format ttype:name:start
-                name="${entry#*:}"
-                name="${name%%:*}"
-                tmp_result+="<${name}>"
-            done
-            result+="$tmp_result"
-        fi
-
-        # Final mutate
         message="$result"
-    }
-
-    local command
-    if [[ "$use_newline" == "true" ]]; then
-        command="printf '%b\\n' \"$message\""
-    else
-        command="printf '%b' \"$message\""
     fi
 
+    # Prepare printf
+    local command
+    [[ "$use_newline" == "true" ]] && command="printf '%b\\n' \"$message\"" || command="printf '%b' \"$message\""
+
+    # Execute with logging and folding
     if [[ "$log_only" == "true" ]]; then
-        eval "$(printf '%s ' "$command")" |
-            { Bisu::debug_mode_on && fold -s -w "$BISU_LINE_BREAK_LENGTH" || fold -s -w "$BISU_LINE_BREAK_LENGTH" 2>/dev/null; } |
-            tee -a -- "$(Bisu::current_log_file)" &>/dev/null ||
-            return 1
+        eval "$command" |
+            { fold -s -w "${BISU_LINE_BREAK_LENGTH:-160}" 2>/dev/null; } |
+            tee -a -- "$(Bisu::current_log_file)" &>/dev/null || return 1
     else
-        eval "$(printf '%s ' "$command")" |
-            { Bisu::debug_mode_on && fold -s -w "$BISU_LINE_BREAK_LENGTH" || fold -s -w "$BISU_LINE_BREAK_LENGTH" 2>/dev/null; } |
-            { Bisu::debug_mode_on && tee -a -- "$(Bisu::current_log_file)" || tee -a -- "$(Bisu::current_log_file)" 2>/dev/null; } ||
-            return 1
+        eval "$command" |
+            { fold -s -w "${BISU_LINE_BREAK_LENGTH:-160}" 2>/dev/null; } |
+            tee -a -- "$(Bisu::current_log_file)" || return 1
     fi
 
     return 0
