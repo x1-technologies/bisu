@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.11"
+readonly BISU_VERSION="11.0.12"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2025-11-24Z"
@@ -430,174 +430,261 @@ Bisu::bisu_filename() {
     printf '%s' $(basename $(Bisu::bisu_file_path))
 }
 
-# Function: Bisu::output
-# Description: Outputs a message with optional styles, newline, and logging support.
-#              Unknown tags are treated as literal placeholders.
+# Bisu::output
+# Description:
+#   Outputs a message with optional style tags, optional newline, and optional logging-only mode.
+#   Unknown tags are treated literally. Style tags use an associative map of ANSI codes.
+#   No nested functions/sub-functions are used — logic is inlined to comply with constraints.
+# Dependencies (assumed to exist and behave correctly):
+#   Bisu::trim, Bisu::in_array, Bisu::is_func, Bisu::safe_callfunc, Bisu::assoc_array_merge,
+#   Bisu::current_log_file
 Bisu::output() {
+    # args
     local message="$1"
-    local use_newline=$(Bisu::trim "$2")
+    local use_newline
+    use_newline="$(Bisu::trim "$2")"
     Bisu::in_array "$use_newline" "true" "false" || use_newline="true"
-    local log_only=$(Bisu::trim "$3")
+    local log_only
+    log_only="$(Bisu::trim "$3")"
     Bisu::in_array "$log_only" "true" "false" || log_only="false"
 
-    # Only parse style tags if message contains '<' and '>'
+    # Only attempt tag parsing if message appears to contain '<' and '>'
     if [[ $message == *\<*\>* ]]; then
-        # Predefined style codes
+        # Predefined style codes (associative array)
         declare -A style_codes=(
             [reset]=$'\033[0m' [bold]=$'\033[1m' [dim]=$'\033[2m' [underline]=$'\033[4m'
             [blink]=$'\033[5m' [reverse]=$'\033[7m' [hidden]=$'\033[8m'
-            [fg_black]=$'\033[30m' [fg_red]=$'\033[31m' [fg_green]=$'\033[32m' [fg_yellow]=$'\033[33m' [fg_orange]=$'\033[38;5;166m'
-            [fg_blue]=$'\033[34m' [fg_magenta]=$'\033[35m' [fg_cyan]=$'\033[36m' [fg_white]=$'\033[37m'
-            [fg_bright_black]=$'\033[90m' [fg_bright_red]=$'\033[91m' [fg_bright_green]=$'\033[92m'
-            [fg_bright_yellow]=$'\033[93m' [fg_bright_blue]=$'\033[94m' [fg_bright_magenta]=$'\033[95m'
-            [fg_bright_cyan]=$'\033[96m' [fg_bright_white]=$'\033[97m'
-            [bg_black]=$'\033[40m' [bg_red]=$'\033[41m' [bg_green]=$'\033[42m' [bg_yellow]=$'\033[43m'
-            [bg_blue]=$'\033[44m' [bg_magenta]=$'\033[45m' [bg_cyan]=$'\033[46m' [bg_white]=$'\033[47m'
-            [bg_bright_black]=$'\033[100m' [bg_bright_red]=$'\033[101m' [bg_bright_green]=$'\033[102m'
-            [bg_bright_yellow]=$'\033[103m' [bg_bright_blue]=$'\033[104m' [bg_bright_magenta]=$'\033[105m'
-            [bg_bright_cyan]=$'\033[106m' [bg_bright_white]=$'\033[107m'
+            [fg_black]=$'\033[30m' [fg_red]=$'\033[31m' [fg_green]=$'\033[32m' [fg_yellow]=$'\033[33m'
+            [fg_orange]=$'\033[38;5;166m' [fg_blue]=$'\033[34m' [fg_magenta]=$'\033[35m'
+            [fg_cyan]=$'\033[36m' [fg_white]=$'\033[37m' [fg_bright_black]=$'\033[90m'
+            [fg_bright_red]=$'\033[91m' [fg_bright_green]=$'\033[92m' [fg_bright_yellow]=$'\033[93m'
+            [fg_bright_blue]=$'\033[94m' [fg_bright_magenta]=$'\033[95m' [fg_bright_cyan]=$'\033[96m'
+            [fg_bright_white]=$'\033[97m' [bg_black]=$'\033[40m' [bg_red]=$'\033[41m' [bg_green]=$'\033[42m'
+            [bg_yellow]=$'\033[43m' [bg_blue]=$'\033[44m' [bg_magenta]=$'\033[45m' [bg_cyan]=$'\033[46m'
+            [bg_white]=$'\033[47m' [bg_bright_black]=$'\033[100m' [bg_bright_red]=$'\033[101m'
+            [bg_bright_green]=$'\033[102m' [bg_bright_yellow]=$'\033[103m' [bg_bright_blue]=$'\033[104m'
+            [bg_bright_magenta]=$'\033[105m' [bg_bright_cyan]=$'\033[106m' [bg_bright_white]=$'\033[107m'
         )
 
-        # Inject custom style codes if function exists
+        # Inject custom style codes if injection function exists
         if Bisu::is_func "$BISU_STYLE_CODE_INJECTION_FUNC"; then
-            local injected="$(Bisu::safe_callfunc "$BISU_STYLE_CODE_INJECTION_FUNC" $(printf '%s ' "$@"))"
+            local injected
+            injected="$(Bisu::safe_callfunc "$BISU_STYLE_CODE_INJECTION_FUNC" $(printf '%s ' "$@"))"
             injected="$(Bisu::trim "$injected")"
-            [ -n "$injected" ] && {
+            if [[ -n "$injected" ]]; then
+                # Put injected into an array of one element, then merge into style_codes via assumed helper
                 injected=("$injected")
                 Bisu::assoc_array_merge "style_codes" "injected" "style_codes"
-            }
+            fi
         fi
 
-        declare -a tag_stack=() # stack for open style tags
-        local result=""         # final output string
-        local seg=""            # accumulating normal text
-        local i=0 len=${#message}
+        # Tag stack holds entries like: "<type>:<name>:<start_index>"
+        # type is one of "fx" (effects), "fg" (foreground), "bg" (background)
+        declare -a tag_stack=()
+        local result="" # final output string (with ANSI codes inserted)
+        local seg=""    # accumulated literal characters between tags
+        local i=0
+        local len=${#message}
 
-        # Determine tag type
-        _tag_type() {
-            case "$1" in
-            fg_*) echo "fg" ;;
-            bg_*) echo "bg" ;;
-            bold | dim | underline | blink | reverse | hidden) echo "fx" ;;
-            *) echo "" ;;
-            esac
-        }
-
-        # Compute outer prefix from remaining stack
-        _outer_prefix_from_stack() {
-            local prefix="" t n
-            local found_fx="" found_fg="" found_bg=""
-            for entry in "${tag_stack[@]}"; do
-                t="${entry%%:*}"
-                n="${entry#*:}"
-                n="${n%%:*}"
-                case "$t" in
-                fx) found_fx="$n" ;;
-                fg) found_fg="$n" ;;
-                bg) found_bg="$n" ;;
-                esac
-            done
-            [[ -n "$found_fx" ]] && prefix+="${style_codes[$found_fx]}"
-            [[ -n "$found_fg" ]] && prefix+="${style_codes[$found_fg]}"
-            [[ -n "$found_bg" ]] && prefix+="${style_codes[$found_bg]}"
-            printf "%s" "$prefix"
-        }
-
+        # Inline helper: compute outer prefix from current tag_stack
+        # (no nested function; computed where needed)
+        # Loop through message characters
         while ((i < len)); do
             local ch="${message:i:1}"
 
-            # Normal character accumulation
+            # Normal character accumulation (not a tag start)
             if [[ "$ch" != "<" ]]; then
                 seg+="$ch"
                 ((i++))
                 continue
             fi
 
-            # Potential tag
-            local j=$((i + 1)) tag_content=""
+            # Potential tag: collect until next '>' (or end)
+            local j=$((i + 1))
+            local tag_content=""
             while ((j < len)) && [[ "${message:j:1}" != ">" ]]; do
                 tag_content+="${message:j:1}"
                 ((j++))
             done
 
-            # No closing '>', treat as literal
+            # If we reached end without finding '>', treat '<' as literal
             if ((j >= len)); then
                 seg+="$ch"
                 ((i++))
                 continue
             fi
 
+            # We found a tag candidate; build full tag and advance i past it
             local full_tag="<${tag_content}>"
-            i=$((j + 1)) # move past '>'
+            i=$((j + 1))
 
-            # Flush accumulated segment
-            local outer="$(_outer_prefix_from_stack)"
-            [[ -n "$seg" ]] && {
-                [[ -n "$outer" ]] && result+="${outer}${seg}${style_codes[reset]}" || result+="$seg"
-                seg=""
+            # Flush accumulated plain segment with appropriate outer prefix
+            # Compute outer prefix from tag_stack inline
+            local outer_prefix=""
+            {
+                local found_fx="" found_fg="" found_bg=""
+                local entry t n rest
+                for entry in "${tag_stack[@]}"; do
+                    t="${entry%%:*}"
+                    rest="${entry#*:}"
+                    n="${rest%%:*}"
+                    case "$t" in
+                    fx) found_fx="$n" ;;
+                    fg) found_fg="$n" ;;
+                    bg) found_bg="$n" ;;
+                    esac
+                done
+                [[ -n "$found_fx" ]] && outer_prefix+="${style_codes[$found_fx]}"
+                [[ -n "$found_fg" ]] && outer_prefix+="${style_codes[$found_fg]}"
+                [[ -n "$found_bg" ]] && outer_prefix+="${style_codes[$found_bg]}"
             }
+            if [[ -n "$seg" ]]; then
+                if [[ -n "$outer_prefix" ]]; then
+                    result+="${outer_prefix}${seg}${style_codes[reset]}"
+                else
+                    result+="$seg"
+                fi
+                seg=""
+            fi
 
-            # Normalize tag
+            # Normalize tag whitespace
             local raw_tag="${tag_content#"${tag_content%%[![:space:]]*}"}"
             raw_tag="${raw_tag%"${raw_tag##*[![:space:]]}"}"
-            [[ -z "$raw_tag" ]] && {
+            if [[ -z "$raw_tag" ]]; then
+                # empty tag like "<   >", treat literally
                 seg+="$full_tag"
                 continue
-            }
+            fi
 
-            # Closing tag
+            # Closing tag handling: starts with '/'
             if [[ "${raw_tag:0:1}" == "/" ]]; then
                 local close_name="${raw_tag:1}"
+                # If stack empty, treat as literal
                 if ((${#tag_stack[@]} == 0)); then
                     seg+="$full_tag"
                     continue
                 fi
-                local top="${tag_stack[-1]}"
-                unset 'tag_stack[-1]'
-                tag_stack=("${tag_stack[@]}")
-                local ttype="${top%%:*}"
-                local rest="${top#*:}"
-                local name="${rest%%:*}"
-                local start_idx="${rest#*:}"
+
+                # Pop top entry from stack
+                local last_idx=$((${#tag_stack[@]} - 1))
+                local top="${tag_stack[last_idx]}"
+                unset 'tag_stack[last_idx]'
+                tag_stack=("${tag_stack[@]}") # reindex
+
+                # Parse top entry: type:name:start_idx
+                local ttype rest name start_idx
+                ttype="${top%%:*}"
+                rest="${top#*:}"
+                name="${rest%%:*}"
+                start_idx="${rest#*:}"
+
+                # If closing name matches the tag name of the popped entry
                 if [[ "$name" == "$close_name" ]]; then
                     local inner_len=$((${#result} - start_idx))
+                    if ((inner_len < 0)); then
+                        inner_len=0
+                    fi
                     local inner="${result:start_idx:inner_len}"
                     result="${result:0:start_idx}"
-                    [[ -n "${style_codes[$name]}" && -n "$ttype" ]] && {
-                        outer="$(_outer_prefix_from_stack)"
-                        result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer}"
-                    } || result+="$inner"
+
+                    # If we have a known style code for this name and a recognized type, wrap
+                    if [[ -n "${style_codes[$name]}" && -n "$ttype" ]]; then
+                        # Recompute outer prefix after popping (inline)
+                        local outer_after=""
+                        {
+                            local found_fx="" found_fg="" found_bg=""
+                            local entry t n rest2
+                            for entry in "${tag_stack[@]}"; do
+                                t="${entry%%:*}"
+                                rest2="${entry#*:}"
+                                n="${rest2%%:*}"
+                                case "$t" in
+                                fx) found_fx="$n" ;;
+                                fg) found_fg="$n" ;;
+                                bg) found_bg="$n" ;;
+                                esac
+                            done
+                            [[ -n "$found_fx" ]] && outer_after+="${style_codes[$found_fx]}"
+                            [[ -n "$found_fg" ]] && outer_after+="${style_codes[$found_fg]}"
+                            [[ -n "$found_bg" ]] && outer_after+="${style_codes[$found_bg]}"
+                        }
+                        result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer_after}"
+                    else
+                        # Unknown style name at runtime or no type: just re-insert inner unstyled
+                        result+="$inner"
+                    fi
                 else
+                    # Mismatched closing tag: we don't honor ordering; just append inner content back as literal
                     local inner_len=$((${#result} - start_idx))
+                    if ((inner_len < 0)); then
+                        inner_len=0
+                    fi
                     local inner="${result:start_idx:inner_len}"
                     result="${result:0:start_idx}${inner}"
                 fi
                 continue
             fi
 
-            # Opening tag
+            # Opening tag handling: take first token as tag name
             local tag_name="${raw_tag%%[[:space:]]*}"
-            local ttype="$(_tag_type "$tag_name")"
+            # Determine tag type inline (no helper): fx, fg, bg, or empty
+            local ttype=""
+            case "$tag_name" in
+            fg_*) ttype="fg" ;;
+            bg_*) ttype="bg" ;;
+            bold | dim | underline | blink | reverse | hidden) ttype="fx" ;;
+            *) ttype="" ;;
+            esac
+
+            # If known type or known explicit code, push to stack with current result length index
             if [[ -n "$ttype" || -n "${style_codes[$tag_name]}" ]]; then
                 tag_stack+=("${ttype}:${tag_name}:${#result}")
             else
-                # unknown tag, treat literally
+                # Unknown tag: treat literally
                 result+="$full_tag"
             fi
         done
 
-        # Flush remaining segment
-        local outer="$(_outer_prefix_from_stack)"
-        [[ -n "$seg" ]] && { [[ -n "$outer" ]] && result+="${outer}${seg}${style_codes[reset]}" || result+="$seg"; }
+        # Flush any remaining segment after loop with current outer prefix
+        local outer_prefix=""
+        {
+            local found_fx="" found_fg="" found_bg=""
+            local entry t n rest
+            for entry in "${tag_stack[@]}"; do
+                t="${entry%%:*}"
+                rest="${entry#*:}"
+                n="${rest%%:*}"
+                case "$t" in
+                fx) found_fx="$n" ;;
+                fg) found_fg="$n" ;;
+                bg) found_bg="$n" ;;
+                esac
+            done
+            [[ -n "$found_fx" ]] && outer_prefix+="${style_codes[$found_fx]}"
+            [[ -n "$found_fg" ]] && outer_prefix+="${style_codes[$found_fg]}"
+            [[ -n "$found_bg" ]] && outer_prefix+="${style_codes[$found_bg]}"
+        }
+        if [[ -n "$seg" ]]; then
+            if [[ -n "$outer_prefix" ]]; then
+                result+="${outer_prefix}${seg}${style_codes[reset]}"
+            else
+                result+="$seg"
+            fi
+        fi
 
+        # The prepared message becomes result
         message="$result"
     fi
 
-    # Prepare printf
+    # Choose printf command according to newline flag
     local command
-    [[ "$use_newline" == "true" ]] && command="printf '%b\\n' \"$message\"" || command="printf '%b' \"$message\""
+    if [[ "$use_newline" == "true" ]]; then
+        command="printf '%b\\n' \"$message\""
+    else
+        command="printf '%b' \"$message\""
+    fi
 
-    # Execute with logging and folding
+    # Execute with folding and logging. Keep behavior: when log_only, suppress stdout.
     if [[ "$log_only" == "true" ]]; then
         eval "$command" |
             { fold -s -w "${BISU_LINE_BREAK_LENGTH:-160}" 2>/dev/null; } |
