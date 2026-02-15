@@ -5,7 +5,7 @@
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250
 ################################################################### BISU Importer Start ########################################################################
 ## Official Web Site: https://bisu.x1-tech.com
-## Version: v11-20260215Z1
+## Version: v11-20260215Z2
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Set the required version of BISU
 export BISU_VERSION_REQUIREMENT=">=11.0.0"
@@ -26,7 +26,7 @@ export BISU_CURRENT_UTIL_INFO_URI=""
 # Set this utility's asc sig file URL
 export BISU_CURRENT_UTIL_ASC_FILE_URL=""
 # Signature verification switch
-export BISU_CURRENT_UTIL_VERIFY_SIG="false"
+export BISU_CURRENT_UTIL_VERIFY_SIG=${BISU_CURRENT_UTIL_VERIFY_SIG:-"false"}
 # GPG Signature algorithm set
 export BISU_CURRENT_UTIL_GPG_SIG_ALGO="sha256"
 # Installation target dir
