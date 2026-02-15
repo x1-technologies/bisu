@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.1000"
+readonly BISU_VERSION="11.0.1001"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2026-02-15Z"
@@ -7952,6 +7952,7 @@ Bisu::verify_sig() {
     Bisu::normalize_bool "BISU_VERIFY_SIG"
     [[ "$BISU_VERIFY_SIG" == "true" ]] && {
         local sig_status=$(Bisu::verify_sig_file "$(Bisu::bisu_file_path).asc" "$(Bisu::bisu_file_path)")
+        sig_status=$(Bisu::strtoupper "$sig_status")
         Bisu::string_starts_with "$sig_status" "ERR_" && {
             Bisu::error_exit "Invalid bisu signature, signature specific error: ${sig_status}"
         }
@@ -7960,6 +7961,7 @@ Bisu::verify_sig() {
     Bisu::normalize_bool "BISU_CURRENT_UTIL_VERIFY_SIG"
     [[ "$BISU_CURRENT_UTIL_VERIFY_SIG" == "true" ]] && {
         local sig_status=$(Bisu::verify_sig_file "$(Bisu::current_file_path).asc" "$(Bisu::current_file_path)")
+        sig_status=$(Bisu::strtoupper "$sig_status")
         Bisu::string_starts_with "$sig_status" "ERR_" && {
             Bisu::error_exit "Invalid utility signature, signature specific error: ${sig_status}"
         }
