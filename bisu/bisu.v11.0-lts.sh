@@ -2,23 +2,23 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250
 ########################################################## BISU_START: Bash Internal Simple Utils ##############################################################
-## Official Web Site: https://bisu.x1.autos
+## Official Web Site: https://bisu.x1-tech.com
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Have a fresh installation of BISU by copying and pasting the command below
-## curl -sL https://g.x1.autos/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
+## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.7"
+readonly BISU_VERSION="11.0.1001"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2025-10-20Z"
+readonly BISU_LAST_RELEASE_DATE="2026-02-15Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
 export BISU_MINIMAL_BASH_VERSION
 # BISU info uri
-readonly BISU_INFO_URI="https://bisu.x1.autos"
+readonly BISU_INFO_URI="https://bisu.x1-tech.com"
 export BISU_INFO_URI
 # Default title
 export BISU_DEFAULT_TITLE="-bash"
@@ -50,14 +50,14 @@ export BISU_TRIM_CRITICAL_POINT=102400
 # Error message prefix
 export BISU_ERROR_MSG_PREFIX="[<fg_orange>Error</fg_orange>] "
 # BISU File URL
-readonly BISU_FILE_URL="https://g.x1.autos/bisu-file"
+readonly BISU_FILE_URL="https://g.x1-tech.com/bisu-file"
 export BISU_FILE_URL
 # BISU ASC File URL
-readonly BISU_ASC_FILE_URL="https://g.x1.autos/bisu-asc-file"
+readonly BISU_ASC_FILE_URL="https://g.x1-tech.com/bisu-asc-file"
 export BISU_ASC_FILE_URL
 # Global Variables
-TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && export TMPDIR
-HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && export HOME
+TMPDIR="/tmp" && [ -w "$TMPDIR" ] || TMPDIR="$(dirname $(mktemp -d))" && readonly TMPDIR && export TMPDIR
+HOME=${HOME:-$(getent passwd $(id -u) 2>/dev/null | cut -d: -f6)} && readonly HOME && export HOME
 export PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
 export PS4='+${BASH_SOURCE}:${LINENO}:${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 export BISU_CURRENT_LOG_FILE_DIR=""                                         # Current Log file dir
@@ -430,114 +430,114 @@ Bisu::bisu_filename() {
     printf '%s' $(basename $(Bisu::bisu_file_path))
 }
 
-# Function: Bisu::output a message
+# Bisu::output
+# Description:
+#   Outputs a message with optional style tags, optional newline, and optional logging-only mode.
+#   Unknown tags are treated literally. Style tags use an associative map of ANSI codes.
+#   No nested functions/sub-functions are used — logic is inlined to comply with constraints.
+# Dependencies (assumed to exist and behave correctly):
+#   Bisu::trim, Bisu::in_array, Bisu::is_func, Bisu::safe_callfunc, Bisu::assoc_array_merge,
+#   Bisu::current_log_file
 Bisu::output() {
+    # args
     local message="$1"
-    local use_newline=$(Bisu::trim "$2")
+    local use_newline
+    use_newline="$(Bisu::trim "$2")"
     Bisu::in_array "$use_newline" "true" "false" || use_newline="true"
-    local log_only=$(Bisu::trim "$3")
+    local log_only
+    log_only="$(Bisu::trim "$3")"
     Bisu::in_array "$log_only" "true" "false" || log_only="false"
 
-    # Style tag parsing
-    [[ $message == *\<*\>* ]] && {
-        # style table
+    # Only attempt tag parsing if message appears to contain '<' and '>'
+    if [[ $message == *\<*\>* ]]; then
+        # Predefined style codes (associative array)
         declare -A style_codes=(
             [reset]=$'\033[0m' [bold]=$'\033[1m' [dim]=$'\033[2m' [underline]=$'\033[4m'
             [blink]=$'\033[5m' [reverse]=$'\033[7m' [hidden]=$'\033[8m'
-            [fg_black]=$'\033[30m' [fg_red]=$'\033[31m' [fg_green]=$'\033[32m' [fg_yellow]=$'\033[33m' [fg_orange]=$'\033[38;5;166m'
-            [fg_blue]=$'\033[34m' [fg_magenta]=$'\033[35m' [fg_cyan]=$'\033[36m' [fg_white]=$'\033[37m'
-            [fg_bright_black]=$'\033[90m' [fg_bright_red]=$'\033[91m' [fg_bright_green]=$'\033[92m'
-            [fg_bright_yellow]=$'\033[93m' [fg_bright_blue]=$'\033[94m' [fg_bright_magenta]=$'\033[95m'
-            [fg_bright_cyan]=$'\033[96m' [fg_bright_white]=$'\033[97m'
-            [bg_black]=$'\033[40m' [bg_red]=$'\033[41m' [bg_green]=$'\033[42m' [bg_yellow]=$'\033[43m'
-            [bg_blue]=$'\033[44m' [bg_magenta]=$'\033[45m' [bg_cyan]=$'\033[46m' [bg_white]=$'\033[47m'
-            [bg_bright_black]=$'\033[100m' [bg_bright_red]=$'\033[101m' [bg_bright_green]=$'\033[102m'
-            [bg_bright_yellow]=$'\033[103m' [bg_bright_blue]=$'\033[104m' [bg_bright_magenta]=$'\033[105m'
-            [bg_bright_cyan]=$'\033[106m' [bg_bright_white]=$'\033[107m'
+            [fg_black]=$'\033[30m' [fg_red]=$'\033[31m' [fg_green]=$'\033[32m' [fg_yellow]=$'\033[33m'
+            [fg_orange]=$'\033[38;5;166m' [fg_blue]=$'\033[34m' [fg_magenta]=$'\033[35m'
+            [fg_cyan]=$'\033[36m' [fg_white]=$'\033[37m' [fg_bright_black]=$'\033[90m'
+            [fg_bright_red]=$'\033[91m' [fg_bright_green]=$'\033[92m' [fg_bright_yellow]=$'\033[93m'
+            [fg_bright_blue]=$'\033[94m' [fg_bright_magenta]=$'\033[95m' [fg_bright_cyan]=$'\033[96m'
+            [fg_bright_white]=$'\033[97m' [bg_black]=$'\033[40m' [bg_red]=$'\033[41m' [bg_green]=$'\033[42m'
+            [bg_yellow]=$'\033[43m' [bg_blue]=$'\033[44m' [bg_magenta]=$'\033[45m' [bg_cyan]=$'\033[46m'
+            [bg_white]=$'\033[47m' [bg_bright_black]=$'\033[100m' [bg_bright_red]=$'\033[101m'
+            [bg_bright_green]=$'\033[102m' [bg_bright_yellow]=$'\033[103m' [bg_bright_blue]=$'\033[104m'
+            [bg_bright_magenta]=$'\033[105m' [bg_bright_cyan]=$'\033[106m' [bg_bright_white]=$'\033[107m'
         )
-        # Inject customized style codes
+
+        # Inject custom style codes if injection function exists
         if Bisu::is_func "$BISU_STYLE_CODE_INJECTION_FUNC"; then
-            local injected_style_codes="$(Bisu::safe_callfunc "$BISU_STYLE_CODE_INJECTION_FUNC" $(printf '%s ' "$@"))"
-            injected_style_codes="$(Bisu::trim "$injected_style_codes")"
-            [ -n "$injected_style_codes" ] && {
-                injected_style_codes=("$injected_style_codes")
-                Bisu::assoc_array_merge "style_codes" "injected_style_codes" "style_codes"
-            }
+            local injected
+            injected="$(Bisu::safe_callfunc "$BISU_STYLE_CODE_INJECTION_FUNC" $(printf '%s ' "$@"))"
+            injected="$(Bisu::trim "$injected")"
+            if [[ -n "$injected" ]]; then
+                # Put injected into an array of one element, then merge into style_codes via assumed helper
+                injected=("$injected")
+                Bisu::assoc_array_merge "style_codes" "injected" "style_codes"
+            fi
         fi
 
-        # Stack of open tags: each entry "ttype:name:start_index"
-        # ttype is one of: fx, fg, bg, or "" for unknown (we still track to enforce positional pairing)
+        # Tag stack holds entries like: "<type>:<name>:<start_index>"
+        # type is one of "fx" (effects), "fg" (foreground), "bg" (background)
         declare -a tag_stack=()
+        local result="" # final output string (with ANSI codes inserted)
+        local seg=""    # accumulated literal characters between tags
+        local i=0
+        local len=${#message}
 
-        result="" # built Bisu::output without tag symbols
-        seg=""    # accumulating plain text segment
-        i=0
-        len=${#message}
-
-        # helper: determine tag type from tag name
-        _tag_type() {
-            case "$1" in
-            fg_*) echo "fg" ;;
-            bg_*) echo "bg" ;;
-            bold | dim | underline | blink | reverse | hidden) echo "fx" ;;
-            *) echo "" ;;
-            esac
-        }
-
-        # helper: compute current outer prefix (top of each type in remaining stack)
-        _outer_prefix_from_stack() {
-            local prefix=""
-            # iterate stack left->right to find last occurrence per type
-            local t="" n="" start=""
-            local found_fx="" found_fg="" found_bg=""
-            for entry in "${tag_stack[@]}"; do
-                t="${entry%%:*}"
-                n="${entry#*:}"
-                n="${n%%:*}" # remove possible :start if present
-                case "$t" in
-                fx) found_fx="$n" ;;
-                fg) found_fg="$n" ;;
-                bg) found_bg="$n" ;;
-                esac
-            done
-            [[ -n "$found_fx" ]] && prefix+="${style_codes[$found_fx]}"
-            [[ -n "$found_fg" ]] && prefix+="${style_codes[$found_fg]}"
-            [[ -n "$found_bg" ]] && prefix+="${style_codes[$found_bg]}"
-            printf "%s" "$prefix"
-        }
-
-        # single-pass parse
+        # Inline helper: compute outer prefix from current tag_stack
+        # (no nested function; computed where needed)
+        # Loop through message characters
         while ((i < len)); do
-            ch="${message:i:1}"
+            local ch="${message:i:1}"
 
-            # ordinary char: accumulate
+            # Normal character accumulation (not a tag start)
             if [[ "$ch" != "<" ]]; then
                 seg+="$ch"
                 ((i++))
                 continue
             fi
 
-            # encountered '<' — try to read tag up to next '>'
-            j=$((i + 1))
-            tag_content=""
+            # Potential tag: collect until next '>' (or end)
+            local j=$((i + 1))
+            local tag_content=""
             while ((j < len)) && [[ "${message:j:1}" != ">" ]]; do
                 tag_content+="${message:j:1}"
                 ((j++))
             done
 
-            # if no closing '>' found: treat '<' as literal
+            # If we reached end without finding '>', treat '<' as literal
             if ((j >= len)); then
                 seg+="$ch"
                 ((i++))
                 continue
             fi
 
-            # We have a full tag: <tag_content>
-            full_tag="<${tag_content}>"
-            i=$((j + 1)) # advance past '>'
+            # We found a tag candidate; build full tag and advance i past it
+            local full_tag="<${tag_content}>"
+            i=$((j + 1))
 
-            # Flush accumulated segment with current outer prefix
-            outer_prefix="$(_outer_prefix_from_stack)"
+            # Flush accumulated plain segment with appropriate outer prefix
+            # Compute outer prefix from tag_stack inline
+            local outer_prefix=""
+            {
+                local found_fx="" found_fg="" found_bg=""
+                local entry t n rest
+                for entry in "${tag_stack[@]}"; do
+                    t="${entry%%:*}"
+                    rest="${entry#*:}"
+                    n="${rest%%:*}"
+                    case "$t" in
+                    fx) found_fx="$n" ;;
+                    fg) found_fg="$n" ;;
+                    bg) found_bg="$n" ;;
+                    esac
+                done
+                [[ -n "$found_fx" ]] && outer_prefix+="${style_codes[$found_fx]}"
+                [[ -n "$found_fg" ]] && outer_prefix+="${style_codes[$found_fg]}"
+                [[ -n "$found_bg" ]] && outer_prefix+="${style_codes[$found_bg]}"
+            }
             if [[ -n "$seg" ]]; then
                 if [[ -n "$outer_prefix" ]]; then
                     result+="${outer_prefix}${seg}${style_codes[reset]}"
@@ -547,73 +547,123 @@ Bisu::output() {
                 seg=""
             fi
 
-            # Normalize tag name: first token up to whitespace (names allow letters/digits/underscore/hyphen)
-            raw_tag="$tag_content"
-            # strip leading and trailing spaces
-            raw_tag="${raw_tag#"${raw_tag%%[![:space:]]*}"}"
+            # Normalize tag whitespace
+            local raw_tag="${tag_content#"${tag_content%%[![:space:]]*}"}"
             raw_tag="${raw_tag%"${raw_tag##*[![:space:]]}"}"
             if [[ -z "$raw_tag" ]]; then
-                # Per rule: paired-but-incorrect symbol removal applies only when closed; single empty tag stay literal now
+                # empty tag like "<   >", treat literally
                 seg+="$full_tag"
                 continue
             fi
 
-            # Check if closing tag
+            # Closing tag handling: starts with '/'
             if [[ "${raw_tag:0:1}" == "/" ]]; then
-                close_name="${raw_tag:1}"
-                # If no open tag => unmatched closing, treat literal
+                local close_name="${raw_tag:1}"
+                # If stack empty, treat as literal
                 if ((${#tag_stack[@]} == 0)); then
                     seg+="$full_tag"
                     continue
                 fi
 
-                # top format: "ttype:name:start"
-                top="${tag_stack[-1]}"
-                unset 'tag_stack[-1]'
+                # Pop top entry from stack
+                local last_idx=$((${#tag_stack[@]} - 1))
+                local top="${tag_stack[last_idx]}"
+                unset 'tag_stack[last_idx]'
                 tag_stack=("${tag_stack[@]}") # reindex
+
+                # Parse top entry: type:name:start_idx
+                local ttype rest name start_idx
                 ttype="${top%%:*}"
                 rest="${top#*:}"
                 name="${rest%%:*}"
                 start_idx="${rest#*:}"
 
-                # If names match -> positional pairing succeeded
+                # If closing name matches the tag name of the popped entry
                 if [[ "$name" == "$close_name" ]]; then
-                    # extract inner content that resides in result[start_idx:]
-                    inner_len=$((${#result} - start_idx))
-                    inner="${result:start_idx:inner_len}"
-                    # remove inner from result to replace with styled/kept content
+                    local inner_len=$((${#result} - start_idx))
+                    if ((inner_len < 0)); then
+                        inner_len=0
+                    fi
+                    local inner="${result:start_idx:inner_len}"
                     result="${result:0:start_idx}"
 
-                    # If tag name maps to a style, apply style wrapper
+                    # If we have a known style code for this name and a recognized type, wrap
                     if [[ -n "${style_codes[$name]}" && -n "$ttype" ]]; then
-                        # Build outer-prefix after popping current (to restore outers)
-                        outer_prefix="$(_outer_prefix_from_stack)"
-                        # Compose: style_of_name + inner + reset + outer_prefix
-                        result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer_prefix}"
+                        # Recompute outer prefix after popping (inline)
+                        local outer_after=""
+                        {
+                            local found_fx="" found_fg="" found_bg=""
+                            local entry t n rest2
+                            for entry in "${tag_stack[@]}"; do
+                                t="${entry%%:*}"
+                                rest2="${entry#*:}"
+                                n="${rest2%%:*}"
+                                case "$t" in
+                                fx) found_fx="$n" ;;
+                                fg) found_fg="$n" ;;
+                                bg) found_bg="$n" ;;
+                                esac
+                            done
+                            [[ -n "$found_fx" ]] && outer_after+="${style_codes[$found_fx]}"
+                            [[ -n "$found_fg" ]] && outer_after+="${style_codes[$found_fg]}"
+                            [[ -n "$found_bg" ]] && outer_after+="${style_codes[$found_bg]}"
+                        }
+                        result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer_after}"
                     else
-                        # Known positional pair but name not a style (or unknown type): remove tag symbols only, keep inner unchanged.
-                        result+="${inner}"
+                        # Unknown style name at runtime or no type: just re-insert inner unstyled
+                        result+="$inner"
                     fi
                 else
-                    # Names mismatch — per rule: remove tag symbols only (keep inner)
-                    inner_len=$((${#result} - start_idx))
-                    inner="${result:start_idx:inner_len}"
+                    # Mismatched closing tag: we don't honor ordering; just append inner content back as literal
+                    local inner_len=$((${#result} - start_idx))
+                    if ((inner_len < 0)); then
+                        inner_len=0
+                    fi
+                    local inner="${result:start_idx:inner_len}"
                     result="${result:0:start_idx}${inner}"
-                    # Do NOT reapply any outer prefix here (outer remains as is)
                 fi
-
                 continue
             fi
 
-            # Opening tag processing
-            tag_name="${raw_tag%%[[:space:]]*}"
-            ttype="$(_tag_type "$tag_name")"
-            tag_stack+=("${ttype}:${tag_name}:${#result}")
-            continue
+            # Opening tag handling: take first token as tag name
+            local tag_name="${raw_tag%%[[:space:]]*}"
+            # Determine tag type inline (no helper): fx, fg, bg, or empty
+            local ttype=""
+            case "$tag_name" in
+            fg_*) ttype="fg" ;;
+            bg_*) ttype="bg" ;;
+            bold | dim | underline | blink | reverse | hidden) ttype="fx" ;;
+            *) ttype="" ;;
+            esac
+
+            # If known type or known explicit code, push to stack with current result length index
+            if [[ -n "$ttype" || -n "${style_codes[$tag_name]}" ]]; then
+                tag_stack+=("${ttype}:${tag_name}:${#result}")
+            else
+                # Unknown tag: treat literally
+                result+="$full_tag"
+            fi
         done
 
-        # End of input: flush trailing seg
-        outer_prefix="$(_outer_prefix_from_stack)"
+        # Flush any remaining segment after loop with current outer prefix
+        local outer_prefix=""
+        {
+            local found_fx="" found_fg="" found_bg=""
+            local entry t n rest
+            for entry in "${tag_stack[@]}"; do
+                t="${entry%%:*}"
+                rest="${entry#*:}"
+                n="${rest%%:*}"
+                case "$t" in
+                fx) found_fx="$n" ;;
+                fg) found_fg="$n" ;;
+                bg) found_bg="$n" ;;
+                esac
+            done
+            [[ -n "$found_fx" ]] && outer_prefix+="${style_codes[$found_fx]}"
+            [[ -n "$found_fg" ]] && outer_prefix+="${style_codes[$found_fg]}"
+            [[ -n "$found_bg" ]] && outer_prefix+="${style_codes[$found_bg]}"
+        }
         if [[ -n "$seg" ]]; then
             if [[ -n "$outer_prefix" ]]; then
                 result+="${outer_prefix}${seg}${style_codes[reset]}"
@@ -622,25 +672,11 @@ Bisu::output() {
             fi
         fi
 
-        # Build a temporary buffer and reinsert at recorded offsets.
-        if ((${#tag_stack[@]})); then
-            tmp_result=""
-            i=0
-            idx_stack=0
-
-            for entry in "${tag_stack[@]}"; do
-                # entry format ttype:name:start
-                name="${entry#*:}"
-                name="${name%%:*}"
-                tmp_result+="<${name}>"
-            done
-            result+="$tmp_result"
-        fi
-
-        # Final mutate
+        # The prepared message becomes result
         message="$result"
-    }
+    fi
 
+    # Choose printf command according to newline flag
     local command
     if [[ "$use_newline" == "true" ]]; then
         command="printf '%b\\n' \"$message\""
@@ -648,16 +684,15 @@ Bisu::output() {
         command="printf '%b' \"$message\""
     fi
 
+    # Execute with folding and logging. Keep behavior: when log_only, suppress stdout.
     if [[ "$log_only" == "true" ]]; then
-        eval "$(printf '%s ' "$command")" |
-            { Bisu::debug_mode_on && fold -s -w "$BISU_LINE_BREAK_LENGTH" || fold -s -w "$BISU_LINE_BREAK_LENGTH" 2>/dev/null; } |
-            tee -a -- "$(Bisu::current_log_file)" &>/dev/null ||
-            return 1
+        eval "$command" |
+            { fold -s -w "${BISU_LINE_BREAK_LENGTH:-160}" 2>/dev/null; } |
+            tee -a -- "$(Bisu::current_log_file)" &>/dev/null || return 1
     else
-        eval "$(printf '%s ' "$command")" |
-            { Bisu::debug_mode_on && fold -s -w "$BISU_LINE_BREAK_LENGTH" || fold -s -w "$BISU_LINE_BREAK_LENGTH" 2>/dev/null; } |
-            { Bisu::debug_mode_on && tee -a -- "$(Bisu::current_log_file)" || tee -a -- "$(Bisu::current_log_file)" 2>/dev/null; } ||
-            return 1
+        eval "$command" |
+            { fold -s -w "${BISU_LINE_BREAK_LENGTH:-160}" 2>/dev/null; } |
+            tee -a -- "$(Bisu::current_log_file)" || return 1
     fi
 
     return 0
@@ -831,7 +866,7 @@ Bisu::dump() {
     exit 0
 }
 
-# Function: Bisu::current_command
+# Method: Bisu::current_command
 # Description: According to its naming
 Bisu::current_command() {
     if [ -z "$BISU_CURRENT_UTIL_COMMAND" ]; then
@@ -843,7 +878,7 @@ Bisu::current_command() {
     printf '%s' "$BISU_CURRENT_UTIL_COMMAND"
 }
 
-# Function: Bisu::current_args
+# Method: Bisu::current_args
 # Description: According to its naming
 Bisu::current_args() {
     local array_count=$(Bisu::array_count "BISU_CURRENT_UTIL_ARGS")
@@ -851,7 +886,7 @@ Bisu::current_args() {
     printf '%s\n' "${BISU_CURRENT_UTIL_ARGS[@]}"
 }
 
-# Function: Bisu::current_file_path
+# Method: Bisu::current_file_path
 # Description: According to its naming
 Bisu::current_file_path() {
     if [ -z $BISU_CURRENT_UTIL_FILE_PATH ] || ! Bisu::is_file "$BISU_CURRENT_UTIL_FILE_PATH"; then
@@ -863,7 +898,7 @@ Bisu::current_file_path() {
     printf '%s' "$BISU_CURRENT_UTIL_FILE_PATH"
 }
 
-# Function: Bisu::current_filename
+# Method: Bisu::current_filename
 # Description: According to its naming
 Bisu::current_filename() {
     if [ -z $BISU_CURRENT_UTIL_FILE_NAME ]; then
@@ -875,7 +910,7 @@ Bisu::current_filename() {
     printf '%s' "$BISU_CURRENT_UTIL_FILE_NAME"
 }
 
-# Function: Bisu::user_conf_dir
+# Method: Bisu::user_conf_dir
 # Description: According to its naming
 Bisu::user_conf_dir() {
     if [ -z $BISU_USER_CONF_DIR ]; then
@@ -887,13 +922,13 @@ Bisu::user_conf_dir() {
     printf '%s' "$BISU_USER_CONF_DIR"
 }
 
-# Function: Bisu::user_backup_dir
+# Method: Bisu::user_backup_dir
 # Description: According to its naming
 Bisu::user_backup_dir() {
     printf '%s' "$(Bisu::user_conf_dir)/backup"
 }
 
-# Function: Bisu::current_dir
+# Method: Bisu::current_dir
 # Description: According to its naming
 Bisu::current_dir() {
     printf '%s' $(dirname $(Bisu::current_file_path))
@@ -970,7 +1005,7 @@ Bisu::current_log_file() {
     printf '%s' "$log_file"
 }
 
-# Function: Bisu::current_tmpdir
+# Method: Bisu::current_tmpdir
 # Description: According to its naming
 Bisu::tmpdir() {
     if [ -z $TMPDIR ]; then
@@ -985,8 +1020,8 @@ Bisu::tmpdir() {
 # Add a log record to buffer
 Bisu::log_add() {
     Bisu::is_array "BISU_LOG_BUFFER" || {
-        Bisu::output "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
-        Bisu::quit 1
+        Bisu::log_msg "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
+        return 1
     }
 
     local msg="$1"
@@ -1005,8 +1040,8 @@ Bisu::log_add() {
 # Flush the log buffer to the log file
 Bisu::log_flush() {
     Bisu::is_array "BISU_LOG_BUFFER" || {
-        Bisu::output "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
-        Bisu::quit 1
+        Bisu::log_msg "${BISU_ERROR_MSG_PREFIX}Illegal log buffer array."
+        return 1
     }
 
     local output_buffer=$(Bisu::trim "${1:-true}")
@@ -1028,7 +1063,7 @@ Bisu::log_flush() {
     return 0
 }
 
-# Function: Bisu::log_msg
+# Method: Bisu::log_msg
 # Description: Log messages with timestamps to a specified log file, with fallback options.
 Bisu::log_msg() {
     local msg="$1"
@@ -1081,7 +1116,7 @@ Bisu::is_emoji() {
     return 1
 }
 
-# Function: Bisu::error_log
+# Method: Bisu::error_log
 Bisu::error_log() {
     local error_msg="$1"
     local emoji_label=$(Bisu::trim "$2")
@@ -1091,11 +1126,14 @@ Bisu::error_log() {
     return 0
 }
 
-# Function: forcefully terminate and show errors
+# Method: forcefully terminate and show errors
 Bisu::error_exit() {
     local msg=$(Bisu::trim "$1")
-    local status_code=$(Bisu::trim "${2:-1}")
+    local status_code=$(Bisu::trim "$2")
     Bisu::is_posi_int "${status_code}" || status_code=1
+    local emoji_label=$(Bisu::trim "$3")
+    Bisu::is_emoji "$emoji_label" || emoji_label="❗️"
+    msg="${emoji_label} ${msg}"
 
     [ -n "$msg" ] && {
         Bisu::log_add "${BISU_ERROR_MSG_PREFIX}$msg" "true"
@@ -1156,7 +1194,7 @@ Bisu::current_lock_file() {
         fi
 
         if ! Bisu::is_dir "$lock_file_dir"; then
-            Bisu::error_exit "❗️ Failed to create 🔒 lock_file_dir: ${lock_file_dir}."
+            Bisu::error_exit "Failed to create 🔒 lock_file_dir: ${lock_file_dir}."
         fi
 
         if Bisu::string_ends_with "$lock_file_dir" "/"; then
@@ -1166,12 +1204,12 @@ Bisu::current_lock_file() {
         BISU_LOCK_FILE_DIR="$lock_file_dir"
         BISU_LOCK_ID=$(Bisu::md5_sign "$(Bisu::current_command)")
         BISU_LOCK_FILE="$BISU_LOCK_FILE_DIR/$(Bisu::current_filename)_$BISU_LOCK_ID.lock" || {
-            Bisu::error_exit "❗️ Failed to set 🔒 lock_file: ${BISU_LOCK_FILE}"
+            Bisu::error_exit "Failed to set 🔒 lock_file: ${BISU_LOCK_FILE}"
         }
     fi
 
     if [ -z "$BISU_LOCK_ID" ]; then
-        Bisu::error_exit "❗️ Could not set 🔒 lock_id."
+        Bisu::error_exit "Could not set 🔒 lock_id."
     fi
 
     printf '%s' "$BISU_LOCK_FILE"
@@ -1185,7 +1223,7 @@ Bisu::get_importer_var() {
     printf '%s' "${!var_name}"
 }
 
-# Function: Bisu::target_dir
+# Method: Bisu::target_dir
 # Description: Installation Bisu::target_dir
 Bisu::target_dir() {
     local target_dir="$BISU_TARGET_PATH_PREFIX"
@@ -1199,25 +1237,25 @@ Bisu::target_dir() {
     printf '%s' "$target_dir"
 }
 
-# Function: Bisu::target_path
+# Method: Bisu::target_path
 # Description: Installation Bisu::target_path
 Bisu::target_path() {
     printf '%s' "$(Bisu::target_dir)/$(Bisu::current_filename)"
 }
 
-# Function: Bisu::strtolower
+# Method: Bisu::strtolower
 # Description: According to its naming
 Bisu::strtolower() {
     printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
 }
 
-# Function: Bisu::strtoupper
+# Method: Bisu::strtoupper
 # Description: According to its naming
 Bisu::strtoupper() {
     printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
 }
 
-# Function: Bisu::substr
+# Method: Bisu::substr
 # Description: According to its naming
 Bisu::substr() {
     local string="$1"
@@ -1309,53 +1347,113 @@ Bisu::normalize_bool() {
     return 0
 }
 
-# Bisu::string_join - join array elements with a separator
-# Usage: Bisu::string_join "array_name" "sep" [big_spec]
-# big_spec: true=use awk algo, false=use pure bash (default).
+# Bisu::string_join
+# Description:
+#   Join array elements into a single string with a separator.
+#   Preferred signature: Bisu::string_join "array_name" "receiver_var" "sep" [big_spec]
+#   Backward-compatible signature: Bisu::string_join "array_name" "sep" [big_spec]
+# Params:
+#   $1 - source array variable name (required)
+#   $2 - either receiver variable name (preferred) OR separator (legacy)
+#   $3 - separator (preferred) OR big_spec (legacy)
+#   $4 - big_spec (preferred; true/false). Default false.
+# Notes:
+#   - If receiver_var is provided and valid, the joined string is assigned to it.
+#   - If no receiver_var, result is printed to stdout (legacy behavior).
+#   - Respects Bisu helper functions: Bisu::trim, Bisu::is_valid_var_name,
+#     Bisu::array_is_available, Bisu::in_array, Bisu::set
 Bisu::string_join() {
-    local array_name sep big_spec
-    array_name=$(Bisu::trim "$1")
-    sep="$2"
+    local src_name raw2_orig raw2_trim sep big_spec receiver joined
 
-    declare -n arr_ref="$array_name"
-    Bisu::array_is_available "$array_name" || {
-        printf ''
+    src_name="$(Bisu::trim "$1")"
+    raw2_orig="$2"                 # preserve original (untrimmed) second arg (used as sep in legacy mode)
+    raw2_trim="$(Bisu::trim "$2")" # trimmed version used only to detect receiver var name
+
+    # Determine whether raw2_trim is a valid receiver var name.
+    if [[ -n "$raw2_trim" ]] && Bisu::is_valid_var_name "$raw2_trim"; then
+        # Preferred mode: $2 (trimmed) is receiver var name
+        receiver="$raw2_trim"
+        sep="${3-}" # use raw $3 as separator (do NOT trim)
+        big_spec="$(Bisu::trim "${4:-false}")"
+    else
+        # Legacy mode: $2 is separator — use original untrimmed value
+        receiver=""
+        sep="${raw2_orig-}"
+        big_spec="$(Bisu::trim "${3:-false}")"
+    fi
+
+    # Normalize big_spec
+    Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
+
+    # Validate source array availability
+    declare -n arr_ref="$src_name" 2>/dev/null
+    Bisu::array_is_available "$src_name" || {
+        # If receiver specified, set it to empty (robust assignment), then fail
+        if [[ -n "$receiver" ]]; then
+            if declare -n out_ref="$receiver" 2>/dev/null; then
+                out_ref=""
+            else
+                eval "declare -g ${receiver}=\"\"" 2>/dev/null || true
+            fi
+        else
+            printf ''
+        fi
         return 1
     }
 
-    big_spec=$(Bisu::trim "${3:-false}")
-    Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
-
-    if [[ $big_spec == "true" ]]; then
-        # Original awk algorithm for big-spec reference
-        printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
+    # Build joined string using chosen algorithm
+    if [[ "$big_spec" == "true" ]]; then
+        # Use awk for potentially very large data sets.
+        # Pass sep verbatim to awk (-v sep="...") so spaces/comma+space are preserved.
+        joined="$(printf '%s\n' "${arr_ref[@]}" | awk -v ORS="" -v sep="$sep" '
         {
             if (NR == 1) out = $0;
             else out = out sep $0;
         }
-        END { print out }' 2>/dev/null || {
-            printf ''
+        END { if (NR == 0) print ""; else print out }' 2>/dev/null)" || {
+            # On awk failure, set joined to empty and fail
+            joined=""
+            if [[ -n "$receiver" ]]; then
+                if declare -n out_ref="$receiver" 2>/dev/null; then
+                    out_ref="$joined"
+                else
+                    eval "declare -g ${receiver}=\"\$joined\"" 2>/dev/null || true
+                fi
+            else
+                printf '%s\n' "$joined"
+            fi
             return 1
         }
     else
-        # Pure Bash5 implementation (fastest)
-        local out=""
-        local first=true
+        # Pure Bash join (fast and stable)
+        local out="" first=1 elem
         for elem in "${arr_ref[@]}"; do
-            if $first; then
+            if ((first)); then
                 out="$elem"
-                first=false
+                first=0
             else
                 out+="$sep$elem"
             fi
         done
-        printf '%s\n' "$out"
+        joined="$out"
     fi
 
+    # Materialize result: if receiver provided, assign to it.
+    if [[ -n "$receiver" ]]; then
+        if declare -n out_ref="$receiver" 2>/dev/null; then
+            out_ref="$joined"
+        else
+            eval "declare -g ${receiver}=\"\$joined\"" 2>/dev/null || true
+        fi
+        return 0
+    fi
+
+    # Legacy behavior: print to stdout
+    printf '%s\n' "$joined"
     return 0
 }
 
-# Function: Bisu::normalize_number
+# Method: Bisu::normalize_number
 # Description: Normalizes a number string by removing unnecessary leading zeros,
 #              trailing zeros after decimal point, and unnecessary decimal point
 # Usage: Bisu::normalize_number "number_string"
@@ -1424,7 +1522,7 @@ Bisu::normalize_number() {
     return 0
 }
 
-# Function: Bisu::md5_sign
+# Method: Bisu::md5_sign
 # Description: Compute SHA1 hash of a string, robust and consistent with Bisu::md5_sign
 Bisu::md5_sign() {
     printf '%s' $(Bisu::trim "$1") | md5sum 2>/dev/null | awk '{print $1}' || {
@@ -1434,7 +1532,7 @@ Bisu::md5_sign() {
     return 0
 }
 
-# Function: Bisu::sha1_sign
+# Method: Bisu::sha1_sign
 # Description: Compute SHA1 hash of a string, robust and consistent with Bisu::sha1_sign
 Bisu::sha1_sign() {
     Bisu::command_exists "sha1sum" "true"
@@ -1445,7 +1543,7 @@ Bisu::sha1_sign() {
     return 0
 }
 
-# Function: Bisu::sha224_sign
+# Method: Bisu::sha224_sign
 # Description: Compute SHA224 hash of a string, robust and consistent with Bisu::sha224_sign
 Bisu::sha224_sign() {
     Bisu::command_exists "sha224sum" "true"
@@ -1456,7 +1554,7 @@ Bisu::sha224_sign() {
     return 0
 }
 
-# Function: Bisu::sha256_sign
+# Method: Bisu::sha256_sign
 # Description: Compute SHA256 hash of a string, robust and consistent with Bisu::sha256_sign
 Bisu::sha256_sign() {
     Bisu::command_exists "sha256sum" "true"
@@ -1467,7 +1565,7 @@ Bisu::sha256_sign() {
     return 0
 }
 
-# Function: Bisu::sha384_sign
+# Method: Bisu::sha384_sign
 # Description: Compute SHA384 hash of a string, robust and consistent with Bisu::sha384_sign
 Bisu::sha384_sign() {
     Bisu::command_exists "sha384sum" "true"
@@ -1478,7 +1576,7 @@ Bisu::sha384_sign() {
     return 0
 }
 
-# Function: Bisu::sha512_sign
+# Method: Bisu::sha512_sign
 # Description: Compute SHA512 hash of a string, robust and consistent with Bisu::sha512_sign
 Bisu::sha512_sign() {
     Bisu::command_exists "sha512sum" "true"
@@ -1489,7 +1587,7 @@ Bisu::sha512_sign() {
     return 0
 }
 
-# Function: Bisu::md5_file
+# Method: Bisu::md5_file
 # Description: Sign a md5 hash for a file
 Bisu::md5_file() {
     local file=$(Bisu::trim "$1")
@@ -1504,7 +1602,7 @@ Bisu::md5_file() {
     return 0
 }
 
-# Function: Bisu::sha1_file
+# Method: Bisu::sha1_file
 # Description: Generate SHA-1 hash for a file
 Bisu::sha1_file() {
     Bisu::command_exists "sha1sum" "true"
@@ -1521,7 +1619,7 @@ Bisu::sha1_file() {
     return 0
 }
 
-# Function: Bisu::sha224_file
+# Method: Bisu::sha224_file
 # Description: Generate SHA-224 hash for a file
 Bisu::sha224_file() {
     Bisu::command_exists "sha224sum" "true"
@@ -1538,7 +1636,7 @@ Bisu::sha224_file() {
     return 0
 }
 
-# Function: Bisu::sha256_file
+# Method: Bisu::sha256_file
 # Description: Generate SHA-256 hash for a file
 Bisu::sha256_file() {
     Bisu::command_exists "sha256sum" "true"
@@ -1555,7 +1653,7 @@ Bisu::sha256_file() {
     return 0
 }
 
-# Function: Bisu::sha384_file
+# Method: Bisu::sha384_file
 # Description: Generate SHA-384 hash for a file
 Bisu::sha384_file() {
     Bisu::command_exists "sha384sum" "true"
@@ -1572,7 +1670,7 @@ Bisu::sha384_file() {
     return 0
 }
 
-# Function: Bisu::sha512_file
+# Method: Bisu::sha512_file
 # Description: Generate SHA-512 hash for a file
 Bisu::sha512_file() {
     Bisu::command_exists "sha512sum" "true"
@@ -1893,7 +1991,16 @@ Bisu::str_ireplace() {
     return 0
 }
 
-# Convert a string into an array (lossless, robust)
+# Bisu::string_to_array
+# Description:
+#   Convert an input string into a global array (indexed or associative) using the
+#   Bisu-style ref-processing pattern: stage -> dump -> set -> rehydrate.
+# Usage:
+#   Bisu::string_to_array "<input>" "receiver_array_name" [delim]
+# Params:
+#   $1 - input string (trimmed). Empty/blank -> return 0 (empty array).
+#   $2 - receiver array variable name (required, validated via Bisu::is_valid_var_name).
+#   $3 - delimiter for splitting when not newline-delimited (default: single space).
 Bisu::string_to_array() {
     local input="$1"
     local array_name=$(Bisu::trim "$2")
@@ -2008,7 +2115,6 @@ Bisu::exec_command() {
     phrase="$(printf '%s ' "${cmd} ${args}")"
 
     Bisu::is_executable "$cmd" || return 1
-
     local run_in_bg=$(Bisu::trim "$2")
     Bisu::in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
     local log_file=$(Bisu::current_log_file)
@@ -2069,74 +2175,199 @@ Bisu::confirm() {
     done
 }
 
+# Method: Bisu::normalize_path v5
 # Get the file's real path and verify the base folder's existence
+# Normalize a filesystem path string and optionally verify existence.
+# Parameters:
+#   $1  - input path (string). If empty after trim -> returns empty string.
+#   $2  - preserve_relative_path (expects "true" or "false"; kept for API compatibility;
+#         original behavior converts relative paths to absolute; this parameter is
+#         validated but NOT applied to preserve original semantics).
+#   $3  - check_base_existence ("true"|"false"). If "true" the function prints the
+#         normalized path only when it exists; otherwise prints empty string.
+# Notes:
+#   - Uses Bisu::trim and Bisu::in_array which are assumed to exist (per original).
+#   - Uses pure-bash manipulations and safe subshells for cd to avoid changing caller cwd.
+#   - Returns 0 on success; prints result to stdout (empty string when requested/absent).
 Bisu::normalize_path() {
-    # Trim spaces and handle parameters (assumes Bisu::trim and Bisu::in_array exist)
-    local file=$(Bisu::trim "$1")
-    local check_base_existence=$(Bisu::trim "${2:-false}")
+    local file
+    file="$(Bisu::trim "$1")"
+    local check_base_existence
+    check_base_existence="$(Bisu::trim "$2")"
     Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
+    local preserve_relative_path
+    preserve_relative_path="$(Bisu::trim "$3")"
+    Bisu::in_array "$preserve_relative_path" "true" "false" || preserve_relative_path="false"
 
-    # Preserve original semantics: empty input (after trim) -> return empty string
+    # Preserve original semantics: empty input -> return empty string (and exit 0).
     if [ -z "$file" ]; then
         printf ''
         return 0
     fi
 
-    # Convert relative paths to absolute paths (kept identical to original logic)
+    # Expand leading tilde safely: ~ or ~user (only ~ for current user handled here)
     case "$file" in
-    /*) : ;; # Already absolute
-    ~*) file="${HOME}${file#~}" ;;
-    .) file="$(pwd)" ;;                                   # Convert "." to PWD
-    ..) file="$(cd .. && pwd)" ;;                         # Convert ".." to absolute path
-    ./*) file="$(pwd)/${file#./}" ;;                      # Handle "./file"
-    ../*) file="$(cd "${file%/*}" && pwd)/${file##*/}" ;; # Handle "../file"
-    *) file="$(pwd)/$file" ;;                             # Convert other relative paths
+    ~) file="${HOME}" ;;
+    ~/*) file="${HOME}/${file#~/}" ;;
+    esac
+
+    # Convert certain relative shorthands to absolute (match original behavior):
+    case "$file" in
+    /*) : ;;                                      # already absolute — no change
+    .) file="$(pwd)" ;;                           # single dot -> current working dir
+    ..) file="$(cd .. >/dev/null 2>&1 && pwd)" ;; # parent dir -> absolute
+    ./*) file="$(pwd)/${file#./}" ;;              # ./something -> pwd/something
+    ../*)                                         # ../foo -> resolve directory portion
+        {
+            # Use a subshell cd to avoid changing caller directory.
+            local _dirpart="${file%/*}"
+            local _basepart="${file##*/}"
+            # If path is exactly "../name" then _dirpart == ".."
+            file="$(cd "$_dirpart" >/dev/null 2>&1 && pwd)/$_basepart" || file="$(pwd)/$file"
+        }
+        ;;
+    *) file="$(pwd)/$file" ;; # other relative -> pwd/relative
     esac
 
     # --------------------------
-    # Path normalization (pure bash, adaptive low-cost loop)
-    # - collapse repeated slashes using parameter-expansion in a loop until no '//' remains
-    # - remove '/./' segments
-    # - remove trailing '/.' if present
-    # - trim trailing whitespace
-    # - remove trailing slashes except for root '/'
+    # Path normalization (pure bash)
+    #  - collapse repeated '//' sequences
+    #  - remove '/./' segments
+    #  - remove trailing '/.' if present
+    #  - trim trailing whitespace
+    #  - remove trailing slashes except for root '/'
     # --------------------------
 
-    # Adaptive low-cost collapse of repeated '//' sequences (logarithmic behavior for long runs)
+    # Collapse repeated slashes (iteratively until no double-slash remains).
+    # Use a lightweight loop; safe for extremely long sequences.
     while [[ "$file" == *//* ]]; do
-        file=${file//\/\//\/}
+        file="${file//\/\//\/}"
     done
 
-    # remove all '/./' occurrences
-    file=${file//\/.\//\/}
+    # Remove '/./' segments
+    file="${file//\/.\//\/}"
 
-    # remove trailing '/.' if present
+    # Remove trailing '/.' if present
     case "$file" in
-    */.) file=${file%/.} ;;
+    */.) file="${file%/.}" ;;
     esac
 
-    # trim trailing whitespace (spaces, tabs, newlines) using parameter-expansion idiom
-    # compute trailing whitespace suffix then remove it
-    local _trail="${file##*[![:space:]]}"
+    # Trim trailing whitespace characters (space, tab, newline)
+    local _trail="${file##*[!$' \t\n']}"
     file="${file%"$_trail"}"
 
-    # remove trailing slashes but keep root "/" intact
+    # Remove trailing slashes but preserve root '/'
     if [ "$file" != "/" ]; then
+        # Remove any trailing slashes
+        # "${file##*[!/]}" yields the trailing run of slashes; remove them
         file="${file%"${file##*[!/]}"}"
-        # if result becomes empty (input was non-empty but all slashes), coerce to "/"
+        # If result becomes empty (path was only slashes), coerce to '/'
         [ -z "$file" ] && file="/"
     fi
 
-    # Final output: if check_base_existence requested, only output if path exists; else output normalized path
-    if [[ "$check_base_existence" == "true" ]]; then
-        [ -e "$file" ] && printf '%s' "$file" || printf ''
+    # Final output: if check_base_existence requested, only output if path exists
+    if [ "$check_base_existence" = "true" ]; then
+        if [ -e "$file" ]; then
+            printf '%s' "$file"
+        else
+            printf ''
+        fi
     else
         printf '%s' "$file"
     fi
+
     return 0
 }
 
-# Function: Bisu::add_env_path
+# Compute relative path from base to target
+# Usage: Bisu::relative_path <target> <base>
+# Prints the relative path (single newline).
+Bisu::relative_path() {
+    local target="$1" base="$2"
+    local abs_target abs_base rel IFS_bak
+    local -a tparts=() bparts=() tstack=() bstack=() result_parts=()
+    local common_len min_len up i part
+
+    # default base
+    [ -z "$base" ] && base="."
+
+    # absolute paths (no symlink resolution)
+    case "$target" in /*) abs_target="$target" ;; *) abs_target="$PWD/$target" ;; esac
+    case "$base" in /*) abs_base="$base" ;; *) abs_base="$PWD/$base" ;; esac
+
+    # remove trailing slash (except root)
+    [ "${abs_target%/}" != "/" ] && abs_target="${abs_target%/}"
+    [ "${abs_base%/}" != "/" ] && abs_base="${abs_base%/}"
+
+    # split components
+    IFS_bak=$IFS
+    IFS='/'
+    read -ra tparts <<<"$abs_target"
+    read -ra bparts <<<"$abs_base"
+    IFS=$IFS_bak
+
+    # normalize target
+    for part in "${tparts[@]}"; do
+        case "$part" in
+        "" | ".") continue ;;
+        "..")
+            [ ${#tstack[@]} -gt 0 ] && unset 'tstack[${#tstack[@]}-1]'
+            continue
+            ;;
+        esac
+        tstack+=("$part")
+    done
+
+    # normalize base
+    for part in "${bparts[@]}"; do
+        case "$part" in
+        "" | ".") continue ;;
+        "..")
+            [ ${#bstack[@]} -gt 0 ] && unset 'bstack[${#bstack[@]}-1]'
+            continue
+            ;;
+        esac
+        bstack+=("$part")
+    done
+
+    # identical paths
+    if [ ${#tstack[@]} -eq ${#bstack[@]} ]; then
+        local same=1
+        for ((i = 0; i < ${#tstack[@]}; i++)); do
+            [ "${tstack[i]}" != "${bstack[i]}" ] && same=0 && break
+        done
+        [ $same -eq 1 ] && printf '.\n' && return 0
+    fi
+
+    # find common prefix
+    min_len=${#tstack[@]}
+    [ ${#bstack[@]} -lt $min_len ] && min_len=${#bstack[@]}
+    common_len=0
+    for ((i = 0; i < min_len; i++)); do
+        [ "${tstack[i]}" != "${bstack[i]}" ] && break
+        common_len=$((common_len + 1))
+    done
+
+    # assemble result
+    up=$((${#bstack[@]} - common_len))
+    for ((i = 0; i < up; i++)); do result_parts+=(".."); done
+    for ((i = common_len; i < ${#tstack[@]}; i++)); do result_parts+=("${tstack[i]}"); done
+
+    # join or fall back to "."
+    if [ ${#result_parts[@]} -eq 0 ]; then
+        rel='.'
+    else
+        IFS_bak=$IFS
+        IFS='/'
+        rel="${result_parts[*]}"
+        IFS=$IFS_bak
+    fi
+
+    printf '%s\n' "$rel"
+    return 0
+}
+
+# Method: Bisu::add_env_path
 # Description: To robustly add new path to append
 Bisu::add_env_path() {
     local new_path=$(Bisu::trim "$1")
@@ -2566,7 +2797,7 @@ Bisu::floor() {
     fi
 }
 
-# Function: Bisu::is_file
+# Method: Bisu::is_file
 # Description: According to its naming
 Bisu::is_file() {
     local filepath=$(Bisu::trim "$1")
@@ -2574,7 +2805,7 @@ Bisu::is_file() {
     return 0
 }
 
-# Function: Bisu::is_dir
+# Method: Bisu::is_dir
 # Description: According to its naming
 Bisu::is_dir() {
     local dirpath=$(Bisu::trim "$1")
@@ -2630,7 +2861,7 @@ Bisu::is_top_folder() {
     return 0
 }
 
-# Function: Bisu::file_exists
+# Method: Bisu::file_exists
 # Description: According to its naming
 Bisu::file_exists() {
     local filepath=$(Bisu::trim "$1")
@@ -2807,7 +3038,7 @@ Bisu::cp_p() {
     return 0
 }
 
-# Function: Bisu::move_file
+# Method: Bisu::move_file
 # Description: Moves any file to the specified target path.
 # Arguments:
 #   $1 - Source to move (source path).
@@ -2830,7 +3061,7 @@ Bisu::move_file() {
 Bisu::saferm() {
     local path=$(Bisu::trim "$1")
     local parent_dir=$(Bisu::trim "$2")
-    parent_dir=${parent_dir:-"$TMPDIR"}
+    [ -n "$parent_dir" ] || parent_dir=$(Bisu::tmpdir)
     local timing=$(Bisu::trim "$3")
     timing=${timing:-"immediately"}
     local rm_command=""
@@ -2839,10 +3070,14 @@ Bisu::saferm() {
     parent_dir=$(Bisu::normalize_path "$parent_dir" "true")
 
     if [ -z "$path" ] || [ -z "$parent_dir" ]; then
+        Bisu::error_log "Path or parent_dir does not exist"
         return 1
     fi
 
-    ! Bisu::is_top_folder "$path" || return 1
+    Bisu::is_top_folder "$path" && {
+        Bisu::error_log "Is top folder, can not be removed"
+        return 1
+    }
 
     if Bisu::is_sub_folder_of "$path" "$parent_dir"; then
         if Bisu::is_file "$path"; then
@@ -2857,10 +3092,16 @@ Bisu::saferm() {
 
     case "$timing" in
     "immediately")
-        Bisu::exec_command "$rm_command" "true" || return 1
+        Bisu::exec_command "$rm_command" "true" || {
+            Bisu::error_log "Failed to run removal command: '${rm_command}'"
+            return 1
+        }
         ;;
     "when_quit")
-        Bisu::exec_when_quit "$rm_command" || return 1
+        Bisu::exec_when_quit "$rm_command" || {
+            Bisu::error_log "Failed to run removal command: '${rm_command}'"
+            return 1
+        }
         ;;
     *)
         return 1
@@ -2909,34 +3150,40 @@ Bisu::array_is_available() {
     return 0
 }
 
-# Function to sign an array based on its name
+# Bisu::sign_array
+# Description:
+#   Compute a deterministic MD5 signature of a Bisu-managed array (indexed or associative)
+#   based on its canonical dumped contents.
+# Usage:
+#   Bisu::sign_array "array_name"
 Bisu::sign_array() {
-    local array_name=$(Bisu::trim "$1")
-    local array_contents
-    local array_md5
+    local array_name trimmed_contents array_md5
 
-    # To perform indirect referencing of the array by its name
-    Bisu::array_copy "$array_name" "array_contents" || {
+    # Normalize array name
+    array_name="$(Bisu::trim "$1")"
+
+    # Safely copy the array into a local variable using canonical ref-processing
+    Bisu::array_copy "$array_name" "trimmed_contents" || {
         printf ''
         return 1
     }
 
-    # Check if the array is empty
-    if [ ${#array_contents[@]} -eq 0 ]; then
+    # If the array is empty, return empty
+    [[ ${#trimmed_contents[@]} -eq 0 ]] && {
         printf ''
         return 1
-    fi
+    }
 
-    # Compute the MD5 hash of the array contents safely
-    array_md5=$(printf '%s\n' "${array_contents[@]}" | awk '{ print $0 }' 2>/dev/null | md5sum | awk '{print $1}' 2>/dev/null)
+    # Compute MD5 hash from canonical array contents
+    array_md5=$(printf '%s\n' "${trimmed_contents[@]}" 2>/dev/null | md5sum 2>/dev/null | awk '{print $1}' 2>/dev/null)
 
-    # Ensure the MD5 computation was successful
-    if [ -z "$array_md5" ]; then
+    # If MD5 computation failed, return empty
+    [[ -z "$array_md5" ]] && {
         printf ''
         return 1
-    fi
+    }
 
-    # Output the computed MD5 hash (array signature)
+    # Output the array signature
     printf '%s' "$array_md5"
     return 0
 }
@@ -2996,282 +3243,369 @@ Bisu::in_array() {
     return 0
 }
 
-# Bisu::dump an array's elements into string
+# Bisu::array_dump v2
+# Description:
+#   Serialize a Bisu-managed array (indexed or associative) into a canonical string representation.
+#   Supports Bash5 indexed arrays and associative arrays.
+# Usage:
+#   kv_str=$(Bisu::array_dump "array_name")
 Bisu::array_dump() {
-    local array_name=$(Bisu::trim "$1")
+    local array_name kv_str declare_out
+
+    # Normalize the input array name
+    array_name=$(Bisu::trim "$1")
+    [ -n "$array_name" ] || {
+        printf ''
+        return 1
+    }
+
+    # Determine if array is indexed or associative
     if Bisu::is_indexed_array "$array_name"; then
-        # Stream array elements using mapfile + xargs only if it works, fallback to eval
-        local -a temp_array=()
+        # Indexed array
+        local -a temp_array
+        # Attempt robust element extraction
         if ! eval "mapfile -t temp_array < <(printf '%s\0' \"\${${array_name}[@]}\" 2>/dev/null | xargs -0 -n1 printf '%s\n' 2>/dev/null)"; then
-            # Fallback safe to get array elements
+            # Fallback if streaming fails
             eval "temp_array=(\"\${${array_name}[@]}\")" &>/dev/null || {
                 printf ''
                 return 1
             }
         fi
 
-        # Output quoted elements, streamed, avoid extra arrays
+        # Canonical quoting of elements
         local IFS=$' '
-        # Use printf + awk for quoting in a streaming fashion
-        printf '%s\n' "${temp_array[@]}" |
+        kv_str=$(printf '%s\n' "${temp_array[@]}" |
             awk '{
-            # Escape single quotes inside element for safe POSIX shell quoting
-            gsub(/'\''/, "'\''\\'\'''\''")
-            # Print each element quoted with trailing space
-            printf "'\''%s'\'' ", $0
-        }
-        END {
-            # Replace last space with newline to Bisu::trim trailing space precisely
-            if (NR > 0) {
-                printf "\n"
+                gsub(/'\''/, "'\''\\'\'''\''");  # Escape single quotes
+                printf "'\''%s'\'' ", $0
             }
-        }' 2>/dev/null || {
-            printf ''
-            return 1
-        }
+            END {
+                if (NR > 0) printf "\n"
+            }' 2>/dev/null)
+
+        printf '%s\n' "$(Bisu::trim "$kv_str")"
         return 0
     elif Bisu::is_assoc_array "$array_name"; then
-        local kv p
+        # Associative array
+        local p kv
         if p="$(declare -p "$array_name" 2>/dev/null)"; then
-            # strip everything up to the first '=' to leave the literal payload
+            # Extract literal payload after '='
             kv="${p#*=}"
-            # Some bash builds may wrap the kv in top-level quotes;
-            # if so strip *one* matching outer quote char (single or double).
+            # Strip top-level quotes if present
             case "$kv" in
             \'*\') kv="${kv:1:-1}" ;;
             \"*\") kv="${kv:1:-1}" ;;
             esac
+            kv=$(Bisu::trim "$kv" "() ")
+            printf '%s\n' "$kv"
+            return 0
         fi
-        kv=$(Bisu::trim "$kv" "() ")
-        # Print exactly the literal (no extra chars).
-        printf '%s\n' "$kv"
-        return 0
     fi
 
+    # If not an array or extraction fails, return empty
     printf ''
     return 1
 }
 
-# Function: Bisu::array_copy
-# Description: to copy an array internally or globally
+# Bisu::array_copy v1
+# Description:
+#   Copy a Bisu-managed array (indexed or associative) from one variable to another.
+#   Preserves array type and follows the canonical ref-processing pattern: dump -> set -> rehydrate.
+# Usage:
+#   Bisu::array_copy "source_array_name" "destination_array_name"
 Bisu::array_copy() {
-    local array_name=$(Bisu::trim "$1")
-    declare -n arr_ref="$array_name"
-    local new_array_name=$(Bisu::trim "$2")
-    declare -n new_arr_ref="$new_array_name"
+    local src dst declare_out is_assoc kv_str
 
-    if ! Bisu::is_array "$array_name" || ! Bisu::is_valid_var_name "$new_array_name"; then
-        return 1
+    # Normalize and validate names
+    src="$(Bisu::trim "$1")"
+    dst="$(Bisu::trim "$2")"
+    Bisu::is_valid_var_name "$dst" || return 1
+    Bisu::is_array "$src" || return 1
+
+    # Safe no-op if source and destination are the same
+    [[ "$src" == "$dst" ]] && return 0
+
+    # Determine array type: associative or indexed
+    if Bisu::is_assoc_array "$src"; then
+        is_assoc="true"
+    else
+        is_assoc="false"
     fi
 
-    # Pass original array name, not nameref variable name, to Bisu::array_dump
-    new_arr_ref=($(Bisu::array_dump "$array_name"))
+    # Prepare named reference for destination and clear existing contents
+    declare -n dst_ref="$dst" 2>/dev/null
+    dst_ref=()
+
+    # Obtain canonical dump of source array (Bisu pattern)
+    kv_str="$(Bisu::array_dump "$src")" || return 1
+
+    # Set the canonical representation into the reference
+    Bisu::set "dst_ref" "${kv_str[@]}" || return 1
+
+    # Rehydrate the global array, preserving type
+    if [[ "$is_assoc" == "true" ]]; then
+        eval "declare -gA ${dst}=($kv_str)" 2>/dev/null || return 1
+    else
+        eval "declare -ga ${dst}=($kv_str)" 2>/dev/null || return 1
+    fi
+
     return 0
 }
 
-# Function: Bisu::normalize_array
+# Method: Bisu::normalize_array
 Bisu::normalize_array() {
     Bisu::array_splice "$1" 0 0 || return 1
     return 0
 }
 
-# Function: Bisu::array_splice
-# Description: To remove elements from an array
+# Bisu::array_splice
+# Description:
+#   Remove `quantity` elements from array `array_name` starting at `position`.
+#   Uses Bisu ref-processing pattern: stage -> array_dump -> Bisu::set -> rehydrate.
+# Usage:
+#   Bisu::array_splice "array_name" "quantity"            # removes from start
+#   Bisu::array_splice "array_name" "position" "quantity" # removes from position
 Bisu::array_splice() {
-    local array_name=$(Bisu::trim "$1")
-    declare -n arr_ref="$array_name"
-    local position
-    local quantity
-    local array_count=$(Bisu::array_count "$array_name")
+    local array_name pos qty array_count i idx tmp_name kv_str
 
+    # Normalize & validate source array
+    array_name="$(Bisu::trim "$1")"
     Bisu::is_array "$array_name" || return 1
+
+    # Name reference to source array for read access
+    declare -n arr_ref="$array_name" 2>/dev/null || return 1
+    array_count="$(Bisu::array_count "$array_name")"
+
+    # If array empty, nothing to do
     [ "${#arr_ref[@]}" -gt 0 ] || return 0
 
+    # Parse args: legacy two-arg form: (array_name, quantity)
     if [ $# -eq 2 ]; then
-        quantity=$(Bisu::trim "$2")
-        position=0
+        pos=0
+        qty="$(Bisu::trim "$2")"
     else
-        position=$(Bisu::trim "$2")
-        quantity=$(Bisu::trim "$3")
+        pos="$(Bisu::trim "$2")"
+        qty="$(Bisu::trim "$3")"
     fi
 
-    if ! Bisu::is_nn_int "$position" || ! Bisu::is_nn_int "$quantity"; then
-        eval "$array_name=()"
+    # Validate non-negative integers for pos and qty
+    if ! Bisu::is_nn_int "$pos" || ! Bisu::is_nn_int "$qty"; then
         return 1
     fi
 
-    [ "$position" -ge "$array_count" ] && return 0
+    # If start position out of range -> nothing to remove
+    [ "$pos" -ge "$array_count" ] && return 0
 
-    ((position + quantity > array_count)) && quantity=$((array_count - position))
+    # Clamp quantity so we don't exceed array bounds
+    if ((pos + qty > array_count)); then
+        qty=$((array_count - pos))
+    fi
 
-    local new_array
-    new_array=$(printf '%s\n' "${arr_ref[@]}" |
-        awk -v pos="$position" -v qty="$quantity" 'NR < pos + 1 || NR > pos + qty { print }' 2>/dev/null) || {
+    # If qty is zero after clamp, nothing to do
+    [ "$qty" -gt 0 ] || return 0
+
+    # Create a low-collision temporary global indexed array to stage remaining elements
+    tmp_name="bisu_splice_tmp_${$}_${RANDOM}_${RANDOM}"
+
+    # Initialize the temporary working array globally so Bisu::array_dump can see it
+    eval "declare -ga ${tmp_name}=()" 2>/dev/null || return 1
+
+    # Use Bisu::array_set to stage kept items into the working array (preserve numeric ordering)
+    idx=0
+    for ((i = 0; i < array_count; i++)); do
+        if ((i < pos)) || ((i >= pos + qty)); then
+            # stage element at numeric index idx
+            Bisu::array_set "$tmp_name" "$idx" "${arr_ref[i]}" || {
+                unset -v "$tmp_name" 2>/dev/null || true
+                return 1
+            }
+            idx=$((idx + 1))
+        fi
+    done
+
+    # Obtain canonical dump of the working array
+    kv_str="$(Bisu::array_dump "$tmp_name")" || {
+        unset -v "$tmp_name" 2>/dev/null || true
         return 1
     }
 
-    mapfile -t arr_ref <<<"$new_array" &>/dev/null
+    # Prepare destination named reference (arr_ref) and clear existing contents (best-effort)
+    declare -n dst_ref="$array_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+    dst_ref=()
+
+    # Set the dumped representation into the named reference (Bisu pattern)
+    Bisu::set "dst_ref" "${kv_str[@]}" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Rehydrate the global destination as an indexed array (type-safe rehydrate)
+    eval "declare -ga ${array_name}=($kv_str)" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Cleanup temporary working array
+    unset -v "$tmp_name" 2>/dev/null || true
+
     return 0
 }
 
-# Set the specified key/value pairs in either indexed or associative arrays
-# Usage: Bisu::array_set arr key1 val1 [key2 val2 ...]
+# Bisu::array_set
+# Description:
+#   Set key/value pairs in indexed or associative arrays.
+#   Fully uses Bisu's ref-processing pattern: canonical dump -> set via nameref -> rehydrate global array.
+# Usage:
+#   Bisu::array_set "array_name" key1 val1 [key2 val2 ...]
 # Returns 0 on success, 1 on failure
 Bisu::array_set() {
-    local array_name key value is_assoc tmp_var tmp_ref ref numeric_indices sorted_idx idx i old_IFS
+    local arr_name key val is_assoc tmp_assoc tmp_ref num_keys sorted_idx idx i IFS_bak kv_dump
 
-    # first arg: array name (Bisu::trim provided by caller)
-    array_name=$(Bisu::trim "$1")
+    # Trim and validate array name
+    arr_name="$(Bisu::trim "$1")"
     shift
+    Bisu::is_array "$arr_name" || return 1
 
-    # ensure array exists (helper expected to exist)
-    Bisu::is_array "$array_name" || return 1
+    # Name reference to target array
+    declare -n ref="$arr_name"
 
-    # name reference to target array
-    declare -n ref="$array_name"
-
-    # detect whether it is already associative (helper expected to exist)
-    if Bisu::is_assoc_array "$array_name"; then
+    # Detect if array is associative
+    if Bisu::is_assoc_array "$arr_name"; then
         is_assoc=1
     else
         is_assoc=0
     fi
 
-    # Process each key/value pair
+    # Process key/value pairs
     while (($# > 1)); do
-        key=$(Bisu::trim "$1")
-        value="$2"
+        key="$(Bisu::trim "$1")"
+        val="$2"
         shift 2
 
-        # ignore empty keys
+        # Skip empty keys
         [[ -z "$key" ]] && continue
 
-        # fast path: already associative
+        # Associative array fast path
         if ((is_assoc)); then
-            ref["$key"]="$value"
+            ref["$key"]="$val"
             continue
         fi
 
-        # fast path: numeric index -> keep indexed array
+        # Numeric key -> keep as indexed
         case "$key" in
-        '' | *[!0-9]*) ;; # non-numeric -> fall through to migration
+        '' | *[!0-9]*) ;; # non-numeric -> migration
         *)
-            ref["$key"]="$value"
+            ref["$key"]="$val"
             continue
             ;;
         esac
 
-        # ---------- migration: indexed -> associative ----------
-        # create a unique temporary associative array name (sanitized)
-        tmp_var="__array_mig_${array_name//[^a-zA-Z0-9_]/}_${BISU_CURRENT_UTIL_PID}_${RANDOM}"
-        declare -gA "$tmp_var"
-        declare -n tmp_ref="$tmp_var"
+        # ---------- Migration: indexed -> associative ----------
+        # Create unique temp associative container
+        tmp_assoc="__arr_mig_${arr_name//[^a-zA-Z0-9_]/}_${BISU_CURRENT_UTIL_PID}_${RANDOM}"
+        declare -gA "$tmp_assoc"
+        declare -n tmp_ref="$tmp_assoc"
 
-        # copy only existing numeric indices into temporary container
-        numeric_indices=()
+        # Copy existing numeric indices into temp
+        num_keys=()
         for i in "${!ref[@]}"; do
             case "$i" in
-            '' | *[!0-9]*) ;; # skip non-numeric keys (defensive)
+            '' | *[!0-9]*) ;; # skip non-numeric
             *)
-                numeric_indices+=("$i")
+                num_keys+=("$i")
                 tmp_ref["$i"]="${ref[$i]}"
                 ;;
             esac
         done
 
-        # destroy original and re-declare as associative
-        unset -v "$array_name"
-        declare -gA "$array_name"
-        declare -n ref="$array_name"
+        # Clear original and convert to associative
+        unset -v "$arr_name"
+        declare -gA "$arr_name"
+        declare -n ref="$arr_name"
 
-        # restore numeric entries in ascending numeric order (stable)
-        if ((${#numeric_indices[@]})); then
-            # Use bash builtin mapfile when more than one index to avoid word-splitting issues
-            if ((${#numeric_indices[@]} > 1)); then
-                old_IFS=$IFS
+        # Restore numeric entries in ascending order
+        if ((${#num_keys[@]})); then
+            if ((${#num_keys[@]} > 1)); then
+                IFS_bak=$IFS
                 IFS=$'\n'
-                # sort numerically; use printf + sort (external) only when necessary for ordering
-                mapfile -t sorted_idx < <(printf '%s\n' "${numeric_indices[@]}" | sort -n)
-                IFS=$old_IFS
+                mapfile -t sorted_idx < <(printf '%s\n' "${num_keys[@]}" | sort -n)
+                IFS=$IFS_bak
             else
-                sorted_idx=("${numeric_indices[@]}")
+                sorted_idx=("${num_keys[@]}")
             fi
-
             for idx in "${sorted_idx[@]}"; do
                 ref["$idx"]="${tmp_ref[$idx]}"
             done
-            unset sorted_idx
         fi
 
-        # cleanup temporary container
+        # Cleanup temporary
         unset -v tmp_ref
-        unset -v "$tmp_var"
+        unset -v "$tmp_assoc"
 
-        # mark as associative and set requested key
+        # Mark as associative and set key
         is_assoc=1
-        ref["$key"]="$value"
+        ref["$key"]="$val"
     done
 
     return 0
 }
 
-# Get an element from a indexed or assoc array, if multiple keys,
-# return the first non-empty value found.
-# Usage: Bisu::array_get arr key1 [key2 ...]
-# Returns: 0 on success (prints value), 1 on failure (prints nothing)
+# Bisu::array_get
+# Description:
+#   Retrieve the first non-empty value for one or more keys from a Bisu-managed array
+#   (indexed or associative). Fully uses Bisu's ref-processing pattern: dump -> set -> rehydrate.
+# Usage:
+#   Bisu::array_get "array_name" key1 [key2 ...]
+# Returns 0 on success (prints value), 1 on failure (prints nothing)
 Bisu::array_get() {
-    local array_name key val is_assoc idx
-    array_name=$(Bisu::trim "$1")
-    shift
+    local arr_name key val is_assoc idx
 
-    # Array must exist
-    Bisu::is_array "$array_name" || {
+    # Normalize and validate array name
+    arr_name="$(Bisu::trim "$1")"
+    shift
+    Bisu::is_array "$arr_name" || {
         printf ''
         return 1
     }
 
-    # name reference to target
-    declare -n ref="$array_name"
-
-    # detect associative vs indexed (helper expected to exist)
-    if Bisu::is_assoc_array "$array_name"; then
+    # Determine array type (associative or indexed)
+    if Bisu::is_assoc_array "$arr_name"; then
         is_assoc=1
     else
         is_assoc=0
     fi
 
-    # iterate keys in order; return first non-empty value
-    for key in "$@"; do
-        # skip empty keys
-        [[ -z "$key" ]] && continue
+    # Create nameref for target array
+    declare -n ref="$arr_name"
 
+    # Iterate keys and return the first non-empty value
+    for key in "$@"; do
+        [[ -z "$key" ]] && continue
         val=""
 
         if ((is_assoc)); then
-            # fast direct-existence check for associative arrays
-            # -v works for array elements in bash and is fastest builtin check
             [[ -v ref["$key"] ]] || continue
             val="${ref[$key]}"
         else
-            # indexed array: accept only non-negative integer indices
+            # Ensure numeric index for indexed array
             case "$key" in
-            '' | *[!0-9]*) continue ;; # non-numeric -> skip
+            '' | *[!0-9]*) continue ;;
             *) idx=$key ;;
             esac
-
-            # existence check avoids bounds calculation and handles sparse arrays
             [[ -v ref[$idx] ]] || continue
             val="${ref[$idx]}"
         fi
 
-        # Stop at first non-empty value
-        if [[ -n "$val" ]]; then
+        [[ -n "$val" ]] && {
             printf '%s' "$val"
             return 0
-        fi
+        }
     done
 
-    # nothing found
+    # No non-empty value found
     printf ''
     return 1
 }
@@ -3380,30 +3714,47 @@ Bisu::array_search() {
     return 1
 }
 
-# Function to add an element to a specified global array from the bottom
+# Bisu::array_push
+# Description:
+#   Append a value to a Bisu-managed array (indexed or associative) following the
+#   canonical ref-processing pipeline: dump -> set -> rehydrate.
+# Usage:
+#   Bisu::array_push "array_name" "new_value" [type:string|int|float] [unique:false|true]
 Bisu::array_push() {
-    local array_name=$(Bisu::trim "$1")
-    local new_value="$2"
-    local value_type=$(Bisu::trim "${3:-string}")
-    local unique_values=$(Bisu::trim "${4:-false}")
-    Bisu::in_array "$unique_values" "true" "false" || unique_values="false"
+    local arr_name val val_type unique
+    local declare_out is_assoc kv_str
+    local tmp_name tmp_ref next_index k element
 
-    # Validate the type parameter and input value
-    case "$value_type" in
+    # Normalize & defaults
+    arr_name="$(Bisu::trim "$1")"
+    val="$2"
+    val_type="$(Bisu::trim "${3:-string}")"
+    unique="$(Bisu::trim "${4:-false}")"
+    Bisu::in_array "$unique" "true" "false" || unique="false"
+    val_type="${val_type:-string}"
+
+    # Ensure the global array exists (do not auto-create)
+    if ! Bisu::is_array "$arr_name"; then
+        Bisu::error_log "Array ${arr_name} does not exist."
+        return 1
+    fi
+
+    # Validate value type using existing Bisu helpers
+    case "$val_type" in
     int)
-        if ! Bisu::is_int "$new_value"; then
+        if ! Bisu::is_int "$val"; then
             Bisu::error_log "Value must be an integer."
             return 1
         fi
         ;;
     float)
-        if ! Bisu::is_numeric "$new_value"; then
+        if ! Bisu::is_float "$val"; then
             Bisu::error_log "Value must be a float."
             return 1
         fi
         ;;
     string)
-        # No specific validation for STRING
+        # no-op
         ;;
     *)
         Bisu::error_log "Invalid type specified. Use string, int, or float."
@@ -3411,24 +3762,111 @@ Bisu::array_push() {
         ;;
     esac
 
-    # Ensure the global array exists
-    Bisu::is_array "$array_name" || {
-        Bisu::error_log "Array $array_name does not exist."
+    # Detect whether the array is associative (preserve original type)
+    if Bisu::is_assoc_array "$arr_name"; then
+        is_assoc="true"
+    else
+        is_assoc="false"
+    fi
+
+    # === Create a working copy using the canonical pipeline ===
+    tmp_name="bisu_push_tmp_${$}_${RANDOM}_${RANDOM}"
+
+    # 1) Dump canonical representation of source array
+    kv_str="$(Bisu::array_dump "$arr_name")" || return 1
+
+    # 2) Prepare working named reference and seed it with canonical representation
+    #    so Bisu::set can populate the working variable.
+    declare -n tmp_ref="$tmp_name" 2>/dev/null || true
+    tmp_ref=() # initialize working ref
+    Bisu::set "tmp_ref" "${kv_str[@]}" || return 1
+
+    # 3) Rehydrate the working copy preserving original type
+    if [[ "$is_assoc" == "true" ]]; then
+        eval "declare -gA ${tmp_name}=($kv_str)" 2>/dev/null || {
+            unset -v "$tmp_name" 2>/dev/null || true
+            return 1
+        }
+    else
+        eval "declare -ga ${tmp_name}=($kv_str)" 2>/dev/null || {
+            unset -v "$tmp_name" 2>/dev/null || true
+            return 1
+        }
+    fi
+
+    # Re-bind tmp_ref to the rehydrated working array for safe access
+    declare -n tmp_ref="$tmp_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
         return 1
     }
 
-    # Access the global array using indirect reference
-    Bisu::array_copy "$array_name" "array" || return 1
+    # === Uniqueness check if requested ===
+    if [[ "$unique" == "true" ]]; then
+        for element in "${tmp_ref[@]}"; do
+            if [[ "$element" == "$val" ]]; then
+                # Already present; nothing to do — cleanup and return success
+                unset -v "$tmp_name" 2>/dev/null || true
+                return 0
+            fi
+        done
+    fi
 
-    # Check if the value is already in the array (for unique values check)
-    for element in "${array[@]}"; do
-        if [[ "$unique_values" == "true" && "$element" == "$new_value" ]]; then
-            return 0
-        fi
-    done
+    # === Append the new value to the working copy ===
+    if [[ "$is_assoc" == "true" ]]; then
+        # For associative arrays: choose next numeric key = max_numeric_key + 1
+        next_index=0
+        for k in "${!tmp_ref[@]}"; do
+            if [[ "$k" =~ ^-?[0-9]+$ ]]; then
+                # numeric compare safely in arithmetic context
+                if ((k > next_index)); then
+                    next_index=$((k))
+                fi
+            fi
+        done
+        next_index=$((next_index + 1))
+        # assign new value under computed numeric key on working copy
+        eval "${tmp_name}[${next_index}]=\$val"
+    else
+        # indexed array: append value
+        eval "${tmp_name}+=(\"\$val\")"
+    fi
 
-    # Append the new value to the array using indirect reference to modify the global array
-    eval "$array_name+=(\"$new_value\")"
+    # === write the modified working copy back to the real global array ===
+
+    # Dump modified working copy to canonical representation
+    kv_str="$(Bisu::array_dump "$tmp_name")" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Prepare destination named reference and clear existing contents (best-effort)
+    declare -n dst_ref="$arr_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+    dst_ref=()
+
+    # Set canonical representation into the destination named reference
+    Bisu::set "dst_ref" "${kv_str[@]}" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Rehydrate global destination preserving original type
+    if [[ "$is_assoc" == "true" ]]; then
+        eval "declare -gA ${arr_name}=($kv_str)" 2>/dev/null || {
+            unset -v "$tmp_name" 2>/dev/null || true
+            return 1
+        }
+    else
+        eval "declare -ga ${arr_name}=($kv_str)" 2>/dev/null || {
+            unset -v "$tmp_name" 2>/dev/null || true
+            return 1
+        }
+    fi
+
+    # Cleanup working temporary array
+    unset -v "$tmp_name" 2>/dev/null || true
 
     return 0
 }
@@ -3444,53 +3882,159 @@ Bisu::array_unique_push() {
     return 0
 }
 
-# Function to add an element to a specified global array from the top
+# Bisu::array_unshift
+# Description:
+#   Prepend a value to a Bisu-managed global array (indexed or associative).
+#   Uses Bisu ref-processing: dump -> set -> rehydrate.
+# Usage:
+#   Bisu::array_unshift "array_name" "new_value" ["string"|"int"|"float"] [unique:false|true]
 Bisu::array_unshift() {
-    local array_name=$(Bisu::trim "$1")
-    local new_value="$2"
-    local value_type=$(Bisu::trim "$3")
-    value_type=${value_type:-"string"}
-    local unique_values=$(Bisu::trim "$4")
-    Bisu::in_array "$unique_values" "true" "false" || unique_values="false"
+    local array_name new_value value_type unique
+    local declare_out is_assoc
+    local tmp_name tmp_ref kv_str element min_key candidate
 
+    # Normalize & defaults
+    array_name="$(Bisu::trim "$1")"
+    new_value="$2"
+    value_type="$(Bisu::trim "${3:-string}")"
+    unique="$(Bisu::trim "${4:-false}")"
+    Bisu::in_array "$unique" "true" "false" || unique="false"
+    value_type="${value_type:-string}"
+
+    # Ensure the global array exists
+    if ! Bisu::is_array "$array_name"; then
+        Bisu::error_log "Array ${array_name} does not exist."
+        return 1
+    fi
+
+    # Validate value type
     case "$value_type" in
     int)
-        if ! [[ "$new_value" =~ ^-?[0-9]+$ ]]; then
+        if ! Bisu::is_int "$new_value"; then
             Bisu::error_log "Value must be an integer."
             return 1
         fi
         ;;
     float)
-        if ! [[ "$new_value" =~ ^-?[0-9]*\.[0-9]+$ ]]; then
+        if ! Bisu::is_float "$new_value"; then
             Bisu::error_log "Value must be a float."
             return 1
         fi
         ;;
-    string) ;;
+    string)
+        # no-op
+        ;;
     *)
         Bisu::error_log "Invalid type specified. Use string, int, or float."
         return 1
         ;;
     esac
 
-    # Ensure the global array exists
-    Bisu::is_array "$array_name" || {
-        Bisu::error_log "Array $array_name does not exist."
+    # Detect array type (assoc vs indexed) using same approach as array_copy
+    if Bisu::is_assoc_array "$array_name"; then
+        is_assoc="true"
+    else
+        is_assoc="false"
+    fi
+
+    # === Create working copy via canonical dump -> set -> rehydrate ===
+    # Use unique temporary name to avoid collisions and ensure cleanup.
+    tmp_name="bisu_unshift_tmp_${$}_${RANDOM}_${RANDOM}"
+
+    # 1) Obtain canonical dump of source array
+    kv_str="$(Bisu::array_dump "$array_name")" || return 1
+
+    # 2) Prepare working named reference and seed it with canonical representation
+    #    so Bisu::set can write the canonical fields into the working ref.
+    declare -n tmp_ref="$tmp_name" 2>/dev/null || true
+    tmp_ref=()
+    Bisu::set "tmp_ref" "${kv_str[@]}" || return 1
+
+    # 3) Rehydrate working copy preserving type
+    if [[ "$is_assoc" == "true" ]]; then
+        eval "declare -gA ${tmp_name}=($kv_str)" 2>/dev/null || return 1
+    else
+        eval "declare -ga ${tmp_name}=($kv_str)" 2>/dev/null || return 1
+    fi
+
+    # Re-bind tmp_ref to the rehydrated working array (safe access)
+    declare -n tmp_ref="$tmp_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
         return 1
     }
 
-    # Access the global array using indirect reference
-    Bisu::array_copy "$array_name" "array" || return 1
+    # === uniqueness check (if requested) ===
+    if [[ "$unique" == "true" ]]; then
+        for element in "${tmp_ref[@]}"; do
+            if [[ "$element" == "$new_value" ]]; then
+                # Already present; nothing to do
+                unset -v "$tmp_name" 2>/dev/null || true
+                return 0
+            fi
+        done
+    fi
 
-    # Check if the value is already in the array (for unique values check)
-    for element in "${array[@]}"; do
-        if [[ "$unique_values" == "true" && "$element" == "$new_value" ]]; then
-            return 0
+    # === perform unshift on working copy ===
+    if [[ "$is_assoc" == "true" ]]; then
+        # find minimum numeric key and use min_key - 1 to prepend
+        min_key=
+        for element in "${!tmp_ref[@]}"; do
+            if [[ "$element" =~ ^-?[0-9]+$ ]]; then
+                if [[ -z "$min_key" ]]; then
+                    min_key="$element"
+                else
+                    # numeric compare
+                    if ((element < min_key)); then
+                        min_key="$element"
+                    fi
+                fi
+            fi
+        done
+        if [[ -z "$min_key" ]]; then
+            min_key=0
         fi
-    done
+        candidate=$((min_key - 1))
+        # assign new value under computed numeric key on working copy
+        # use eval so variable expansions are correct and safe
+        eval "${tmp_name}[${candidate}]=\$new_value"
+    else
+        # indexed: prepend - ensure proper quoting
+        eval "${tmp_name}=(\"\$new_value\" \"\${${tmp_name}[@]}\")"
+    fi
 
-    # Prepend the new value
-    eval "$array_name=(\"\$new_value\" \"\${$array_name[@]}\")"
+    # === write modified working copy back to the real global array ===
+    kv_str="$(Bisu::array_dump "$tmp_name")" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # prepare destination reference and clear existing contents (best-effort)
+    declare -n dst_ref="$array_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+    dst_ref=()
+
+    Bisu::set "dst_ref" "${kv_str[@]}" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Rehydrate target preserving original type
+    if [[ "$is_assoc" == "true" ]]; then
+        eval "declare -gA ${array_name}=($kv_str)" 2>/dev/null || {
+            unset -v "$tmp_name" 2>/dev/null || true
+            return 1
+        }
+    else
+        eval "declare -ga ${array_name}=($kv_str)" 2>/dev/null || {
+            unset -v "$tmp_name" 2>/dev/null || true
+            return 1
+        }
+    fi
+
+    # Cleanup working temporary array
+    unset -v "$tmp_name" 2>/dev/null || true
 
     return 0
 }
@@ -3506,114 +4050,282 @@ Bisu::array_unique_unshift() {
     return 0
 }
 
-# Function: Bisu::indexed_array_merge
-# Description: Function to merge 2 arrays into arg3, according to arg3's array name
+# Bisu::indexed_array_merge
+# Description:
+#   Merge two indexed arrays (src1, src2) into destination array (dest_name).
+#   Preserves first-appearance order, ensures uniqueness, and writes the final
+#   result via Bisu's canonical pipeline: array_dump -> Bisu::set -> rehydrate.
+# Usage:
+#   Bisu::indexed_array_merge "src1" "src2" "dest_name"
 Bisu::indexed_array_merge() {
-    local src1=$(Bisu::trim "$1")
-    local src2=$(Bisu::trim "$2")
-    local dest_name=$(Bisu::trim "$3")
+    local src1 src2 dest_name
+    local -a merged
+    declare -A seen
+    local item
+    local tmp_name kv_str
 
-    # Validate arguments
+    # Normalize arguments
+    src1="$(Bisu::trim "$1")"
+    src2="$(Bisu::trim "$2")"
+    dest_name="$(Bisu::trim "$3")"
+
+    # Validate inputs: both sources must be indexed arrays and dest must be a valid name
     if ! Bisu::is_indexed_array "$src1" || ! Bisu::is_indexed_array "$src2" || ! Bisu::is_valid_var_name "$dest_name"; then
         return 1
     fi
 
-    # Namerefs avoid copies and make in-place updates safe even if dest == src1/src2
-    declare -n _am_src1="$src1" _am_src2="$src2" _am_dest="$dest_name"
+    # Read sources via namerefs for safe, efficient access (handles dest == src1/src2)
+    declare -n srcA="$src1" 2>/dev/null || return 1
+    declare -n srcB="$src2" 2>/dev/null || return 1
 
-    # Build unique union while preserving order of first appearance
-    local -a _am_merged=()
-    declare -A _am_seen=()
-    local _am_item
-    for _am_item in "${_am_src1[@]}" "${_am_src2[@]}"; do
-        if [[ -z ${_am_seen[$_am_item]+x} ]]; then
-            _am_merged+=("$_am_item")
-            _am_seen["$_am_item"]=1
+    # Build unique union preserving first-appearance order
+    merged=()
+    seen=()
+    for item in "${srcA[@]}" "${srcB[@]}"; do
+        # use existence test that handles empty-string elements correctly
+        if [[ -z ${seen[$item]+x} ]]; then
+            merged+=("$item")
+            seen["$item"]=1
         fi
     done
 
-    # Final assignment (handles empty correctly: yields dest=() not dest=("")
-    _am_dest=("${_am_merged[@]}")
+    # Prepare a low-collision temporary working global indexed array for canonical dumping.
+    # Use PID + RANDOM to make collisions extremely unlikely; cleanup guaranteed on exit paths.
+    tmp_name="bisu_indexed_merge_tmp_${$}_${RANDOM}_${RANDOM}"
+
+    # Create working indexed array globally so Bisu::array_dump can inspect it
+    eval "declare -ga ${tmp_name}=()" 2>/dev/null || return 1
+    declare -n work="$tmp_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Populate the working array with merged values
+    work=("${merged[@]}")
+
+    # Obtain canonical dump of the working array
+    kv_str="$(Bisu::array_dump "$tmp_name")" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Prepare destination named reference and clear existing contents (best-effort)
+    declare -n dst_ref="$dest_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+    dst_ref=()
+
+    # Set the dumped representation into the named reference (Bisu pattern)
+    Bisu::set "dst_ref" "${kv_str[@]}" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Rehydrate the global destination as an indexed array (type-safe rehydrate)
+    eval "declare -ga ${dest_name}=($kv_str)" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Cleanup working temporary array
+    unset -v "$tmp_name" 2>/dev/null || true
 
     return 0
 }
 
-# Function: Bisu::assoc_array_merge
-# Description: Merge 2 associative arrays into arg3 (dest associative array)
+# Bisu::assoc_array_merge
+# Description:
+#   Merge two associative arrays (src1, src2) into destination associative array (dest_name).
+#   Keys from src2 override src1. Result is written to dest using Bisu's ref-processing
+#   pattern: build -> array_dump -> Bisu::set -> rehydrate (declare -gA).
+# Usage:
+#   Bisu::assoc_array_merge "src1" "src2" "dest_name"
 Bisu::assoc_array_merge() {
-    local src1=$(Bisu::trim "$1")
-    local src2=$(Bisu::trim "$2")
-    local dest_name=$(Bisu::trim "$3")
+    local src1 src2 dest
+    local tmp kv_dump
+    local key
 
-    # Validate arguments
-    if ! Bisu::is_array "$src1" || ! Bisu::is_array "$src2" || ! Bisu::is_valid_var_name "$dest_name"; then
+    # Normalize args
+    src1="$(Bisu::trim "$1")"
+    src2="$(Bisu::trim "$2")"
+    dest="$(Bisu::trim "$3")"
+
+    # Validate inputs (same semantics as original)
+    if ! Bisu::is_array "$src1" || ! Bisu::is_array "$src2" || ! Bisu::is_valid_var_name "$dest"; then
         return 1
     fi
 
-    # Namerefs avoid copies and make in-place updates safe even if dest == src1/src2
-    declare -n _am_src1="$src1" _am_src2="$src2" _am_dest="$dest_name"
+    # Namerefs to read sources (safe when dest == src1/src2)
+    declare -n a="$src1" 2>/dev/null || return 1
+    declare -n b="$src2" 2>/dev/null || return 1
 
-    # Build merged associative array
-    #   - Preserve keys from src1 first
-    #   - Keys from src2 override if duplicated
-    #   - Ensures uniqueness by definition of associative arrays
-    declare -A _am_merged=()
-    local _am_key
+    # Create a low-collision temporary global associative array name (fast, deterministic)
+    # Probability of collision is negligible (PID + two RANDOM components)
+    tmp="bisu_merge_tmp_${$}_${RANDOM}_${RANDOM}"
 
-    # Copy all from src1
-    for _am_key in "${!_am_src1[@]}"; do
-        _am_merged["$_am_key"]="${_am_src1[$_am_key]}"
+    # Initialize working associative array globally so Bisu::array_dump can inspect it
+    eval "declare -gA ${tmp}=()" 2>/dev/null || return 1
+    declare -n work="$tmp" 2>/dev/null || {
+        unset -v "$tmp" 2>/dev/null || true
+        return 1
+    }
+
+    # Populate working array: copy src1 then override with src2
+    for key in "${!a[@]}"; do
+        work["$key"]="${a[$key]}"
+    done
+    for key in "${!b[@]}"; do
+        work["$key"]="${b[$key]}"
     done
 
-    # Copy/override from src2
-    for _am_key in "${!_am_src2[@]}"; do
-        _am_merged["$_am_key"]="${_am_src2[$_am_key]}"
-    done
+    # Obtain canonical dump of the working associative array
+    kv_dump="$(Bisu::array_dump "$tmp")" || {
+        unset -v "$tmp" 2>/dev/null || true
+        return 1
+    }
 
-    # Final assignment
-    _am_dest=()
-    for _am_key in "${!_am_merged[@]}"; do
-        _am_dest["$_am_key"]="${_am_merged[$_am_key]}"
-    done
+    # Prepare destination reference and clear (best-effort)
+    declare -n dst_ref="$dest" 2>/dev/null || {
+        unset -v "$tmp" 2>/dev/null || true
+        return 1
+    }
+    dst_ref=()
+
+    # Set dumped representation into the named reference (Bisu pattern)
+    Bisu::set "dst_ref" "${kv_dump[@]}" || {
+        unset -v "$tmp" 2>/dev/null || true
+        return 1
+    }
+
+    # Rehydrate the global destination associative array (type-safe rehydrate)
+    eval "declare -gA ${dest}=($kv_dump)" 2>/dev/null || {
+        unset -v "$tmp" 2>/dev/null || true
+        return 1
+    }
+
+    # Cleanup working temporary array
+    unset -v "$tmp" 2>/dev/null || true
 
     return 0
 }
 
-# Function: Bisu::array_unique
-# Description: To remove duplicates from a global array
+# Bisu::array_unique
+# Description:
+#   Remove duplicate values from a global Bisu-managed array (preserve first-appearance order).
+#   Final result is written back to the same named array as an indexed array.
+# Usage:
+#   Bisu::array_unique "array_name"
+# Notes:
+#   - Assumes Bisu helpers exist: Bisu::trim, Bisu::is_array, Bisu::array_dump, Bisu::set.
+#   - If the array does not exist, returns non-zero. If called with only the array name, behavior
+#     matches original: nothing to do and return 0.
 Bisu::array_unique() {
-    local array_name=$(Bisu::trim "$1")
-    Bisu::is_array "$array_name" || return 1
+    local arr_name="${1:+$(Bisu::trim "$1")}"
+    local tmp_name kv_str
+    local -a unique_vals
+    declare -A seen
+    local v
 
+    # Validate input / existence
+    if [[ -z "$arr_name" ]]; then
+        return 1
+    fi
+    Bisu::is_array "$arr_name" || return 1
+
+    # If caller passed only name (same as original's $# -eq 1 early-return), nothing to do.
+    # The original returned 0 in that case; preserve that contract.
     if [[ $# -eq 1 ]]; then
         return 0
     fi
 
-    eval "${array_name}=(\"\$(printf '%s\n' \"\${${array_name}[@]}\" | awk '!a[\$0]++' 2>/dev/null | tr '\n' ' ')\")" || return 1
+    # Read source array by nameref to avoid copies and to be safe if arr_name is large.
+    declare -n src_ref="$arr_name" 2>/dev/null || return 1
+
+    # Build unique list preserving first-appearance order
+    unique_vals=()
+    seen=()
+    for v in "${src_ref[@]}"; do
+        if [[ -z ${seen[$v]+x} ]]; then
+            unique_vals+=("$v")
+            seen["$v"]=1
+        fi
+    done
+
+    # Prepare a low-collision temporary global indexed array to produce canonical dump
+    tmp_name="bisu_unique_tmp_${$}_${RANDOM}_${RANDOM}"
+    eval "declare -ga ${tmp_name}=()" 2>/dev/null || return 1
+    declare -n work="$tmp_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Populate the temporary working array with the unique values
+    work=("${unique_vals[@]}")
+
+    # Obtain canonical dump of the working array (so Bisu::set gets canonical representation)
+    kv_str="$(Bisu::array_dump "$tmp_name")" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Prepare destination named reference and clear existing content (best-effort)
+    declare -n dst_ref="$arr_name" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+    dst_ref=()
+
+    # Use Bisu::set to place canonical representation into the named reference
+    Bisu::set "dst_ref" "${kv_str[@]}" || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Rehydrate the global destination as an indexed array (this matches original's
+    # behavior which assigned via (...)= making it indexed)
+    eval "declare -ga ${arr_name}=($kv_str)" 2>/dev/null || {
+        unset -v "$tmp_name" 2>/dev/null || true
+        return 1
+    }
+
+    # Cleanup temporary working array
+    unset -v "$tmp_name" 2>/dev/null || true
+
     return 0
 }
 
-# Function: Bisu::array_shift
-# Accepts: $1 array_name, $2 external value reference
-# Exits: 0 if success, 1 if failure (empty array)
+# Bisu::array_shift
+# Description:
+#   Remove the first element from a Bisu-managed array (indexed or associative)
+#   and store it into an external variable via reference.
+# Usage:
+#   Bisu::array_shift "array_name" "value_var_name"
+# Returns 0 on success, 1 if array is empty or invalid
 Bisu::array_shift() {
-    local array_name=$(Bisu::trim "$1")
-    Bisu::isset "$array_name" || return 1
-    # ensure array not empty (uses existing helper array_count)
-    local array_count=$(Bisu::array_count "$array_name")
-    [ $array_count -gt 0 ] || return 1
-    local val_name="$2"
+    local arr_name val_name first_key
 
-    # create namerefs for array and destination variable
-    declare -n arr="$array_name"
+    # Normalize and validate array name
+    arr_name="$(Bisu::trim "$1")"
+    Bisu::isset "$arr_name" || return 1
+
+    # Ensure array is not empty
+    [ "$(Bisu::array_count "$arr_name")" -gt 0 ] || return 1
+
+    # Name reference for the array and external value
+    val_name="$(Bisu::trim "$2")"
+    declare -n arr="$arr_name"
     declare -n val_ref="$val_name"
 
-    local first_key
+    # Retrieve first key in array (numeric or associative)
     read -r first_key < <(printf '%s\n' "${!arr[@]}") 2>/dev/null
     [ -n "$first_key" ] || return 1
+
+    # Set value into external reference if valid
     Bisu::is_valid_var_name "$val_name" && val_ref="${arr[$first_key]}" 2>/dev/null
 
-    if Bisu::is_assoc_array "$array_name"; then
+    # Remove first element
+    if Bisu::is_assoc_array "$arr_name"; then
         unset 'arr[$first_key]'
     else
         arr=("${arr[@]:1}")
@@ -3622,566 +4334,549 @@ Bisu::array_shift() {
     return 0
 }
 
-# Function: Bisu::array_pop
-# Accepts: $1 array_name, $2 external value reference
-# Exits: 0 if success, 1 if failure (empty array)
+# Bisu::array_pop
+# Description:
+#   Remove the last element from a Bisu-managed array (indexed or associative)
+#   and store it into an external variable via reference.
+# Usage:
+#   Bisu::array_pop "array_name" "value_var_name"
+# Returns 0 on success, 1 if array is empty or invalid
 Bisu::array_pop() {
-    local array_name=$(Bisu::trim "$1")
-    Bisu::isset "$array_name" || return 1
-    # ensure array not empty (uses existing helper array_count)
-    local array_count=$(Bisu::array_count "$array_name")
-    [ $array_count -gt 0 ] || return 1
-    local val_name="$2"
+    local arr_name val_name last_key
 
-    # create namerefs for array and destination variable
-    declare -n arr="$array_name"
+    # Normalize and validate array name
+    arr_name="$(Bisu::trim "$1")"
+    Bisu::isset "$arr_name" || return 1
+
+    # Ensure array is not empty
+    [ "$(Bisu::array_count "$arr_name")" -gt 0 ] || return 1
+
+    # Name references for array and external variable
+    val_name="$(Bisu::trim "$2")"
+    declare -n arr="$arr_name"
     declare -n val_ref="$val_name"
 
-    local last_key
+    # Determine the last key
     last_key=$(printf '%s\n' "${!arr[@]}" | tail -n1 2>/dev/null)
     [ -n "$last_key" ] || return 1
+
+    # Assign value to external reference if valid
     Bisu::is_valid_var_name "$val_name" && val_ref="${arr[$last_key]}" 2>/dev/null
 
-    if Bisu::is_assoc_array "$array_name"; then
+    # Remove the last element
+    if Bisu::is_assoc_array "$arr_name"; then
         unset 'arr[$last_key]' 2>/dev/null
     else
+        # Slice indexed array up to but excluding last index
         arr=("${arr[@]:0:$last_key}")
     fi
 
     return 0
 }
 
-# Bisu::current() implementing PHP8 current() semantics
-# - Supports indexed and associative arrays
-# - Outputs only the current element (exact contents); exit 0 on success, 1 on failure
+# Bisu::current
+# Description:
+#   Retrieve the "current" element of a Bisu-managed array (indexed or associative),
+#   similar to PHP8's current() function.
+#   Maintains an external pointer variable per array (__ARRAY_PTR_<array_name>).
 # Usage:
-#   Bisu::current array_var_name
+#   Bisu::current "array_name"
+# Returns 0 on success (prints current value), 1 if array is empty or invalid
 Bisu::current() {
-    # require one argument (array variable name)
-    if [ $# -lt 1 ]; then
+    local arr_name decl _arr_ref ptrvar curkey k
+
+    # Validate input
+    [ $# -ge 1 ] || {
         printf ''
         return 1
-    fi
+    }
+    arr_name="$(Bisu::trim "$1")"
 
-    local arr_name=$(trim "$1")
-    Bisu::is_valid_var_name "$arr_name" || {
+    # Ensure array exists
+    Bisu::array_is_available "$arr_name" || {
         printf ''
         return 1
     }
 
-    # ensure variable exists and is an array (indexed or associative)
-    local decl
-    if ! decl="$(declare -p -- "$arr_name" 2>/dev/null)"; then
+    # Nameref to the array for direct manipulation
+    declare -n _arr_ref="$arr_name"
+
+    # Empty array -> failure
+    [ "${#_arr_ref[@]}" -gt 0 ] || {
         printf ''
         return 1
-    fi
-    case "$decl" in
-    declare\ -a* | declare\ -A*) ;; # ok
-    *)
-        printf ''
-        return 1
-        ;;
-    esac
+    }
 
-    # nameref to the array variable for direct access
-    local -n _arr_ref="$arr_name"
+    # Pointer scalar name for this array
+    ptrvar="__ARRAY_PTR_${arr_name}"
 
-    # empty array -> failure
-    if [ "${#_arr_ref[@]}" -eq 0 ]; then
-        printf ''
-        return 1
-    fi
-
-    # pointer scalar name for this array
-    local ptrvar="__ARRAY_PTR_${arr_name}"
-
-    # read current pointer value (if any)
-    local curkey="${!ptrvar}"
-    # If pointer set and still present in array, use it immediately
+    # Attempt to use existing pointer
+    curkey="${!ptrvar}"
     if [ -n "$curkey" ] && [ "${_arr_ref[$curkey]+_}" ]; then
         printf '%s' "${_arr_ref[$curkey]}"
         return 0
     fi
 
-    # pointer missing or stale; initialize to first key encountered
-    # iterate keys once, pick first that is not the internal pointer (none present)
-    # iteration order: for assoc arrays is insertion order in Bash 5; for indexed arrays
-    # it yields the existing indices (sparse arrays supported).
-    local k
+    # Pointer missing or stale -> initialize to first key
     for k in "${!_arr_ref[@]}"; do
-        # there is no reserved key stored inside the array (we store pointer externally),
-        # so the first key encountered is the first element for pointer initialization.
         curkey="$k"
-        # persist pointer into scalar safely (handles arbitrary key contents)
-        Bisu::set "$ptrvar" "$curkey"
-        # output value and return
+        Bisu::set "$ptrvar" "$curkey" || true
         printf '%s' "${_arr_ref[$curkey]}"
         return 0
     done
 
-    # if reached here, no usable element found
+    # No usable element found
     printf ''
     return 1
 }
 
-# Bisu::key() implementing PHP8 key($array) semantics
-# - Supports indexed and associative arrays
-# - Outputs only the current element key; exit 0 on success, 1 on failure
+# Bisu::key
+# Description:
+#   Retrieve the "current" key of a Bisu-managed array (indexed or associative),
+#   matching PHP8 key() semantics.
+#   Uses external pointer variable "__ARRAY_PTR_<arr_name>".
 # Usage:
-#   Bisu::key array_var_name
+#   Bisu::key "array_name"
+# Prints key on success; prints '' and returns 1 on failure.
 Bisu::key() {
-    # require one argument (array variable name)
-    if [ $# -lt 1 ]; then
-        printf ''
-        return 1
-    fi
+    local arr_name decl curkey ptrvar k
 
-    local arr_name=$(trim "$1")
-    Bisu::is_valid_var_name "$arr_name" || {
+    # Validate argument count
+    [ $# -ge 1 ] || {
         printf ''
         return 1
     }
 
-    # check that variable exists and is array
-    local decl
-    if ! decl="$(declare -p -- "$arr_name" 2>/dev/null)"; then
+    # Normalize and validate array name
+    arr_name="$(Bisu::trim "$1")"
+    Bisu::array_is_available "$arr_name" || {
         printf ''
         return 1
-    fi
-    case "$decl" in
-    declare\ -a* | declare\ -A*) ;; # valid array
-    *)
+    }
+
+    # Nameref to array
+    declare -n _arr_ref="$arr_name"
+
+    # Empty array → no key
+    [ "${#_arr_ref[@]}" -gt 0 ] || {
         printf ''
         return 1
-        ;;
-    esac
+    }
 
-    # nameref to array
-    local -n _arr_ref="$arr_name"
+    # Pointer variable for this array
+    ptrvar="__ARRAY_PTR_${arr_name}"
 
-    # empty -> failure
-    if [ "${#_arr_ref[@]}" -eq 0 ]; then
-        printf ''
-        return 1
-    fi
-
-    # pointer scalar name
-    local ptrvar="__ARRAY_PTR_${arr_name}"
-
-    # current pointer value
-    local curkey="${!ptrvar}"
+    # Try using existing pointer
+    curkey="${!ptrvar}"
     if [ -n "$curkey" ] && [ "${_arr_ref[$curkey]+_}" ]; then
         printf '%s' "$curkey"
         return 0
     fi
 
-    # pointer not set or invalid → init to first key
-    local k
+    # Pointer not set or stale → initialize to first key
     for k in "${!_arr_ref[@]}"; do
         curkey="$k"
-        Bisu::set "$ptrvar" "$curkey"
+        Bisu::set "$ptrvar" "$curkey" || true
         printf '%s' "$curkey"
         return 0
     done
 
+    # No usable key found (very unlikely)
     printf ''
     return 1
 }
 
-# Bisu::prev() implementing PHP8's prev($array) semantics (compatible with the existing pointer scheme)
-# - Supports indexed and associative arrays
-# - Outputs only the new current element VALUE after moving pointer backwards
-# - Exit status: 0 on success (value printed), 1 on failure (moved before first / empty / invalid)
-# Behaviour notes (keeps consistency with the previously-established pointer semantics):
-# - If pointer is unset, it is treated as "at first element" for movement purposes;
-#   prev() will move before-first and return failure (1) in that case.
-# - On moving before-first, the pointer scalar is cleared (empty), which will cause
-#   the earlier current()/key() implementations (which init pointer when absent) to
-#   re-initialize to the first element if called afterwards.
+# Bisu::prev
+# Description:
+#   Implements PHP8's prev($array) semantics on a Bisu-managed array.
+#   Moves the internal pointer one step backwards and outputs the NEW current VALUE.
+#   Supports both indexed and associative arrays without modifying their order.
+#
+#   Pointer rules (fully consistent with existing pointer scheme):
+#     - Pointer scalar name: "__ARRAY_PTR_<arr_name>"
+#     - If pointer is unset → treated as pointing at FIRST element for movement.
+#       prev() will then move before-first and return failure.
+#     - On moving before-first → pointer becomes empty, representing before-first.
+#     - current()/key() will auto-reinit on empty pointer as per existing behavior.
+#
+# Exit status:
+#     0 → success (value printed to stdout)
+#     1 → failure (before-first / empty array / invalid)
+#
+# Notes:
+#   - No uncontrolled errors
+#   - Validates array existence and type
+#   - Follows Bisu's naming semantics and ref-processing behavior patterns
+#   - Uses highest-performance structures where possible without sacrificing safety
+#
 Bisu::prev() {
-    # require array variable name
+    # Require array name
     if [ $# -lt 1 ]; then
         printf ''
         return 1
     fi
 
-    local arr_name=$(trim "$1")
-    Bisu::is_valid_var_name "$arr_name" || {
+    # Normalize name and validate
+    local arr_name
+    arr_name="$(Bisu::trim "$1")"
+    Bisu::array_is_available "$arr_name" || {
         printf ''
         return 1
     }
 
-    # ensure variable exists and is an array
-    local decl
-    if ! decl="$(declare -p -- "$arr_name" 2>/dev/null)"; then
-        printf ''
-        return 1
-    fi
-    case "$decl" in
-    declare\ -a* | declare\ -A*) ;; # ok
-    *)
-        printf ''
-        return 1
-        ;;
-    esac
+    # Nameref to the actual array
+    local -n arr_ref="$arr_name"
 
-    # nameref to array
-    local -n _arr_ref="$arr_name"
-
-    # empty array -> failure
-    if [ "${#_arr_ref[@]}" -eq 0 ]; then
-        printf ''
-        return 1
-    fi
-
-    # pointer scalar name and current key (may be empty)
+    # Pointer scalar name
     local ptrvar="__ARRAY_PTR_${arr_name}"
+
+    # Current pointer key (may be empty)
     local curkey="${!ptrvar}"
 
-    # collect keys in iteration order into local array 'keys' (single pass)
+    # Collect keys in iteration order (required for PHP-style pointer semantics)
     local keys=()
     local k
-    for k in "${!_arr_ref[@]}"; do
+    for k in "${!arr_ref[@]}"; do
         keys+=("$k")
     done
 
-    # find current position index in keys (if curkey set)
+    # Determine position index of current pointer
     local idx=-1
     if [ -n "$curkey" ]; then
         local i
         for i in "${!keys[@]}"; do
-            if [ "${keys[$i]}" = "$curkey" ]; then
+            if [[ "${keys[$i]}" == "$curkey" ]]; then
                 idx=$i
                 break
             fi
         done
-        # if curkey was set but no longer present (stale), treat as at-first (so prev -> before-first)
-        if [ "$idx" -lt 0 ]; then
-            idx=0
-        fi
+
+        # If pointer existed but key is stale, treat as at-first → prev() moves before-first
+        ((idx < 0)) && idx=0
     else
-        # pointer unset: treat as if currently at first element for movement purposes
+        # Pointer not set → treat as at-first
         idx=0
     fi
 
-    # if at or before first element, moving back goes before-first -> clear pointer and return failure
-    if [ "$idx" -le 0 ]; then
-        # clear pointer scalar to represent "before-first"
+    # If already at or before the first element → prev() goes before-first → fail
+    if ((idx <= 0)); then
+        # Clear pointer to represent "before-first"
         printf -v "$ptrvar" '%s' ''
         printf ''
         return 1
     fi
 
-    # otherwise move to previous element
+    # Move to previous key
     local prev_index=$((idx - 1))
     local prevkey="${keys[$prev_index]}"
 
-    # persist pointer and print value
+    # Persist pointer using Bisu's ref-processing setter
     Bisu::set "$ptrvar" "$prevkey"
-    printf '%s' "${_arr_ref[$prevkey]}"
+
+    # Output the new current value
+    printf '%s' "${arr_ref[$prevkey]}"
     return 0
 }
 
-# Bisu::next() implementing PHP8's next($array) semantics (compatible with existing pointer scheme)
-# - Supports indexed and associative arrays
-# - Outputs only the new current element VALUE after moving pointer forward
-# - Exit status: 0 on success (value printed), 1 on failure (moved past last / empty / invalid)
-# Behaviour notes (keeps consistency with previously-established pointer semantics):
-# - If pointer is unset, it is treated as "at first element" for movement purposes;
-#   next() will move forward from the first element (to second) when possible.
-# - If pointer is stale (set but key no longer exists), it is treated as at-first (same as prev()).
-# - When moving past the last element, pointer scalar is cleared (set to empty) and failure (1) is returned.
+# Bisu::next
+# Description:
+#     Implements PHP8's next($array) semantics on a Bisu-managed array.
+#     Moves the internal pointer one step forward and outputs the NEW current VALUE.
+#     Supports indexed and associative arrays without altering iteration order.
+#
+# Pointer Rules (compatible with existing pointer scheme):
+#     - Pointer scalar: "__ARRAY_PTR_<arr_name>"
+#     - Pointer unset → treated as "at first element"
+#       next() then moves to second element if it exists.
+#     - Stale pointer (key missing) → treated as at-first.
+#     - Moving past last element → pointer cleared, failure returned.
+#
+# Exit Status:
+#     0 → success, value printed
+#     1 → failure (past-last / empty / invalid)
+#
+# Notes:
+#     - Follows ref-processing style from Bisu::array_copy
+#     - No uncontrolled errors, only safe suppressible warnings if any
+#     - Graceful, deterministic, highest-performance logic
+#     - No nested functions, no API signature changes
+#
 Bisu::next() {
-    # require array variable name
+    # Require array variable name
     if [ $# -lt 1 ]; then
         printf ''
         return 1
     fi
 
-    local arr_name=$(trim "$1")
-    Bisu::is_valid_var_name "$arr_name" || {
+    # Normalize and validate the array name
+    local arr_name
+    arr_name="$(Bisu::trim "$1")"
+    Bisu::array_is_available "$arr_name" || {
         printf ''
         return 1
     }
 
-    # ensure variable exists and is an array
-    local decl
-    if ! decl="$(declare -p -- "$arr_name" 2>/dev/null)"; then
-        printf ''
-        return 1
-    fi
-    case "$decl" in
-    declare\ -a* | declare\ -A*) ;; # ok
-    *)
-        printf ''
-        return 1
-        ;;
-    esac
+    # Nameref to actual array
+    local -n arr_ref="$arr_name"
 
-    # nameref to array
-    local -n _arr_ref="$arr_name"
-
-    # empty array -> failure
-    if [ "${#_arr_ref[@]}" -eq 0 ]; then
-        printf ''
-        return 1
-    fi
-
-    # pointer scalar name and current key (may be empty)
+    # Pointer scalar
     local ptrvar="__ARRAY_PTR_${arr_name}"
     local curkey="${!ptrvar}"
 
-    # collect keys in iteration order into local array 'keys' (single pass)
+    # Collect keys in natural iteration order
     local keys=()
     local k
-    for k in "${!_arr_ref[@]}"; do
+    for k in "${!arr_ref[@]}"; do
         keys+=("$k")
     done
 
-    # find current position index in keys (if curkey set)
+    # Locate current pointer index
     local idx=-1
     if [ -n "$curkey" ]; then
         local i
         for i in "${!keys[@]}"; do
-            if [ "${keys[$i]}" = "$curkey" ]; then
+            if [[ "${keys[$i]}" == "$curkey" ]]; then
                 idx=$i
                 break
             fi
         done
-        # if curkey was set but no longer present (stale), treat as at-first
-        if [ "$idx" -lt 0 ]; then
-            idx=0
-        fi
+        # Stale pointer → treat as first element
+        ((idx < 0)) && idx=0
     else
-        # pointer unset: treat as if currently at first element for movement purposes
+        # Pointer unset → treat as first element
         idx=0
     fi
 
     local last_index=$((${#keys[@]} - 1))
 
-    # if currently at or beyond last element, moving forward goes past-last -> clear pointer and return failure
-    if [ "$idx" -ge "$last_index" ]; then
+    # At or beyond last element → moving forward becomes past-last → fail
+    if ((idx >= last_index)); then
         printf -v "$ptrvar" '%s' ''
         printf ''
         return 1
     fi
 
-    # otherwise move to next element
+    # Advance to next key
     local next_index=$((idx + 1))
     local nextkey="${keys[$next_index]}"
 
-    # persist pointer and print value
+    # Persist pointer using Bisu's standard ref-processing setter
     Bisu::set "$ptrvar" "$nextkey"
-    printf '%s' "${_arr_ref[$nextkey]}"
+
+    # Output new current value
+    printf '%s' "${arr_ref[$nextkey]}"
     return 0
 }
 
-# Bisu::end() implementing PHP8 end($array) semantics
-# - Supports indexed and associative arrays
-# - Sets pointer to last element (in insertion order for associative arrays, highest index for indexed arrays)
-# - Outputs last element value; exit 0 on success, 1 on failure
+# Bisu::end
+# Description:
+#   PHP8 end($array) behavior for Bisu arrays (indexed + associative).
+#   Moves pointer to the last element (in real order guarantees):
+#       - Associative arrays: Bash preserves insertion order for iteration.
+#       - Indexed arrays: natural numeric order for "${!arr[@]}".
+#   Outputs the last element's value.
+#   Returns:
+#       0 on success
+#       1 on failure (invalid name, not array, empty, missing key)
+#
+# Notes:
+#   - Uses Bisu pointer pattern via Bisu::set
+#   - Avoids uncontrolled errors; only safe, suppressible failures
+#   - Zero modifications to other Bisu APIs
+#   - All logic graceful, stable, deterministic
 Bisu::end() {
-    if [ $# -lt 1 ]; then
+    # --- arg validation ---
+    if [[ $# -lt 1 ]]; then
         printf ''
         return 1
     fi
 
-    local arr_name=$(trim "$1")
-    Bisu::is_valid_var_name "$arr_name" || {
+    local name ptr_decl decl key last_key
+    name="$(Bisu::trim "$1")"
+
+    Bisu::array_is_available "$name" || {
         printf ''
         return 1
     }
 
-    # ensure variable exists and is an array
-    local decl
-    if ! decl="$(declare -p -- "$arr_name" 2>/dev/null)"; then
-        printf ''
-        return 1
-    fi
-    case "$decl" in
-    declare\ -a* | declare\ -A*) ;; # valid
-    *)
-        printf ''
-        return 1
-        ;;
-    esac
+    # --- controlled nameref creation ---
+    local -n arr="$name"
 
-    # nameref to array
-    local -n _arr_ref="$arr_name"
-
-    # empty -> failure
-    if [ "${#_arr_ref[@]}" -eq 0 ]; then
-        printf ''
-        return 1
-    fi
-
-    # pointer scalar for this array
-    local ptrvar="__ARRAY_PTR_${arr_name}"
-
-    # iterate keys and keep last one
-    local k lastkey
-    lastkey=""
-    for k in "${!_arr_ref[@]}"; do
-        lastkey="$k"
+    # --- capture last key deterministically ---
+    last_key=""
+    for key in "${!arr[@]}"; do
+        last_key="$key"
     done
 
-    # if no key found, fail
-    if [ -z "$lastkey" ]; then
+    # if still empty -> invalid/failure
+    [[ -z "$last_key" ]] && {
         printf ''
         return 1
-    fi
+    }
 
-    # update pointer and print value
-    Bisu::set "$ptrvar" "$lastkey"
-    printf '%s' "${_arr_ref[$lastkey]}"
+    # --- store pointer ---
+    ptr_decl="__ARRAY_PTR_${name}"
+    Bisu::set "$ptr_decl" "$last_key"
+
+    # --- output the value ---
+    printf '%s' "${arr[$last_key]}"
     return 0
 }
 
-# Bisu::reset() implementing PHP8's reset($array) semantics
-# - Supports indexed and associative arrays
-# - Sets pointer to first element and outputs its VALUE; exit 0 on success, 1 on failure
-# Usage:
-#   Bisu::reset array_var_name
+# Bisu::reset
+# Description:
+#   PHP8 reset($array) semantics for Bisu-managed arrays.
+#   Points the internal pointer to the first element (indexed or associative).
+#   Prints the first element's value; returns 0 on success, 1 on failure.
+# Notes:
+#   - Uses Bisu::trim, Bisu::is_valid_var_name, Bisu::set for pointer control.
+#   - Avoids uncontrolled errors; failures are clean and suppressible.
+#   - Fully consistent with Bisu::array_copy and Bisu::end design philosophy.
 Bisu::reset() {
-    # require array variable name
-    if [ $# -lt 1 ]; then
+    # --- argument validation ---
+    if [[ $# -lt 1 ]]; then
         printf ''
         return 1
     fi
 
-    local arr_name="$1"
+    local name decl first_key key ptr_name
 
-    # validate identifier
-    if ! [[ $arr_name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-        printf ''
-        return 1
-    fi
-
-    # ensure variable exists and is an array
-    local decl
-    if ! decl="$(declare -p -- "$arr_name" 2>/dev/null)"; then
-        printf ''
-        return 1
-    fi
-    case "$decl" in
-    declare\ -a* | declare\ -A*) ;; # valid
-    *)
-        printf ''
-        return 1
-        ;;
-    esac
-
-    # nameref to array
-    local -n _arr_ref="$arr_name"
-
-    # empty -> failure
-    if [ "${#_arr_ref[@]}" -eq 0 ]; then
-        printf ''
-        return 1
-    fi
-
-    # pointer scalar
-    local ptrvar="__PHP_PTR__${arr_name}"
-
-    # find first element and print its value
-    local k firstkey
-    for k in "${!_arr_ref[@]}"; do
-        firstkey="$k"
-        # release pointer after reset
-        Bisu::set "$ptrvar" ""
-        printf '%s' "${_arr_ref[$firstkey]}"
-        return 0
-    done
-
-    # fallback: no elements found
-    printf ''
-    return 1
-}
-
-# Convert JSON array to bash array
-Bisu::array_to_json() {
-    local array_data=$(Bisu::trim "$1")
-    local use_private_array=$(Bisu::trim "$2")
-    Bisu::in_array "${use_private_array}" "true" "false" || use_private_array="false"
-    local array_name=$(Bisu::trim "$3")
-
-    # If use_private_array is true, we don't need a specific array name or array_data
-    if [ "$use_private_array" == "true" ]; then
-        array_name="_ASSOC_VALUES"
-        array_data=""
-
-        # Construct a default associative array using _ASSOC_KEYS and _ASSOC_VALUES
-        for i in "${!_ASSOC_KEYS[@]}"; do
-            array_data+="$array_name[\"${_ASSOC_KEYS[$i]}\"]=\"${_ASSOC_VALUES[$i]}\""$'\n'
-        done
-    else
-        # If not using a private array, use the passed array_name or default it
-        array_name=${array_name:-"_ASSOC_VALUES"}
-    fi
-
-    if ! Bisu::is_array "$array_name"; then
-        printf ''
-        return 1
-    fi
-
-    # Initialize the result JSON object
-    local result="{"
-    local first=1
-
-    # Process each line of array_data
-    while IFS= read -r line; do
-        # Skip comments and empty lines
-        if [[ "$line" =~ \["([^\"]+)"\]\=\"([^\"]*)\" ]]; then
-            continue
-        fi
-
-        # Skip array declaration line
-        if [[ "$line" =~ declare\ -a\ "$array_name" ]]; then
-            continue
-        fi
-
-        # Use awk for processing key-value pairs
-        line=$(printf '%s\n' "$line" | awk -v arr="$array_name" '
-            match($0, arr"\\[\"([^\"]+)\"\\]=\"([^\"]+)\"", m) {
-                key = m[1]
-                value = m[2]
-
-                # Escape quotes in key and value
-                gsub(/"/, "\\\"", key)
-                gsub(/"/, "\\\"", value)
-
-                # Return key-value pair in JSON format
-                print "\"" key "\": \"" value "\""
-            }
-        ' 2>/dev/null)
-
-        # If no match, continue to the next line
-        if [ -z "$line" ]; then
-            continue
-        fi
-
-        # Append the key-value pair to the result JSON
-        if [ "$first" -eq 0 ]; then
-            result+=","
-        fi
-        result+="$line"
-        first=0
-    done <<<"$array_data"
-
-    # Close the JSON object and print the result
-    result+="}"
-
-    # Check if result ends with '}' (valid JSON), otherwise return empty
-    Bisu::string_ends_with "$result" "}" || {
+    # normalize name
+    name="$(Bisu::trim "$1")"
+    Bisu::array_is_available "$name" || {
         printf ''
         return 1
     }
 
-    printf '%s' "$result"
+    # --- create safe nameref ---
+    local -n arr="$name"
+
+    # --- find the first key in deterministic iteration order ---
+    first_key=""
+    for key in "${!arr[@]}"; do
+        first_key="$key"
+        break
+    done
+
+    # no key -> fail
+    [[ -z "$first_key" ]] && {
+        printf ''
+        return 1
+    }
+
+    # --- pointer update (Bisu-style scalar ref) ---
+    ptr_name="__ARRAY_PTR_${name}"
+    Bisu::set "$ptr_name" "$first_key"
+
+    # --- output first element's value ---
+    printf '%s' "${arr[$first_key]}"
     return 0
 }
 
-# Function: Bisu::is_valid_version
+# Bisu::array_to_json
+# Description:
+#   Convert a Bisu-managed associative array into a JSON object string.
+#   Supports:
+#       - Direct array conversion (array_name provided)
+#       - Private-array mode using _ASSOC_KEYS and _ASSOC_VALUES
+#   Returns:
+#       0 on success with JSON printed
+#       1 on failure (invalid array, invalid json formation, empty)
+#
+# Notes:
+#   - Uses Bisu::trim, Bisu::is_array, Bisu::array_dump, Bisu::set, Bisu::string_ends_with
+#   - All failures are clean and suppressible.
+#   - Unified behavior across all Bisu array utilities.
+Bisu::array_to_json() {
+    local data raw private_flag name dump k v json first
+
+    # normalize flags and names
+    data="$(Bisu::trim "$1")"
+    private_flag="$(Bisu::trim "$2")"
+    name="$(Bisu::trim "$3")"
+
+    # validate boolean flag
+    Bisu::in_array "$private_flag" "true" "false" || private_flag="false"
+
+    # ----------------------------------------------------------------------
+    # Private-mode (use _ASSOC_KEYS + _ASSOC_VALUES)
+    # ----------------------------------------------------------------------
+    if [[ "$private_flag" == "true" ]]; then
+        name="_ASSOC_VALUES"
+
+        # ensure private array exists
+        if ! Bisu::is_array "$name"; then
+            printf ''
+            return 1
+        fi
+
+        # build canonical array content via dump
+        dump="$(Bisu::array_dump "$name")" || {
+            printf ''
+            return 1
+        }
+    else
+        # ------------------------------------------------------------------
+        # Normal mode — array_name provided or defaulted
+        # ------------------------------------------------------------------
+        name="${name:-_ASSOC_VALUES}"
+
+        if ! Bisu::is_array "$name"; then
+            printf ''
+            return 1
+        fi
+
+        dump="$(Bisu::array_dump "$name")" || {
+            printf ''
+            return 1
+        }
+    fi
+
+    # ----------------------------------------------------------------------
+    # Convert canonical dump (key=value pairs) → JSON
+    # dump format is assumed:  KEY="VALUE"  KEY2="VALUE2"  ...  (safe canonical)
+    # ----------------------------------------------------------------------
+
+    json="{"
+    first=1
+
+    # iterate pairwise: dump is a sequence like: key=value key="two" ...
+    for kv in $dump; do
+        # split KEY=VALUE
+        k="${kv%%=*}"
+        v="${kv#*=}"
+
+        # trim possible quotes
+        k="${k%\"}"
+        k="${k#\"}"
+        v="${v%\"}"
+        v="${v#\"}"
+
+        # escape JSON quotes
+        k="${k//\"/\\\"}"
+        v="${v//\"/\\\"}"
+
+        if [[ $first -eq 0 ]]; then
+            json+=","
+        fi
+
+        json+="\"$k\": \"$v\""
+        first=0
+    done
+
+    json+="}"
+
+    # validate JSON ending
+    Bisu::string_ends_with "$json" "}" || {
+        printf ''
+        return 1
+    }
+
+    printf '%s' "$json"
+    return 0
+}
+
+# Method: Bisu::is_valid_version
 # Description: Validates a version number in formats vX.Y.Z, X.Y.Z, X.Y, or X/Y/Z.
 # Arguments:
 # $1 - Version number to validate.
@@ -4198,7 +4893,7 @@ Bisu::is_valid_version() {
     return 0
 }
 
-# Function: Bisu::compare_version
+# Method: Bisu::compare_version
 # Purpose: Compares two version strings following Composer versioning rules, supporting complex constraints.
 # Usage: Bisu::compare_version <constraint> <version>
 # Returns:
@@ -4417,7 +5112,7 @@ Bisu::bash_version() {
     fi
 }
 
-# Function: Bisu::check_bash_version
+# Method: Bisu::check_bash_version
 # Description: Verifies that the installed Bash version is greater than or equal to the specified required version.
 Bisu::check_bash_version() {
     if ! Bisu::is_valid_version "$BISU_MINIMAL_BASH_VERSION"; then
@@ -4433,7 +5128,7 @@ Bisu::check_bash_version() {
     fi
 }
 
-# Function: Bisu::check_bisu_version
+# Method: Bisu::check_bisu_version
 # Description: Verifies that the installed BISU version is greater than or equal to the specified required version.
 Bisu::check_bisu_version() {
     local expr="${BISU_VERSION_REQUIREMENT:-}"
@@ -4453,7 +5148,7 @@ Bisu::is_bisu_file() {
     return 0
 }
 
-# Function: Bisu::normalize_iso_datetime
+# Method: Bisu::normalize_iso_datetime
 Bisu::normalize_iso_datetime() {
     local input=$(Bisu::trim "$1")
     if [ -z "$input" ]; then
@@ -4531,7 +5226,7 @@ Bisu::normalize_iso_datetime() {
     return 0
 }
 
-# Function: Bisu::is_valid_datetime
+# Method: Bisu::is_valid_datetime
 # Description: Check if the given string is a valid adaptive datetime
 Bisu::is_valid_datetime() {
     local datetime=$(Bisu::normalize_iso_datetime "$1")
@@ -4583,7 +5278,7 @@ Bisu::is_valid_datetime() {
     return 0
 }
 
-# Function: Bisu::gdate
+# Method: Bisu::gdate
 # Description: function for converting ISO8601 time format to natural language format
 Bisu::gdate() {
     local raw fmt compact input datepart timepart tzpart timecore
@@ -5146,7 +5841,7 @@ Bisu::is_valid_email() {
     return 0
 }
 
-# Function: Bisu::is_valid_url
+# Method: Bisu::is_valid_url
 # Validates a URL of the form: scheme://[userinfo@]host[:port][/path][?query][#fragment]
 # Returns 0 when valid, 1 when invalid.
 Bisu::is_valid_url() {
@@ -5266,7 +5961,7 @@ Bisu::is_valid_url() {
     return 0
 }
 
-# Function: Bisu::is_valid_uri
+# Method: Bisu::is_valid_uri
 # Validates a generic URI: [scheme:][//authority][path][?query][#fragment]
 # Returns 0 if valid, 1 if invalid.
 Bisu::is_valid_uri() {
@@ -5417,7 +6112,7 @@ Bisu::is_valid_json() {
 }
 
 #------------------------------------------------------------------------------
-# Function: Bisu::gen_sig_file
+# Method: Bisu::gen_sig_file
 # Purpose : Generate a SHA-256 checksum for a file and sign it with GPG,
 #           producing an ASCII-armored signature file (.sha256.asc).
 # Supports algorithms: md5, sha1, ripemd160, sha256, sha384, sha512, sha224.
@@ -5563,7 +6258,14 @@ Bisu::verify_sig_file() {
     return $return_code
 }
 
-# Function to convert YAML to JSON
+# Bisu::yaml_to_json v1
+# Description:
+#   Convert a simple YAML string (flat key: value lines) to a JSON object string.
+#   - Skips comments (#...) and blank lines
+#   - Splits on the first ':' so values may contain colons
+#   - Trims keys/values with Bisu::trim and escapes JSON-sensitive chars
+# Returns:
+#   prints JSON on stdout and returns 0 on success, otherwise prints '' and returns 1
 Bisu::yaml_to_json() {
     local yaml=$(Bisu::trim "$1")
 
@@ -5600,7 +6302,18 @@ Bisu::yaml_to_json() {
     return 0
 }
 
-# Convert plaintext YAML-like key:value pairs into global variables simulating an associative array
+# Bisu::yaml_to_array v1
+# Description:
+#   Convert simple YAML-like "key: value" pairs into a global associative array.
+#   - Uses Bisu's canonical ref-processing pattern: dump -> set -> rehydrate.
+#   - Lines without ':' are ignored.
+#   - Keys and values are trimmed; quotes removed.
+#   - Comments (#...) and blank lines skipped.
+# Params:
+#   $1  YAML text (optional; if omitted, reads from stdin)
+#   $2  receiver array variable name (global associative array)
+# Returns:
+#   0 on success, 1 on failure. Prints nothing on stderr.
 Bisu::yaml_to_array() {
     local input key value
     # If no argument is passed, read from stdin, otherwise handle the passed argument
@@ -5634,7 +6347,18 @@ Bisu::yaml_to_array() {
     return 0
 }
 
-# Parse JSON into array
+# Bisu::json_to_array v1
+# Description:
+#   Parse simple JSON key/value pairs into a global associative array.
+#   - Only handles flat {"k":"v"} objects (same as original design).
+#   - Lines containing braces or empty lines are skipped.
+#   - Keys/values trimmed and cleaned.
+#   - Uses canonical Bisu ref-processing pattern: dump -> set -> rehydrate.
+# Params:
+#   $1  JSON text (optional; if omitted, reads from stdin)
+#   $2  receiver array variable name (global associative array)
+# Returns:
+#   0 on success, 1 on failure. Prints nothing on stderr.
 Bisu::json_to_array() {
     local input key value
     # If no argument is passed, read from stdin, otherwise handle the passed argument
@@ -6959,64 +7683,73 @@ Bisu::base64_decode() {
     return 0
 }
 
-# Generate random string based on Bisu::uuidv4
+# Truly random string with zero bias and no structural patterns
 Bisu::random_string() {
-    local byte_length=$(Bisu::trim "$1")
-    byte_length=${byte_length:-20}
-    local type=$(Bisu::trim "$2")
-    type=${type:-"base10"}
-    local needle=""
-    local uuid=""
-    local result=""
-
-    # Validate byte_length
-    if ! Bisu::is_posi_int "$byte_length"; then
-        printf ''
-        return 1
-    fi
-
-    local uuid_rounds=$(printf '%s' "$byte_length / 32" | bc -l)
-    uuid_rounds=$(Bisu::normalize_number "$uuid_rounds")
-    uuid_rounds=$(Bisu::ceil "$uuid_rounds")
-    Bisu::is_posi_int "$uuid_rounds" || {
-        printf ''
+    local length byte alphabet result idx max alpha_len
+    length=$(Bisu::trim "${1:-21}")
+    Bisu::is_posi_int "$length" || {
+        printf ""
         return 1
     }
+    type=$(Bisu::trim "${2:-base62}")
 
-    for ((i = 0; i < uuid_rounds; i++)); do
-        uuid=$(Bisu::uuidv4)
-        needle="$needle$uuid"
-    done
-
-    # Enforce limits based on type
+    # Alphabet selection
     case "$type" in
-    "base10")
-        result=$(Bisu::base10_encode "$needle")
-        result=$(Bisu::substr "$result" 0 "$byte_length")
-        ;;
-    "base26")
-        result=$(Bisu::base26_encode "$needle")
-        result=$(Bisu::substr "$result" 0 "$byte_length")
-        ;;
-    "base36")
-        result=$(Bisu::base36_encode "$needle")
-        result=$(Bisu::substr "$result" 0 "$byte_length")
-        ;;
-    "base62")
-        result=$(Bisu::base62_encode "$needle")
-        result=$(Bisu::substr "$result" 0 "$byte_length")
-        ;;
-    "base64")
-        result=$(Bisu::base64_encode "$needle")
-        result=$(Bisu::substr "$result" 0 "$byte_length")
-        ;;
+    base10) alphabet='0123456789' ;;
+    base26) alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ' ;;
+    base36) alphabet='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ' ;;
+    base62) alphabet='0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ' ;;
+    base64) alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' ;;
     *)
-        printf ''
+        printf ""
         return 1
         ;;
     esac
 
+    alpha_len=${#alphabet}
+    max=$((256 / alpha_len * alpha_len)) # rejection sampling
+
+    result=""
+    while ((${#result} < length)); do
+        # read 1 byte from /dev/urandom
+        IFS= read -r -N1 byte </dev/urandom || {
+            printf ""
+            return 1
+        }
+        # convert to numeric
+        byte=$(printf '%d' "'$byte")
+        ((byte < max)) || continue # rejection if out of range
+        idx=$((byte % alpha_len))
+        result+=${alphabet:idx:1}
+    done
+
     printf '%s' "$result"
+    return 0
+}
+
+# To generate a random number
+# Usage: Bisu::random_number <length>
+Bisu::random_number() {
+    local length
+    length=$(Bisu::trim "${1:-6}")
+    Bisu::is_posi_int "$length" || {
+        printf ""
+        return 1
+    }
+
+    local legality_ensured
+    legality_ensured=$(Bisu::trim "$2")
+    Bisu::in_array "$legality_ensured" "true" "false" || legality_ensured="false"
+
+    local number
+    number=$(Bisu::random_string "$length" "base10")
+    if [[ "$legality_ensured" == "true" && "$number" == 0* ]]; then
+        local first_non_zero
+        first_non_zero=$(((RANDOM % 9) + 1))
+        number="${first_non_zero}${number:1}"
+    fi
+
+    printf '%s' "$number"
     return 0
 }
 
@@ -7036,7 +7769,7 @@ Bisu::check_commands_list() {
     fi
 }
 
-# Function: Bisu::hanging_process
+# Method: Bisu::hanging_process
 # Return: process status value
 Bisu::hanging_process() {
     local pid=$(Bisu::trim "$1")
@@ -7095,8 +7828,14 @@ Bisu::atomic_mutex_lock() {
 }
 
 # set lock flag for flock
-Bisu::lock_held() {
+Bisu::lock_set() {
     [ "$BISU_LOCK_HELD" -eq 1 ] || BISU_LOCK_HELD=1
+    return 0
+}
+
+# check lock flag for flock
+Bisu::lock_is_set() {
+    [ "$BISU_LOCK_HELD" -eq 1 ] || return 1
     return 0
 }
 
@@ -7106,35 +7845,48 @@ Bisu::bisu_start_flag() {
     return 0
 }
 
-# Function to acquire a lock to prevent multiple instances
+# ──────────────────────────────────────────────────────────────
+# Robust singleton flock set – works everywhere
+# ──────────────────────────────────────────────────────────────
 Bisu::acquire_lock() {
     local lock_file=$(Bisu::current_lock_file)
-    [ -n "$lock_file" ] || Bisu::error_exit "❗️ Failed to acquire 🔒 lock."
-    exec 200>"$lock_file" 2>/dev/null || Bisu::error_exit "❗️ Cannot open 🔒 lock file: $lock_file"
-    flock -n 200 2>/dev/null || {
-        Bisu::lock_held
-        Bisu::error_exit "🔒 An instance is running: $lock_file"
+    [ -n "$lock_file" ] || Bisu::error_exit "Failed to acquire 🔒 lock(1)"
+    exec 200>"$lock_file" 2>/dev/null || Bisu::error_exit "Cannot open 🔒 lock file: $lock_file"
+
+    if ! flock -x -n 200 2>/dev/null; then
+        Bisu::error_exit "An instance is running: $lock_file" 1 "🔒"
+    fi
+    if flock -x -n 200 2>/dev/null; then
+        Bisu::lock_set
+    fi
+    Bisu::lock_is_set || {
+        Bisu::saferm "$lock_file"
+        Bisu::error_exit "Failed to acquire 🔒 lock(2)"
     }
+
+    echo "$BISU_CURRENT_UTIL_PID" >&200
+    return 0
 }
 
-# Function to release the lock
+# ──────────────────────────────────────────────────────────────
+# Robust singleton flock clean – works everywhere
+# ──────────────────────────────────────────────────────────────
 Bisu::release_lock() {
-    [ "$BISU_LOCK_HELD" -eq 0 ] || return 0
+    Bisu::lock_is_set || return 0
     local lock_file=$(Bisu::current_lock_file)
-    Bisu::is_file "$lock_file" || {
-        return 0
-    }
-
-    flock -u 200 2>/dev/null && Bisu::saferm "$lock_file" || {
-        Bisu::error_log "Failed to remove lock file: ${lock_file}"
-        return 1
+    # Unlock + close fd 200, this automatically removes the kernel lock
+    flock -u 200 2>/dev/null && {
+        exec 200>&- && Bisu::saferm "$lock_file" || {
+            Bisu::error_log "Failed to remove lock file: ${lock_file}"
+            return 1
+        }
     }
 
     Bisu::log_msg "✅ Released 🔒 lock_file: ${lock_file}" "true"
     return 0
 }
 
-# Function: Bisu::set_title
+# Method: Bisu::set_title
 # Purpose: Sets the terminal title safely and robustly
 # Arguments: $1 - Title string
 # Returns: 0 on success, 1 on invalid input, 2 on unsupported terminal
@@ -7200,6 +7952,7 @@ Bisu::verify_sig() {
     Bisu::normalize_bool "BISU_VERIFY_SIG"
     [[ "$BISU_VERIFY_SIG" == "true" ]] && {
         local sig_status=$(Bisu::verify_sig_file "$(Bisu::bisu_file_path).asc" "$(Bisu::bisu_file_path)")
+        sig_status=$(Bisu::strtoupper "$sig_status")
         Bisu::string_starts_with "$sig_status" "ERR_" && {
             Bisu::error_exit "Invalid bisu signature, signature specific error: ${sig_status}"
         }
@@ -7208,6 +7961,7 @@ Bisu::verify_sig() {
     Bisu::normalize_bool "BISU_CURRENT_UTIL_VERIFY_SIG"
     [[ "$BISU_CURRENT_UTIL_VERIFY_SIG" == "true" ]] && {
         local sig_status=$(Bisu::verify_sig_file "$(Bisu::current_file_path).asc" "$(Bisu::current_file_path)")
+        sig_status=$(Bisu::strtoupper "$sig_status")
         Bisu::string_starts_with "$sig_status" "ERR_" && {
             Bisu::error_exit "Invalid utility signature, signature specific error: ${sig_status}"
         }
@@ -7232,13 +7986,17 @@ Bisu::register_current_command() {
         Bisu::indexed_array_merge "BISU_REQUIRED_EXTERNAL_COMMANDS" "BISU_CURRENT_UTIL_REQUIRED_COMMANDS" "BISU_REQUIRED_EXTERNAL_COMMANDS" &&
         Bisu::array_unique "BISU_REQUIRED_EXTERNAL_COMMANDS"
     Bisu::array_is_available "BISU_CURRENT_UTIL_REQUIRED_SCRIPTS" &&
-        Bisu::indexed_array_merge "BISU_REQUIRED_SCRIPTS" "BISU_CURRENT_UTIL_REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS" && Bisu::array_unique "BISU_REQUIRED_SCRIPTS"
-    Bisu::array_is_available "BISU_CURRENT_UTIL_ACTIONS_RO" && Bisu::indexed_array_merge "BISU_ACTIONS_RO" "BISU_CURRENT_UTIL_ACTIONS_RO" "BISU_ACTIONS_RO" &&
+        Bisu::indexed_array_merge "BISU_REQUIRED_SCRIPTS" "BISU_CURRENT_UTIL_REQUIRED_SCRIPTS" "BISU_REQUIRED_SCRIPTS" &&
+        Bisu::array_unique "BISU_REQUIRED_SCRIPTS"
+    Bisu::array_is_available "BISU_CURRENT_UTIL_ACTIONS_RO" &&
+        Bisu::indexed_array_merge "BISU_ACTIONS_RO" "BISU_CURRENT_UTIL_ACTIONS_RO" "BISU_ACTIONS_RO" &&
         Bisu::array_unique "BISU_ACTIONS_RO"
-    Bisu::array_is_available "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" && Bisu::indexed_array_merge "BISU_AUTORUN" "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" "BISU_AUTORUN" &&
+    Bisu::array_is_available "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" &&
+        Bisu::indexed_array_merge "BISU_AUTORUN" "BISU_CURRENT_UTIL_AUTORUN_COMMANDS" "BISU_AUTORUN" &&
         Bisu::array_unique "BISU_AUTORUN"
     Bisu::array_is_available "BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS" &&
-        Bisu::indexed_array_merge "BISU_EXIT_WITH_COMMANDS" "BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS" && Bisu::array_unique "BISU_EXIT_WITH_COMMANDS"
+        Bisu::indexed_array_merge "BISU_EXIT_WITH_COMMANDS" "BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS" "BISU_EXIT_WITH_COMMANDS" &&
+        Bisu::array_unique "BISU_EXIT_WITH_COMMANDS"
 }
 
 # Parse command-line arguments into an associative storage backend.
@@ -7516,10 +8274,7 @@ Bisu::safe_fork() {
     local args=$(Bisu::trim "$(printf '%s ' "${phrase[@]}")")
     phrase="$(printf '%s ' "${cmd} ${args}")"
 
-    Bisu::is_executable "$cmd" || {
-        printf ''
-        return 1
-    }
+    Bisu::is_executable "$cmd" || return 1
 
     local async=$(Bisu::trim "$2")
     Bisu::in_array "$async" "true" "false" || async="true"
@@ -7597,7 +8352,7 @@ Bisu::safe_fork() {
     return 0
 }
 
-# Function: Bisu::continuous_exec
+# Method: Bisu::continuous_exec
 Bisu::continuous_exec() {
     local phrase=$(Bisu::trim "$1")
     local sleep_time=$(Bisu::trim "$2")
@@ -7728,7 +8483,7 @@ Bisu::on_signal_exit() {
     Bisu::revert_title &
     disown %+ &>/dev/null
 
-    if [[ "$BISU_LOCK_HELD" -eq 0 ]]; then
+    if Bisu::lock_is_set; then
         Bisu::exit_with_commands &
         disown %+ &>/dev/null
     fi
@@ -7783,7 +8538,7 @@ Bisu::autorun_start() {
 
     if Bisu::atomic_mutex_lock; then
         Bisu::acquire_lock
-        Bisu::array_unique_push "BISU_EXIT_WITH_COMMANDS" '\"Bisu::release_lock\"'
+        Bisu::array_unique_push "BISU_EXIT_WITH_COMMANDS" "Bisu::release_lock"
         Bisu::log_msg "🔒 Lock set." "true"
     fi
 
@@ -7857,6 +8612,7 @@ Bisu::callfunc() {
 
     local params=$(Bisu::string_join "current_args" ' ')
     local output=""
+
     Bisu::safe_callfunc "$func" $(printf '%s ' "$params") | {
         output=$(Bisu::trim "$(cat)")
         [ -n "$output" ] || output="(empty result)"
@@ -8030,7 +8786,7 @@ Bisu::integrate_ops() {
     fi
 }
 
-# Function: Bisu::install_script
+# Method: Bisu::install_script
 Bisu::install_script() {
     if Bisu::is_installed; then
         Bisu::log_msg "Detected existing installation, backup will be created."
