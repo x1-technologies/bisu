@@ -9,10 +9,10 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.1001"
+readonly BISU_VERSION="11.0.1101"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2026-02-15Z"
+readonly BISU_LAST_RELEASE_DATE="2026-03-29Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
@@ -2175,107 +2175,136 @@ Bisu::confirm() {
     done
 }
 
-# Method: Bisu::normalize_path v5
-# Get the file's real path and verify the base folder's existence
+# Method: Bisu::normalize_path v6
 # Normalize a filesystem path string and optionally verify existence.
+#
 # Parameters:
 #   $1  - input path (string). If empty after trim -> returns empty string.
-#   $2  - preserve_relative_path (expects "true" or "false"; kept for API compatibility;
-#         original behavior converts relative paths to absolute; this parameter is
-#         validated but NOT applied to preserve original semantics).
-#   $3  - check_base_existence ("true"|"false"). If "true" the function prints the
-#         normalized path only when it exists; otherwise prints empty string.
+#   $2  - preserve_relative_path ("true"|"false").
+#   $3  - check_base_existence ("true"|"false"). If "true", print only if the final path exists.
+#
 # Notes:
-#   - Uses Bisu::trim and Bisu::in_array which are assumed to exist (per original).
-#   - Uses pure-bash manipulations and safe subshells for cd to avoid changing caller cwd.
-#   - Returns 0 on success; prints result to stdout (empty string when requested/absent).
+#   - Expands leading ~ for the current user.
+#   - Expands simple shell-style environment variables anywhere in the string:
+#       $VAR   and   ${VAR}
+#   - Does NOT evaluate command substitutions, arithmetic expansions, globs, or backticks.
+#   - Uses pure bash path normalization.
 Bisu::normalize_path() {
-    local file
-    file="$(Bisu::trim "$1")"
-    local check_base_existence
-    check_base_existence="$(Bisu::trim "$2")"
-    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
-    local preserve_relative_path
-    preserve_relative_path="$(Bisu::trim "$3")"
-    Bisu::in_array "$preserve_relative_path" "true" "false" || preserve_relative_path="false"
+    local input preserve_relative_path check_base_existence
+    local expanded token name value segment result
+    local is_absolute=0
+    local -a parts stack
+    local IFS='/' idx
 
-    # Preserve original semantics: empty input -> return empty string (and exit 0).
-    if [ -z "$file" ]; then
+    input="$(Bisu::trim "${1-}")"
+    preserve_relative_path="$(Bisu::trim "${2-}")"
+    check_base_existence="$(Bisu::trim "${3-}")"
+
+    Bisu::in_array "$preserve_relative_path" "true" "false" || preserve_relative_path="false"
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
+
+    if [ -z "$input" ]; then
         printf ''
         return 0
     fi
 
-    # Expand leading tilde safely: ~ or ~user (only ~ for current user handled here)
-    case "$file" in
-    ~) file="${HOME}" ;;
-    ~/*) file="${HOME}/${file#~/}" ;;
+    # Expand leading ~ for the current user.
+    case "$input" in
+    ~) input="$HOME" ;;
+    ~/*) input="$HOME/${input#~/}" ;;
     esac
 
-    # Convert certain relative shorthands to absolute (match original behavior):
-    case "$file" in
-    /*) : ;;                                      # already absolute — no change
-    .) file="$(pwd)" ;;                           # single dot -> current working dir
-    ..) file="$(cd .. >/dev/null 2>&1 && pwd)" ;; # parent dir -> absolute
-    ./*) file="$(pwd)/${file#./}" ;;              # ./something -> pwd/something
-    ../*)                                         # ../foo -> resolve directory portion
-        {
-            # Use a subshell cd to avoid changing caller directory.
-            local _dirpart="${file%/*}"
-            local _basepart="${file##*/}"
-            # If path is exactly "../name" then _dirpart == ".."
-            file="$(cd "$_dirpart" >/dev/null 2>&1 && pwd)/$_basepart" || file="$(pwd)/$file"
-        }
-        ;;
-    *) file="$(pwd)/$file" ;; # other relative -> pwd/relative
+    # Expand simple env vars anywhere in the path.
+    # Supports $VAR and ${VAR}.
+    expanded="$input"
+    while [[ "$expanded" =~ (\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*) ]]; do
+        token="${BASH_REMATCH[1]}"
+
+        # Prefix before the first occurrence of the token.
+        # Use shortest-match removal so we replace the first match only.
+        local prefix rest
+        prefix="${expanded%"$token"*}"
+        rest="${expanded#*"$token"}"
+
+        case "$token" in
+        \$\{*\})
+            name="${token:2:${#token}-3}"
+            ;;
+        \$*)
+            name="${token:1}"
+            ;;
+        esac
+
+        value="${!name-}"
+        expanded="${prefix}${value}${rest}"
+    done
+    input="$expanded"
+
+    # Absolute vs relative.
+    case "$input" in
+    /*) is_absolute=1 ;;
     esac
 
-    # --------------------------
-    # Path normalization (pure bash)
-    #  - collapse repeated '//' sequences
-    #  - remove '/./' segments
-    #  - remove trailing '/.' if present
-    #  - trim trailing whitespace
-    #  - remove trailing slashes except for root '/'
-    # --------------------------
+    # Preserve relative input only when requested.
+    if [ "$is_absolute" -eq 0 ] && [ "$preserve_relative_path" != "true" ]; then
+        input="$(pwd -P)/$input"
+        is_absolute=1
+    fi
 
-    # Collapse repeated slashes (iteratively until no double-slash remains).
-    # Use a lightweight loop; safe for extremely long sequences.
-    while [[ "$file" == *//* ]]; do
-        file="${file//\/\//\/}"
+    # Split and normalize path components.
+    read -r -a parts <<<"$input"
+
+    for segment in "${parts[@]}"; do
+        case "$segment" in
+        '' | .)
+            continue
+            ;;
+        ..)
+            if [ "${#stack[@]}" -gt 0 ]; then
+                idx=$((${#stack[@]} - 1))
+                if [ "${stack[$idx]}" != ".." ]; then
+                    unset "stack[$idx]"
+                    continue
+                fi
+            fi
+
+            # Keep unresolved .. only for relative paths.
+            if [ "$is_absolute" -eq 0 ]; then
+                stack+=("..")
+            fi
+            ;;
+        *)
+            stack+=("$segment")
+            ;;
+        esac
     done
 
-    # Remove '/./' segments
-    file="${file//\/.\//\/}"
-
-    # Remove trailing '/.' if present
-    case "$file" in
-    */.) file="${file%/.}" ;;
-    esac
-
-    # Trim trailing whitespace characters (space, tab, newline)
-    local _trail="${file##*[!$' \t\n']}"
-    file="${file%"$_trail"}"
-
-    # Remove trailing slashes but preserve root '/'
-    if [ "$file" != "/" ]; then
-        # Remove any trailing slashes
-        # "${file##*[!/]}" yields the trailing run of slashes; remove them
-        file="${file%"${file##*[!/]}"}"
-        # If result becomes empty (path was only slashes), coerce to '/'
-        [ -z "$file" ] && file="/"
-    fi
-
-    # Final output: if check_base_existence requested, only output if path exists
-    if [ "$check_base_existence" = "true" ]; then
-        if [ -e "$file" ]; then
-            printf '%s' "$file"
+    # Rebuild final path.
+    if [ "${#stack[@]}" -eq 0 ]; then
+        if [ "$is_absolute" -eq 1 ]; then
+            result="/"
         else
-            printf ''
+            result="."
         fi
     else
-        printf '%s' "$file"
+        if [ "$is_absolute" -eq 1 ]; then
+            result="/${stack[0]}"
+        else
+            result="${stack[0]}"
+        fi
+
+        for ((idx = 1; idx < ${#stack[@]}; idx++)); do
+            result="$result/${stack[$idx]}"
+        done
     fi
 
+    # Optional existence check.
+    if [ "$check_base_existence" = "true" ] && [ ! -e "$result" ]; then
+        printf ''
+        return 0
+    fi
+
+    printf '%s' "$result"
     return 0
 }
 
@@ -2957,21 +2986,170 @@ Bisu::files_count() {
     return 0
 }
 
-# Bisu::mkdir_p
-Bisu::mkdir_p() {
-    local dir=$(Bisu::trim "$1")
+# Bisu::mkdir v2
+# Description:
+#   Creates a directory safely, with optional parent-directory creation.
+# Params:
+#   $1 (string) dir          - Directory path to create
+#   $2 (string) is_recursive - "true" to create parents, otherwise "false"
+# Returns:
+#   0 on success, 1 on failure
+# Notes:
+#   - Rejects paths that already exist as non-directories
+#   - Avoids unsafe shell evaluation
+#   - Applies mode 755 to the created directory
+Bisu::mkdir() {
+    local dir is_recursive
+    local -a cmd
+
+    # Normalize inputs.
+    dir=$(Bisu::trim "${1:-}")
+    is_recursive=$(Bisu::trim "${2:-false}")
     dir=$(Bisu::normalize_path "$dir")
 
-    # Check if the directory exists, if not, create it
-    if ! Bisu::file_exists "$dir"; then
-        bash -c "mkdir -p \"$dir\"" &>/dev/null || {
-            Bisu::error_log "Failed to mkdir: '${dir}'"
+    # Validate path.
+    [[ -n "$dir" ]] || {
+        Bisu::error_log "Directory path is empty."
+        return 1
+    }
+
+    # Normalize boolean flag.
+    Bisu::in_array "$is_recursive" "true" "false" || is_recursive="false"
+
+    # Refuse to overwrite an existing non-directory path.
+    if [[ -e "$dir" && ! -d "$dir" ]]; then
+        Bisu::error_log "Path exists and is not a directory: '${dir}'."
+        return 1
+    fi
+
+    # Nothing to do if the directory already exists.
+    if [[ -d "$dir" ]]; then
+        return 0
+    fi
+
+    # Build mkdir command safely.
+    cmd=(mkdir)
+    [[ "$is_recursive" == "true" ]] && cmd+=(-p)
+    cmd+=(-- "$dir")
+
+    # Create the directory.
+    if ! "${cmd[@]}" >/dev/null 2>&1; then
+        Bisu::error_log "Failed to create directory: '${dir}'."
+        return 1
+    fi
+
+    # Apply standard permissions to the created directory.
+    if ! chmod 755 -- "$dir" >/dev/null 2>&1; then
+        Bisu::error_log "Failed to change permissions for '${dir}'."
+        return 1
+    fi
+
+    return 0
+}
+
+# Bisu::mkdir_p
+Bisu::mkdir_p() {
+    Bisu::mkdir "$1" "true" || return 1
+    return 0
+}
+
+# Bisu::cp v2
+# Description:
+#   Copies or moves a file/directory from source to target with optional overwrite
+#   and auto-directory creation. Handles spaces safely and supports both files
+#   and directories.
+# Params:
+#   $1 (string) source_path       - Path to source file or directory
+#   $2 (string) target_path       - Destination path (file or directory)
+#   $3 (string) force_override    - "true" | "false" (default: true)
+#   $4 (string) keep_origin       - "true" (copy) | "false" (move) (default: true)
+#   $5 (string) auto_create_path  - "true" | "false" (default: false)
+# Returns:
+#   0 on success, 1 on failure
+# Notes:
+#   - Uses cp -a for safe recursive copy with attributes
+#   - Uses mv for move operations
+#   - Avoids unsafe shell evaluation (no bash -c)
+#   - Supports paths with spaces and special characters
+# Usage:
+#   Bisu::cp "/tmp/a.txt" "/tmp/b.txt"
+#   Bisu::cp "/tmp/dir" "/backup/dir" true true true
+#   Bisu::cp "/tmp/a.txt" "/tmp/b.txt" false false
+Bisu::cp() {
+    local source_path target_path force_override keep_origin auto_create_path
+    local target_dir
+    local -a cmd
+
+    # Normalize and sanitize inputs
+    source_path=$(Bisu::trim "$1")
+    target_path=$(Bisu::trim "$2")
+    force_override=$(Bisu::trim "${3:-true}")
+    keep_origin=$(Bisu::trim "${4:-true}")
+    auto_create_path=$(Bisu::trim "${5:-false}")
+
+    # Validate required params
+    [[ -n "$source_path" ]] || {
+        Bisu::error_log "Source path is empty."
+        return 1
+    }
+    [[ -n "$target_path" ]] || {
+        Bisu::error_log "Target path is empty."
+        return 1
+    }
+
+    # Normalize boolean flags
+    Bisu::in_array "$force_override" "true" "false" || force_override="true"
+    Bisu::in_array "$keep_origin" "true" "false" || keep_origin="true"
+    Bisu::in_array "$auto_create_path" "true" "false" || auto_create_path="false"
+
+    # Ensure source exists
+    if [[ ! -e "$source_path" ]]; then
+        Bisu::error_log "Source path '${source_path}' does not exist."
+        return 1
+    fi
+
+    # Check read (and execute for directories) permissions
+    if [[ ! -r "$source_path" ]] || { [[ -d "$source_path" ]] && [[ ! -x "$source_path" ]]; }; then
+        Bisu::error_log "Permission denied on source path: '${source_path}'."
+        return 1
+    fi
+
+    # Resolve target directory
+    if [[ -d "$target_path" ]]; then
+        target_dir="$target_path"
+    else
+        target_dir="${target_path%/*}"
+        [[ "$target_dir" == "$target_path" ]] && target_dir="."
+    fi
+
+    # Optionally create destination directory tree
+    if [[ "$auto_create_path" == "true" ]]; then
+        mkdir -p -- "$target_dir" || {
+            Bisu::error_log "Failed to create target directory '${target_dir}'."
             return 1
         }
-        bash -c "chmod -R 755 \"$dir\"" &>/dev/null || {
-            Bisu::error_log "Failed to change permissions for '${dir}'"
-            return 1
-        }
+    fi
+
+    # Build command safely using array (prevents word-splitting issues)
+    if [[ "$keep_origin" == "true" ]]; then
+        cmd=(cp)
+        # Overwrite or no-clobber behavior
+        [[ "$force_override" == "true" ]] && cmd+=(-f) || cmd+=(-n)
+        cmd+=(-a -- "$source_path" "$target_path") # archive mode for recursive + attrs
+    else
+        cmd=(mv)
+        [[ "$force_override" == "true" ]] && cmd+=(-f) || cmd+=(-n)
+        cmd+=(-- "$source_path" "$target_path")
+    fi
+
+    # Execute operation
+    if ! "${cmd[@]}" >/dev/null 2>&1; then
+        if [[ "$keep_origin" == "true" ]]; then
+            Bisu::error_log "Failed to copy '${source_path}' to '${target_path}'."
+        else
+            Bisu::error_log "Failed to move '${source_path}' to '${target_path}'."
+        fi
+        return 1
     fi
 
     return 0
@@ -2979,62 +3157,7 @@ Bisu::mkdir_p() {
 
 # Bisu::cp_p
 Bisu::cp_p() {
-    local source_path=$(Bisu::trim "$1")
-    local target_path=$(Bisu::trim "$2")
-    local target_dir=""
-    local force_override=$(Bisu::trim "$3")
-    Bisu::in_array "${force_override}" "true" "false" || force_override="true"
-    local keep_origin=$(Bisu::trim "$4")
-    Bisu::in_array "${keep_origin}" "true" "false" || keep_origin="true"
-    local source_is_file="false"
-    local source_is_dir="false"
-    local prepare_for_copy="false"
-    local prepare_for_move="false"
-    local command=""
-    local failure_msg=""
-
-    # Check if the source_path exists
-    if ! Bisu::file_exists "$source_path"; then
-        Bisu::error_log "Source path '${source_path}' does not exist."
-        return 1
-    fi
-
-    # Check the source_path's permission
-    if [[ ! -e "$source_path" ]]; then
-        Bisu::error_log "Permission denied on file: '${source_path}'."
-        return 1
-    fi
-
-    Bisu::extract_file_info "$target_path" "file_info"
-    target_path=$(Bisu::array_get "file_info" "file_path")
-    target_dir=$(Bisu::array_get "file_info" "file_dir")
-
-    if [[ "$force_override" == "false" ]] && [ -e "$target_path" ]; then
-        return 1
-    fi
-
-    if Bisu::is_file "$source_path"; then
-        source_is_file="true"
-    fi
-
-    if [[ "$keep_origin" == "true" ]]; then
-        if [[ "$source_is_file" == "true" ]]; then
-            command="cp -f \"$source_path\" \"$target_path\""
-        else
-            command="cp -rf \"$source_path\" \"$target_path\""
-        fi
-        failure_msg="Failed to copy file $source_path to $target_path"
-    else
-        command="mv \"$source_path\" \"$target_path\""
-        failure_msg="Failed to move file $source_path to $target_path"
-    fi
-
-    Bisu::mkdir_p "$target_dir" || return 1
-    bash -c "$command" &>/dev/null || {
-        Bisu::error_log "$failure_msg"
-        return 1
-    }
-
+    Bisu::cp "$1" "$2" "$3" "$4" "true" || return 1
     return 0
 }
 
