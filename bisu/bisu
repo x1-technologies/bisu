@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.1211"
+readonly BISU_VERSION="11.0.1221"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2026-05-02Z"
@@ -1072,8 +1072,13 @@ Bisu::log_msg() {
     local use_newline=$(Bisu::trim "$3")
     Bisu::in_array "${use_newline}" "true" "false" || use_newline="true"
     # Read from stdin if no arguments
-    [[ $# -eq 0 ]] && msg=$(cat)
-    Bisu::output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "$log_only" || return 1
+    if [[ $# -eq 0 ]]; then
+        while read -r line; do
+            Bisu::output "$(date +'%Y-%m-%d %H:%M:%S') - $line" "$use_newline" "$log_only"
+        done
+    else
+        Bisu::output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "$log_only"
+    fi
     return 0
 }
 
@@ -2115,7 +2120,6 @@ Bisu::exec_command() {
     Bisu::array_shift "phrase" "cmd"
     local args=$(Bisu::trim "$(printf '%s ' "${phrase[@]}")")
     phrase="$(printf '%s ' "${cmd} ${args}")"
-
     Bisu::is_executable "$cmd" || return 1
     local run_in_bg=$(Bisu::trim "$2")
     Bisu::in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
@@ -2125,14 +2129,14 @@ Bisu::exec_command() {
 
     Bisu::log_msg "🕒 Command executing: $phrase" "true"
     if [[ "$run_in_bg" == "false" ]]; then
-        if [[ "$display_errors" == "false" ]]; then
-            Bisu::debug_mode_on && eval "$(printf '%s' "$phrase")" 2>&1 || eval "$(printf '%s' "$phrase")" 2>/dev/null |
-                tee -a -- "$(Bisu::current_log_file)" || {
+        if [[ "$display_errors" == "true" ]] || Bisu::debug_mode_on; then
+            eval "$(printf '%s' "$phrase")" 2>/dev/null || {
+                eval "$(printf '%s' "$phrase")" 2>&1 | Bisu::log_msg
                 Bisu::error_log "Last execution failure was from: $phrase"
                 return 1
             }
         else
-            eval "$(printf '%s' "$phrase")" 2>&1 | Bisu::log_msg || {
+            eval "$(printf '%s' "$phrase")" 2>/dev/null || {
                 Bisu::error_log "Last execution failure was from: $phrase"
                 return 1
             }
