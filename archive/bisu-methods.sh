@@ -2,9 +2,9 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250,SC2088
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v1-20260215Z1
+# Version: v1-20260502Z1
 
 # It has issues
 # Get the file's real path and verify the base folder's existence
@@ -298,7 +298,7 @@ Bisu::normalize_path_v4() {
     return 0
 }
 
-# It works well
+# It has issues
 # Method: Bisu::normalize_path v5
 # Get the file's real path and verify the base folder's existence
 # Normalize a filesystem path string and optionally verify existence.
@@ -400,6 +400,353 @@ Bisu::normalize_path_v5() {
         printf '%s' "$file"
     fi
 
+    return 0
+}
+
+# It has issues
+# Method: Bisu::normalize_path v6
+# Normalize a filesystem path string and optionally verify existence.
+#
+# Parameters:
+#   $1  - input path (string). If empty after trim -> returns empty string.
+#   $2  - preserve_relative_path ("true"|"false").
+#   $3  - check_base_existence ("true"|"false"). If "true", print only if the final path exists.
+#
+# Notes:
+#   - Expands leading ~ for the current user.
+#   - Expands simple shell-style environment variables anywhere in the string:
+#       $VAR   and   ${VAR}
+#   - Does NOT evaluate command substitutions, arithmetic expansions, globs, or backticks.
+#   - Uses pure bash path normalization.
+Bisu::normalize_path_v6() {
+    local input preserve_relative_path check_base_existence
+    local expanded token name value segment result
+    local is_absolute=0
+    local -a parts stack
+    local IFS='/' idx
+
+    input="$(Bisu::trim "${1-}")"
+    preserve_relative_path="$(Bisu::trim "${2-}")"
+    check_base_existence="$(Bisu::trim "${3-}")"
+
+    Bisu::in_array "$preserve_relative_path" "true" "false" || preserve_relative_path="false"
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
+
+    if [ -z "$input" ]; then
+        printf ''
+        return 0
+    fi
+
+    # Expand leading ~ for the current user.
+    case "$input" in
+    ~) input="$HOME" ;;
+    ~/*) input="$HOME/${input#~/}" ;;
+    esac
+
+    # Expand simple env vars anywhere in the path.
+    # Supports $VAR and ${VAR}.
+    expanded="$input"
+    while [[ "$expanded" =~ (\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*) ]]; do
+        token="${BASH_REMATCH[1]}"
+
+        # Prefix before the first occurrence of the token.
+        # Use shortest-match removal so we replace the first match only.
+        local prefix rest
+        prefix="${expanded%"$token"*}"
+        rest="${expanded#*"$token"}"
+
+        case "$token" in
+        \$\{*\})
+            name="${token:2:${#token}-3}"
+            ;;
+        \$*)
+            name="${token:1}"
+            ;;
+        esac
+
+        value="${!name-}"
+        expanded="${prefix}${value}${rest}"
+    done
+    input="$expanded"
+
+    # Absolute vs relative.
+    case "$input" in
+    /*) is_absolute=1 ;;
+    esac
+
+    # Preserve relative input only when requested.
+    if [ "$is_absolute" -eq 0 ] && [ "$preserve_relative_path" != "true" ]; then
+        input="$(pwd -P)/$input"
+        is_absolute=1
+    fi
+
+    # Split and normalize path components.
+    read -r -a parts <<<"$input"
+
+    for segment in "${parts[@]}"; do
+        case "$segment" in
+        '' | .)
+            continue
+            ;;
+        ..)
+            if [ "${#stack[@]}" -gt 0 ]; then
+                idx=$((${#stack[@]} - 1))
+                if [ "${stack[$idx]}" != ".." ]; then
+                    unset "stack[$idx]"
+                    continue
+                fi
+            fi
+
+            # Keep unresolved .. only for relative paths.
+            if [ "$is_absolute" -eq 0 ]; then
+                stack+=("..")
+            fi
+            ;;
+        *)
+            stack+=("$segment")
+            ;;
+        esac
+    done
+
+    # Rebuild final path.
+    if [ "${#stack[@]}" -eq 0 ]; then
+        if [ "$is_absolute" -eq 1 ]; then
+            result="/"
+        else
+            result="."
+        fi
+    else
+        if [ "$is_absolute" -eq 1 ]; then
+            result="/${stack[0]}"
+        else
+            result="${stack[0]}"
+        fi
+
+        for ((idx = 1; idx < ${#stack[@]}; idx++)); do
+            result="$result/${stack[$idx]}"
+        done
+    fi
+
+    # Optional existence check.
+    if [ "$check_base_existence" = "true" ] && [ ! -e "$result" ]; then
+        printf ''
+        return 0
+    fi
+
+    printf '%s' "$result"
+    return 0
+}
+
+# It works well
+# Method: Bisu::normalize_path v7
+# Normalize a filesystem path string and optionally verify the base folder exists.
+#
+# Parameters:
+#   $1  - input path (string). If empty after trim -> returns empty string.
+#   $2  - preserve_relative_path ("true" or "false").
+#         - "true"  => keep relative paths relative, but still normalize them.
+#         - "false" => convert relative paths to an absolute path using pwd.
+#   $3  - check_base_existence ("true" or "false").
+#         - "true"  => print the normalized path only when its base directory exists.
+#         - "false" => print the normalized path regardless of existence.
+#
+# Behavior:
+#   - Expands leading "~" and shell-style variables anywhere in the path:
+#       $HOME, ${HOME}, $PWD, ${VAR}, etc.
+#   - Normalizes path segments safely:
+#       repeated slashes, ".", ".."
+#   - Removes trailing slash except for "/"
+#   - Uses cd -P only when it can improve physical resolution of an existing base directory
+#     and only when preserve_relative_path is "false".
+#   - Returns 0 on success and prints the normalized path to stdout.
+Bisu::normalize_path_v7() {
+    local input normalized segment prefix rest varname varvalue
+    local preserve_relative_path check_base_existence
+    local had_trailing_slash=false
+    local is_absolute=false
+    local base_dir real_dir parent_dir leaf_dir
+
+    input="$(Bisu::trim "$1")"
+    preserve_relative_path="$(Bisu::trim "$2")"
+    check_base_existence="$(Bisu::trim "$3")"
+
+    Bisu::in_array "$preserve_relative_path" "true" "false" || preserve_relative_path="false"
+    Bisu::in_array "$check_base_existence" "true" "false" || check_base_existence="false"
+
+    # Empty input stays empty.
+    if [ -z "$input" ]; then
+        printf ''
+        return 0
+    fi
+
+    # Remember whether the caller passed a directory-like path.
+    case "$input" in
+    */) had_trailing_slash=true ;;
+    esac
+
+    # Expand leading "~" safely.
+    case "$input" in
+    "~") input="$HOME" ;;
+    "~/"*) input="$HOME/${input#~/}" ;;
+    esac
+
+    # Expand shell-style variables anywhere in the path, safely and without eval.
+    # Supported forms:
+    #   $VAR
+    #   ${VAR}
+    # Unknown variables expand to an empty string, matching shell behavior.
+    normalized=''
+    while :; do
+        case "$input" in
+        *'$'*)
+            prefix=${input%%\$*}
+            normalized+="$prefix"
+            rest=${input#"$prefix"}
+
+            if [[ $rest =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}(.*)$ ]]; then
+                varname=${BASH_REMATCH[1]}
+                varvalue=${!varname-}
+                normalized+="$varvalue"
+                input=${BASH_REMATCH[2]}
+            elif [[ $rest =~ ^\$([A-Za-z_][A-Za-z0-9_]*)(.*)$ ]]; then
+                varname=${BASH_REMATCH[1]}
+                varvalue=${!varname-}
+                normalized+="$varvalue"
+                input=${BASH_REMATCH[2]}
+            else
+                # Lone "$" or non-variable token: keep it literally.
+                normalized+='$'
+                input=${rest#\$}
+            fi
+            ;;
+        *)
+            normalized+="$input"
+            break
+            ;;
+        esac
+    done
+    input="$normalized"
+
+    # Decide whether the path is absolute.
+    case "$input" in
+    /*) is_absolute=true ;;
+    esac
+
+    # Convert relative paths to absolute unless preserve_relative_path is requested.
+    if [ "$preserve_relative_path" != "true" ] && [ "$is_absolute" != "true" ]; then
+        input="$(pwd -P)/$input"
+        is_absolute=true
+    fi
+
+    # Logical path normalization:
+    #   - remove empty segments
+    #   - remove "."
+    #   - resolve ".."
+    #   - keep "/" as root
+    normalized=''
+    if [ "$is_absolute" = "true" ]; then
+        normalized='/'
+    fi
+
+    while :; do
+        case "$input" in
+        */*)
+            segment=${input%%/*}
+            input=${input#*/}
+            ;;
+        *)
+            segment=$input
+            input=''
+            ;;
+        esac
+
+        case "$segment" in
+        '' | '.')
+            # Skip empty and current-directory segments.
+            ;;
+        '..')
+            if [ "$normalized" = "/" ]; then
+                # Stay at root.
+                :
+            elif [ -z "$normalized" ]; then
+                # Relative path and nothing to pop: preserve leading "..".
+                normalized='..'
+            else
+                normalized=${normalized%/*}
+                [ -z "$normalized" ] && normalized='/'
+            fi
+            ;;
+        *)
+            if [ -z "$normalized" ] || [ "$normalized" = "/" ]; then
+                normalized="${normalized}${segment}"
+            else
+                normalized="${normalized}/${segment}"
+            fi
+            ;;
+        esac
+
+        [ -z "$input" ] && break
+    done
+
+    # Relative paths that normalize to "current directory" should return ".".
+    if [ "$preserve_relative_path" = "true" ] && [ -z "$normalized" ]; then
+        normalized='.'
+    fi
+
+    # Optional physical canonicalization of an existing base directory.
+    # This preserves the file name when possible, but only when the path is absolute
+    # (or was converted to absolute) and preserve_relative_path is false.
+    if [ "$preserve_relative_path" != "true" ]; then
+        if [ "$normalized" = "/" ]; then
+            :
+        elif [ -d "$normalized" ]; then
+            real_dir="$(cd -P -- "$normalized" >/dev/null 2>&1 && pwd -P)" || real_dir="$normalized"
+            normalized="$real_dir"
+        else
+            parent_dir=${normalized%/*}
+            leaf_dir=${normalized##*/}
+
+            [ "$parent_dir" = "$normalized" ] && parent_dir='.'
+
+            if [ -d "$parent_dir" ]; then
+                real_dir="$(cd -P -- "$parent_dir" >/dev/null 2>&1 && pwd -P)" || real_dir="$parent_dir"
+                if [ "$real_dir" = "/" ]; then
+                    normalized="/$leaf_dir"
+                else
+                    normalized="$real_dir/$leaf_dir"
+                fi
+            fi
+        fi
+    fi
+
+    # Check the base directory only, not strictly the final file path.
+    # This allows paths to new files inside an existing folder to pass.
+    if [ "$check_base_existence" = "true" ]; then
+        if [ "$normalized" = "/" ]; then
+            base_dir='/'
+        elif [ -d "$normalized" ]; then
+            base_dir="$normalized"
+        else
+            base_dir=${normalized%/*}
+            [ "$base_dir" = "$normalized" ] && base_dir='.'
+        fi
+
+        if [ ! -d "$base_dir" ]; then
+            printf ''
+            return 0
+        fi
+    fi
+
+    # Final polish:
+    #   - remove trailing slash from non-root paths
+    #   - ensure paths like "foo///" end as "foo"
+    if [ "$normalized" != "/" ]; then
+        while [ "${normalized%/}" != "$normalized" ]; do
+            normalized=${normalized%/}
+        done
+    fi
+
+    printf '%s' "$normalized"
     return 0
 }
 
