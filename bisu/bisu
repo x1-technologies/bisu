@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.1221"
+readonly BISU_VERSION="11.0.1231"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2026-05-02Z"
@@ -2181,7 +2181,7 @@ Bisu::confirm() {
     done
 }
 
-# Method: Bisu::normalize_path v7
+# Method: Bisu::normalize_path v8
 # Normalize a filesystem path string and optionally verify the base folder exists.
 #
 # Parameters:
@@ -2229,8 +2229,16 @@ Bisu::normalize_path() {
 
     # Expand leading "~" safely.
     case "$input" in
-    "~") input="$HOME" ;;
-    "~/"*) input="$HOME/${input#~/}" ;;
+    "~")
+        if [ "$preserve_relative_path" != "true" ]; then
+            input="$HOME"
+        fi
+        ;;
+    "~/"*)
+        if [ "$preserve_relative_path" != "true" ]; then
+            input="$HOME/${input#\~/}"
+        fi
+        ;;
     esac
 
     # Expand shell-style variables anywhere in the path, safely and without eval.
@@ -2244,7 +2252,7 @@ Bisu::normalize_path() {
         *'$'*)
             prefix=${input%%\$*}
             normalized+="$prefix"
-            rest=${input#"$prefix"}
+            rest=${input:${#prefix}}
 
             if [[ $rest =~ ^\$\{([A-Za-z_][A-Za-z0-9_]*)\}(.*)$ ]]; then
                 varname=${BASH_REMATCH[1]}
@@ -2269,6 +2277,20 @@ Bisu::normalize_path() {
         esac
     done
     input="$normalized"
+
+    # Expand leading "~" again after substitutions.
+    case "$input" in
+    "~")
+        if [ "$preserve_relative_path" != "true" ]; then
+            input="$HOME"
+        fi
+        ;;
+    "~/"*)
+        if [ "$preserve_relative_path" != "true" ]; then
+            input="$HOME/${input#\~/}"
+        fi
+        ;;
+    esac
 
     # Decide whether the path is absolute.
     case "$input" in
@@ -2304,19 +2326,17 @@ Bisu::normalize_path() {
         esac
 
         case "$segment" in
-        '' | '.')
-            # Skip empty and current-directory segments.
-            ;;
+        '' | '.') ;;
         '..')
             if [ "$normalized" = "/" ]; then
-                # Stay at root.
                 :
             elif [ -z "$normalized" ]; then
-                # Relative path and nothing to pop: preserve leading "..".
                 normalized='..'
+            elif [ "$normalized" = ".." ] || [ "${normalized#../}" != "$normalized" ]; then
+                normalized="${normalized}/.."
             else
                 normalized=${normalized%/*}
-                [ -z "$normalized" ] && normalized='/'
+                [ -z "$normalized" ] && [ "$is_absolute" = "true" ] && normalized='/'
             fi
             ;;
         *)
@@ -2337,8 +2357,6 @@ Bisu::normalize_path() {
     fi
 
     # Optional physical canonicalization of an existing base directory.
-    # This preserves the file name when possible, but only when the path is absolute
-    # (or was converted to absolute) and preserve_relative_path is false.
     if [ "$preserve_relative_path" != "true" ]; then
         if [ "$normalized" = "/" ]; then
             :
@@ -2362,8 +2380,7 @@ Bisu::normalize_path() {
         fi
     fi
 
-    # Check the base directory only, not strictly the final file path.
-    # This allows paths to new files inside an existing folder to pass.
+    # Check the base directory only.
     if [ "$check_base_existence" = "true" ]; then
         if [ "$normalized" = "/" ]; then
             base_dir='/'
@@ -2380,9 +2397,7 @@ Bisu::normalize_path() {
         fi
     fi
 
-    # Final polish:
-    #   - remove trailing slash from non-root paths
-    #   - ensure paths like "foo///" end as "foo"
+    # Final polish.
     if [ "$normalized" != "/" ]; then
         while [ "${normalized%/}" != "$normalized" ]; do
             normalized=${normalized%/}
