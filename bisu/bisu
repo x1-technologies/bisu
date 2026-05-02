@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.1200"
+readonly BISU_VERSION="11.0.1210"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2026-05-02Z"
@@ -1099,7 +1099,7 @@ Bisu::is_emoji() {
     [$'\U2700'-$'\U27BF']) return 0 ;;
     esac
 
-    # Flag emojis (regional indicator pairs) → 2 chars: U+1F1E6–U+1F1FF
+    # Flag emojis (regional indicator pairs) -> 2 chars: U+1F1E6–U+1F1FF
     if [[ ${#char} -eq 8 ]]; then # each RI is 4-byte UTF-8
         local c1=${char:0:4} c2=${char:4:4}
         case "$c1$c2" in
@@ -2011,7 +2011,7 @@ Bisu::string_to_array() {
     declare -n arr_ref="$array_name"
     arr_ref=()
 
-    # Empty input → nothing
+    # Empty input -> nothing
     input=$(Bisu::trim "$input" "() ")
     [ -n "$input" ] || return 0
 
@@ -4661,7 +4661,7 @@ Bisu::key() {
     # Nameref to array
     declare -n _arr_ref="$arr_name"
 
-    # Empty array → no key
+    # Empty array -> no key
     [ "${#_arr_ref[@]}" -gt 0 ] || {
         printf ''
         return 1
@@ -4677,7 +4677,7 @@ Bisu::key() {
         return 0
     fi
 
-    # Pointer not set or stale → initialize to first key
+    # Pointer not set or stale -> initialize to first key
     for k in "${!_arr_ref[@]}"; do
         curkey="$k"
         Bisu::set "$ptrvar" "$curkey" || true
@@ -4698,14 +4698,14 @@ Bisu::key() {
 #
 #   Pointer rules (fully consistent with existing pointer scheme):
 #     - Pointer scalar name: "__ARRAY_PTR_<arr_name>"
-#     - If pointer is unset → treated as pointing at FIRST element for movement.
+#     - If pointer is unset -> treated as pointing at FIRST element for movement.
 #       prev() will then move before-first and return failure.
-#     - On moving before-first → pointer becomes empty, representing before-first.
+#     - On moving before-first -> pointer becomes empty, representing before-first.
 #     - current()/key() will auto-reinit on empty pointer as per existing behavior.
 #
 # Exit status:
-#     0 → success (value printed to stdout)
-#     1 → failure (before-first / empty array / invalid)
+#     0 -> success (value printed to stdout)
+#     1 -> failure (before-first / empty array / invalid)
 #
 # Notes:
 #   - No uncontrolled errors
@@ -4755,14 +4755,14 @@ Bisu::prev() {
             fi
         done
 
-        # If pointer existed but key is stale, treat as at-first → prev() moves before-first
+        # If pointer existed but key is stale, treat as at-first -> prev() moves before-first
         ((idx < 0)) && idx=0
     else
-        # Pointer not set → treat as at-first
+        # Pointer not set -> treat as at-first
         idx=0
     fi
 
-    # If already at or before the first element → prev() goes before-first → fail
+    # If already at or before the first element -> prev() goes before-first -> fail
     if ((idx <= 0)); then
         # Clear pointer to represent "before-first"
         printf -v "$ptrvar" '%s' ''
@@ -4790,14 +4790,14 @@ Bisu::prev() {
 #
 # Pointer Rules (compatible with existing pointer scheme):
 #     - Pointer scalar: "__ARRAY_PTR_<arr_name>"
-#     - Pointer unset → treated as "at first element"
+#     - Pointer unset -> treated as "at first element"
 #       next() then moves to second element if it exists.
-#     - Stale pointer (key missing) → treated as at-first.
-#     - Moving past last element → pointer cleared, failure returned.
+#     - Stale pointer (key missing) -> treated as at-first.
+#     - Moving past last element -> pointer cleared, failure returned.
 #
 # Exit Status:
-#     0 → success, value printed
-#     1 → failure (past-last / empty / invalid)
+#     0 -> success, value printed
+#     1 -> failure (past-last / empty / invalid)
 #
 # Notes:
 #     - Follows ref-processing style from Bisu::array_copy
@@ -4844,16 +4844,16 @@ Bisu::next() {
                 break
             fi
         done
-        # Stale pointer → treat as first element
+        # Stale pointer -> treat as first element
         ((idx < 0)) && idx=0
     else
-        # Pointer unset → treat as first element
+        # Pointer unset -> treat as first element
         idx=0
     fi
 
     local last_index=$((${#keys[@]} - 1))
 
-    # At or beyond last element → moving forward becomes past-last → fail
+    # At or beyond last element -> moving forward becomes past-last -> fail
     if ((idx >= last_index)); then
         printf -v "$ptrvar" '%s' ''
         printf ''
@@ -5037,7 +5037,7 @@ Bisu::array_to_json() {
     fi
 
     # ----------------------------------------------------------------------
-    # Convert canonical dump (key=value pairs) → JSON
+    # Convert canonical dump (key=value pairs) -> JSON
     # dump format is assumed:  KEY="VALUE"  KEY2="VALUE2"  ...  (safe canonical)
     # ----------------------------------------------------------------------
 
