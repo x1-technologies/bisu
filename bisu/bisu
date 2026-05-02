@@ -9,7 +9,7 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.1210"
+readonly BISU_VERSION="11.0.1211"
 export BISU_VERSION
 # Set BISU's last release date
 readonly BISU_LAST_RELEASE_DATE="2026-05-02Z"
@@ -8394,7 +8394,8 @@ Bisu::extract_args() {
             else
                 # Bundled short options or -ovalue: treat every character after '-' as its own boolean.
                 # Example: -abc -> a="$BISU_EMPTY_EXPR" b="$BISU_EMPTY_EXPR" c="$BISU_EMPTY_EXPR"
-                # Example: -ovalue -> o="$BISU_EMPTY_EXPR" v="$BISU_EMPTY_EXPR" a="$BISU_EMPTY_EXPR" l="$BISU_EMPTY_EXPR" u="$BISU_EMPTY_EXPR" e="$BISU_EMPTY_EXPR"
+                # Example: -ovalue -> o="$BISU_EMPTY_EXPR" v="$BISU_EMPTY_EXPR" a="$BISU_EMPTY_EXPR"
+                #                     l="$BISU_EMPTY_EXPR" u="$BISU_EMPTY_EXPR" e="$BISU_EMPTY_EXPR"
                 local j=1
                 while [ $j -lt $token_len ]; do
                     local ch="${token:$j:1}"
