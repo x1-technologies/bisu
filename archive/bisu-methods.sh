@@ -4,7 +4,7 @@
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
 # shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250,SC2088
 ################################################################# BISU Archived Functions ######################################################################
-# Version: v11-20260502Z2
+# Version: v11-20260506Z1
 
 # It has issues
 # Get the file's real path and verify the base folder's existence
@@ -2550,5 +2550,677 @@ Bisu::uuidv4_v1() {
     fi
 
     printf '%s' "$uuidv4"
+    return 0
+}
+
+# It works well, but not fully optimized
+# Method: Bisu::normalize_iso_datetime v1
+Bisu::normalize_iso_datetime_v1() {
+    local input=$(Bisu::trim "$1")
+    if [ -z "$input" ]; then
+        printf '%s' "INVALID"
+        return 1
+    fi
+
+    local formatted_time is_utc_time
+    if Bisu::string_ends_with "$input" "Z"; then
+        is_utc_time="true"
+    else
+        is_utc_time="false"
+    fi
+
+    local raw="$(printf '%s' "$input" | tr -cd '[:alnum:]: T/.\-')" # only valid chars
+    local digits_only="$(printf '%s' "$raw" | tr -cd '[:digit:]')"
+    local time_part="$(printf '%s' "$raw" | grep -oE '[0-9]{2}:[0-9]{2}(:[0-9]{2})?' 2>/dev/null | head -n1)"
+
+    # Time normalization
+    if [ -n "$time_part" ]; then
+        case "$time_part" in
+        [0-9][0-9]:[0-9][0-9]) time_part="$time_part:00" ;;
+        [0-9][0-9][0-9][0-9][0-9][0-9]) # e.g. 143000
+            h=$(printf '%s' "$time_part" | cut -c1-2)
+            m=$(printf '%s' "$time_part" | cut -c3-4)
+            s=$(printf '%s' "$time_part" | cut -c5-6)
+            time_part="$h:$m:$s"
+            ;;
+        esac
+    fi
+
+    # Format detection
+    case "$raw" in
+    # YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+    20[0-9][0-9][-/\.][0-1][0-9][-/\.][0-3][0-9]*)
+        y=$(printf '%s' "$raw" | cut -c1-4)
+        m=$(printf '%s' "$raw" | cut -c6-7)
+        d=$(printf '%s' "$raw" | cut -c9-10)
+        ;;
+    # YYYYMMDD
+    20[0-9][0-9][0-1][0-9][0-3][0-9]*)
+        y=$(printf '%s' "$digits_only" | cut -c1-4)
+        m=$(printf '%s' "$digits_only" | cut -c5-6)
+        d=$(printf '%s' "$digits_only" | cut -c7-8)
+        ;;
+    # DD.MM.YYYY
+    [0-3][0-9].[0-1][0-9].20[0-9][0-9]*)
+        d=$(printf '%s' "$raw" | cut -d'.' -f1)
+        m=$(printf '%s' "$raw" | cut -d'.' -f2)
+        y=$(printf '%s' "$raw" | cut -d'.' -f3)
+        ;;
+    # MM-DD (assumes current year)
+    [0-1][0-9][-/.][0-3][0-9]*)
+        y=$(date +%Y)
+        m=$(printf '%s' "$raw" | cut -c1-2)
+        d=$(printf '%s' "$raw" | cut -c4-5)
+        ;;
+    *)
+        printf '%s' "INVALID"
+        return 1
+        ;;
+    esac
+
+    if [ -z "$time_part" ]; then
+        formatted_time="${y}-${m}-${d}T0:00:00"
+    else
+        formatted_time="${y}-${m}-${d}T${time_part}"
+    fi
+
+    if [[ "$is_utc_time" == "true" ]]; then
+        formatted_time+="Z"
+    fi
+
+    printf '%s' "$formatted_time"
+    return 0
+}
+
+# It works well
+# Method: Bisu::normalize_iso_datetime v2
+Bisu::normalize_iso_datetime_v2() {
+    input="$(Bisu::trim "$1")"
+    if [ -z "$input" ]; then
+        printf '%s' "INVALID"
+        return 1
+    fi
+
+    raw="$(printf '%s' "$input" | tr -cd '[:alnum:]: T/.-')"
+    if [ -z "$raw" ]; then
+        printf '%s' "INVALID"
+        return 1
+    fi
+
+    is_utc_time="false"
+    case "$raw" in
+    *Z) is_utc_time="true" ;;
+    esac
+
+    spaced="$(printf '%s' "$raw" | tr 'T' ' ')"
+    set -- $spaced
+    date_token="$1"
+    time_token="$2"
+
+    if [ -z "$date_token" ]; then
+        printf '%s' "INVALID"
+        return 1
+    fi
+
+    case "$date_token" in
+    *Z)
+        is_utc_time="true"
+        date_token="${date_token%Z}"
+        ;;
+    esac
+
+    case "$time_token" in
+    *Z)
+        is_utc_time="true"
+        time_token="${time_token%Z}"
+        ;;
+    esac
+
+    y=""
+    m=""
+    d=""
+
+    case "$date_token" in
+    20[0-9][0-9][-./][0-1][0-9][-./][0-3][0-9])
+        old_ifs="$IFS"
+        IFS='-./'
+        set -- $date_token
+        IFS="$old_ifs"
+        y="$1"
+        m="$2"
+        d="$3"
+        ;;
+    [0-3][0-9].[0-1][0-9].20[0-9][0-9])
+        old_ifs="$IFS"
+        IFS='.'
+        set -- $date_token
+        IFS="$old_ifs"
+        d="$1"
+        m="$2"
+        y="$3"
+        ;;
+    [0-1][0-9][-/.][0-3][0-9])
+        y="$(date '+%Y')"
+        old_ifs="$IFS"
+        IFS='-./'
+        set -- $date_token
+        IFS="$old_ifs"
+        m="$1"
+        d="$2"
+        ;;
+    20[0-9][0-9][0-1][0-9][0-3][0-9]*)
+        rest="${date_token#????}"
+        y="${date_token%"$rest"}"
+
+        rest="${date_token#????}"
+        rest="${rest#??}"
+        m="${date_token#????}"
+        m="${m%"$rest"}"
+
+        rest="${date_token#??????}"
+        d="${date_token#??????}"
+        d="${d%"${d#??}"}"
+
+        if [ -z "$time_token" ]; then
+            time_token="${date_token#????????}"
+        fi
+        ;;
+    *)
+        printf '%s' "INVALID"
+        return 1
+        ;;
+    esac
+
+    case "$m" in
+    01 | 03 | 05 | 07 | 08 | 10 | 12)
+        case "$d" in
+        0[1-9] | [12][0-9] | 3[01]) ;;
+        *)
+            printf '%s' "INVALID"
+            return 1
+            ;;
+        esac
+        ;;
+    04 | 06 | 09 | 11)
+        case "$d" in
+        0[1-9] | [12][0-9] | 30) ;;
+        *)
+            printf '%s' "INVALID"
+            return 1
+            ;;
+        esac
+        ;;
+    02)
+        leap_year="false"
+        if [ $((y % 4)) -eq 0 ] && { [ $((y % 100)) -ne 0 ] || [ $((y % 400)) -eq 0 ]; }; then
+            leap_year="true"
+        fi
+
+        if [ "$leap_year" = "true" ]; then
+            case "$d" in
+            0[1-9] | 1[0-9] | 2[0-9]) ;;
+            *)
+                printf '%s' "INVALID"
+                return 1
+                ;;
+            esac
+        else
+            case "$d" in
+            0[1-9] | 1[0-9] | 2[0-8]) ;;
+            *)
+                printf '%s' "INVALID"
+                return 1
+                ;;
+            esac
+        fi
+        ;;
+    *)
+        printf '%s' "INVALID"
+        return 1
+        ;;
+    esac
+
+    case "$time_token" in
+    "")
+        time_token="00:00:00"
+        ;;
+    [0-1][0-9]:[0-5][0-9] | 2[0-3]:[0-5][0-9])
+        time_token="${time_token}:00"
+        ;;
+    [0-1][0-9]:[0-5][0-9]:[0-5][0-9] | 2[0-3]:[0-5][0-9]:[0-5][0-9])
+        :
+        ;;
+    [0-1][0-9][0-5][0-9][0-5][0-9] | 2[0-3][0-5][0-9][0-5][0-9])
+        rest="${time_token#??}"
+        h="${time_token%"$rest"}"
+
+        rest="${time_token#??}"
+        rest="${rest#??}"
+        m="${time_token#??}"
+        m="${m%"$rest"}"
+
+        rest="${time_token#????}"
+        s="${time_token#????}"
+        s="${s%"${s#??}"}"
+
+        time_token="${h}:${m}:${s}"
+        ;;
+    *)
+        printf '%s' "INVALID"
+        return 1
+        ;;
+    esac
+
+    formatted_time="${y}-${m}-${d}T${time_token}"
+
+    case "$is_utc_time" in
+    true) formatted_time="${formatted_time}Z" ;;
+    esac
+
+    printf '%s' "$formatted_time"
+    return 0
+}
+
+# It works well, but not fully optimized
+# Method: Bisu::is_valid_datetime v1
+# Description: Check if the given string is a valid adaptive datetime
+Bisu::is_valid_datetime_v1() {
+    local datetime=$(Bisu::normalize_iso_datetime "$1")
+
+    [[ "$datetime" == "INVALID" ]] && return 1
+
+    local y=$(printf '%s' "$datetime" | cut -d'-' -f1)
+    local m=$(printf '%s' "$datetime" | cut -d'-' -f2)
+    local rest=$(printf '%s' "$datetime" | cut -d'-' -f3)
+    local d=$(printf '%s' "$rest" | cut -d'T' -f1)
+    local h=$(printf '%s' "$rest" | cut -d'T' -f2 | cut -d':' -f1)
+    local min=$(printf '%s' "$rest" | cut -d'T' -f2 | cut -d':' -f2)
+    local s=$(printf '%s' "$rest" | cut -d'T' -f2 | cut -d':' -f3)
+
+    # Range checks
+    if [ "$y" -lt 1000 ] || [ "$y" -gt 9999 ]; then
+        return 1
+    fi
+    if [ "$m" -lt 1 ] || [ "$m" -gt 12 ]; then
+        return 1
+    fi
+    if [ "$d" -lt 1 ] || [ "$d" -gt 31 ]; then
+        return 1
+    fi
+    if [ "$h" -lt 0 ] || [ "$h" -gt 23 ]; then
+        return 1
+    fi
+    if [ "$min" -lt 0 ] || [ "$min" -gt 59 ]; then
+        return 1
+    fi
+    if [ "$s" -lt 0 ] || [ "$s" -gt 59 ]; then
+        return 1
+    fi
+
+    # Month-specific day checks
+    case "$m" in
+    04 | 06 | 09 | 11)
+        [ "$d" -gt 30 ] && return 1
+        ;;
+    02)
+        if ([ $((y % 4)) -eq 0 ] && [ $((y % 100)) -ne 0 ]) || [ $((y % 400)) -eq 0 ]; then
+            [ "$d" -gt 29 ] && return 1
+        else
+            [ "$d" -gt 28 ] && return 1
+        fi
+        ;;
+    esac
+
+    return 0
+}
+
+# It works well
+# Method: Bisu::is_valid_datetime v2
+# Description: Check if the given string is a valid adaptive datetime
+Bisu::is_valid_datetime_v2() {
+    datetime="$(Bisu::normalize_iso_datetime "$1")"
+    case "$datetime" in
+    INVALID)
+        return 1
+        ;;
+    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]) ;;
+    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]Z) ;;
+    *)
+        return 1
+        ;;
+    esac
+
+    datetime="${datetime%Z}"
+    date_part="${datetime%%T*}"
+    time_part="${datetime#*T}"
+
+    y="${date_part%%-*}"
+    rest="${date_part#*-}"
+    m="${rest%%-*}"
+    d="${rest#*-}"
+
+    h="${time_part%%:*}"
+    rest="${time_part#*:}"
+    min="${rest%%:*}"
+    s="${rest#*:}"
+
+    case "$y" in
+    1[0-9][0-9][0-9] | [2-9][0-9][0-9][0-9]) ;;
+    *) return 1 ;;
+    esac
+
+    case "$m" in
+    01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 | 12) ;;
+    *) return 1 ;;
+    esac
+
+    case "$d" in
+    01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31) ;;
+    *) return 1 ;;
+    esac
+
+    case "$h" in
+    00 | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 | 09 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23) ;;
+    *) return 1 ;;
+    esac
+
+    case "$min" in
+    [0-5][0-9]) ;;
+    *) return 1 ;;
+    esac
+
+    case "$s" in
+    [0-5][0-9]) ;;
+    *) return 1 ;;
+    esac
+
+    case "$m" in
+    04 | 06 | 09 | 11)
+        case "$d" in
+        31) return 1 ;;
+        esac
+        ;;
+    02)
+        is_leap="false"
+        case "$y" in
+        *00)
+            case "${y%??}" in
+            12 | 16 | 20 | 24 | 28 | 32 | 36 | 40 | 44 | 48 | 52 | 56 | 60 | 64 | 68 | 72 | 76 | 80 | 84 | 88 | 92 | 96)
+                is_leap="true"
+                ;;
+            esac
+            ;;
+        *)
+            case "${y#??}" in
+            00 | 04 | 08 | 12 | 16 | 20 | 24 | 28 | 32 | 36 | 40 | 44 | 48 | 52 | 56 | 60 | 64 | 68 | 72 | 76 | 80 | 84 | 88 | 92 | 96)
+                is_leap="true"
+                ;;
+            esac
+            ;;
+        esac
+
+        if [ "$is_leap" = "true" ]; then
+            case "$d" in
+            30 | 31) return 1 ;;
+            esac
+        else
+            case "$d" in
+            29 | 30 | 31) return 1 ;;
+            esac
+        fi
+        ;;
+    esac
+
+    return 0
+}
+
+# It works well, but not fully optimized
+# Method: Bisu::bash_version v1
+# Get bash version
+Bisu::bash_version_v1() {
+    # Get the first line of the Bash version string
+    local version_string
+    version_string=$(bash --version | head -n 1)
+
+    # Use POSIX awk to extract the version number (e.g., 5.2.37)
+    local version
+    version=$(printf '%s\n' "$version_string" | awk '{print $4}' 2>/dev/null | cut -d'(' -f1)
+
+    # Ensure it has a valid format (vX.X.X)
+    if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # Prefix with 'v' to match the desired format 'vX.X.X'
+        printf '%s' "v$version"
+    else
+        Bisu::error_exit "Bash version format not recognized"
+    fi
+}
+
+# It works well
+# Method: Bisu::bash_version v2
+# Get bash version
+Bisu::bash_version_v2() {
+    version_string="${BASH_VERSION-}"
+
+    case "$version_string" in
+    "")
+        Bisu::error_exit "Bash version format not recognized"
+        ;;
+    esac
+
+    version="${version_string%%[^0-9.]*}"
+
+    case "$version" in
+    *.*.*)
+        comp1="${version%%.*}"
+        rest="${version#*.}"
+        comp2="${rest%%.*}"
+        comp3="${rest#*.}"
+        case "$comp3" in
+        *.*)
+            Bisu::error_exit "Bash version format not recognized"
+            ;;
+        esac
+        ;;
+    *)
+        Bisu::error_exit "Bash version format not recognized"
+        ;;
+    esac
+
+    case "$comp1" in
+    "" | *[!0-9]*)
+        Bisu::error_exit "Bash version format not recognized"
+        ;;
+    esac
+    case "$comp2" in
+    "" | *[!0-9]*)
+        Bisu::error_exit "Bash version format not recognized"
+        ;;
+    esac
+    case "$comp3" in
+    "" | *[!0-9]*)
+        Bisu::error_exit "Bash version format not recognized"
+        ;;
+    esac
+
+    printf '%s' "v${version}"
+}
+
+# It works well
+# Method: Bisu::get_os_info v1
+# Returns OS info in format: {name} v{major.minor.patch}
+Bisu::get_os_info_v1() {
+    local os_info os_name os_version uname_s uname_r uname_s_lc major minor patch rest
+    os_info=${BISU_OS_INFO-}
+    [ -n "$os_info" ] && {
+        printf '%s' "$os_info"
+        return 0
+    }
+
+    uname_s=$(command uname -s 2>/dev/null) || return 1
+    uname_r=$(command uname -r 2>/dev/null) || return 1
+    uname_s_lc=$(printf '%s' "$uname_s" | tr '[:upper:]' '[:lower:]') || return 1
+
+    os_name=""
+    os_version=""
+
+    case "$uname_s_lc" in
+    linux)
+        case "$uname_r" in
+        *Microsoft* | *microsoft*)
+            os_name="wsl"
+            os_version="$uname_r"
+            ;;
+        *)
+            if [ -r "/etc/os-release" ]; then
+                while IFS='=' read -r key val; do
+                    case "$key" in
+                    ID)
+                        os_name=${val#\"}
+                        os_name=${os_name%\"}
+                        ;;
+                    VERSION_ID)
+                        os_version=${val#\"}
+                        os_version=${os_version%\"}
+                        ;;
+                    esac
+                done <"/etc/os-release"
+                [ -n "$os_name" ] || os_name="linux"
+                [ -n "$os_version" ] || os_version="$uname_r"
+            elif [ -d "/data/data/com.termux" ] || grep -qi "android" "/proc/version" 2>/dev/null; then
+                os_name="android"
+                if command -v getprop &>/dev/null; then
+                    os_version=$(command getprop ro.build.version.release 2>/dev/null || printf '%s' '')
+                fi
+                [ -n "$os_version" ] || os_version="$uname_r"
+            else
+                os_name="linux"
+                os_version="$uname_r"
+            fi
+            ;;
+        esac
+        ;;
+    darwin)
+        os_name="macos"
+        if command -v sw_vers &>/dev/null; then
+            os_version=$(command sw_vers -productVersion 2>/dev/null || printf '%s' '')
+        fi
+        [ -n "$os_version" ] || os_version="$uname_r"
+        ;;
+    freebsd)
+        os_name="freebsd"
+        os_version="$uname_r"
+        ;;
+    *bsd)
+        os_name="bsd"
+        os_version="$uname_r"
+        ;;
+    *)
+        os_name="unknown"
+        os_version="$uname_r"
+        ;;
+    esac
+
+    while [ -n "$os_version" ]; do
+        case "$os_version" in
+        [0-9]*)
+            break
+            ;;
+        *)
+            os_version=${os_version#?}
+            ;;
+        esac
+    done
+
+    os_version=${os_version%%[!0-9.]*}
+    [ -n "$os_version" ] || return 1
+
+    major=${os_version%%.*}
+    if [ "$major" = "$os_version" ]; then
+        minor="0"
+        patch="0"
+    else
+        rest=${os_version#*.}
+        minor=${rest%%.*}
+        if [ "$minor" = "$rest" ]; then
+            patch="0"
+        else
+            patch=${rest#*.}
+            patch=${patch%%.*}
+        fi
+    fi
+
+    case "$major" in '' | *[!0-9]*) major="0" ;; esac
+    case "$minor" in '' | *[!0-9]*) minor="0" ;; esac
+    case "$patch" in '' | *[!0-9]*) patch="0" ;; esac
+
+    os_info="${os_name} v${major}.${minor}.${patch}"
+    BISU_OS_INFO="$os_info"
+    printf '%s' "$os_info"
+    return 0
+}
+
+# It works well
+# Method: Bisu::get_kernel_info v1
+# Returns kernel info in format: {name} v{major.minor.patch}
+Bisu::get_kernel_info_v1() {
+    local kernel_info kernel_name kernel_version major minor patch rest
+    kernel_info=${BISU_KERNEL_INFO-}
+    [ -n "$kernel_info" ] && {
+        printf '%s' "$kernel_info"
+        return 0
+    }
+
+    kernel_name=$(command uname -s 2>/dev/null || printf '%s' '') || return 1
+    kernel_version=$(command uname -r 2>/dev/null || printf '%s' '') || return 1
+
+    [ -n "$kernel_name" ] && [ -n "$kernel_version" ] || {
+        printf '%s' "unknown"
+        return 1
+    }
+
+    kernel_name=$(printf '%s' "$kernel_name" | tr '[:upper:]' '[:lower:]')
+    case "$kernel_name" in
+    linux | darwin | freebsd) ;;
+    *bsd) kernel_name="bsd" ;;
+    *)
+        printf '%s' "unknown"
+        return 1
+        ;;
+    esac
+
+    case "$kernel_version" in
+    [0-9]*)
+        kernel_version=${kernel_version%%[^0-9.]*}
+        major=${kernel_version%%.*}
+        case "$major" in '' | *[!0-9]*)
+            printf '%s' "unknown"
+            return 1
+            ;;
+        esac
+        if [ "$major" = "$kernel_version" ]; then
+            minor="0"
+            patch="0"
+        else
+            rest=${kernel_version#*.}
+            minor=${rest%%.*}
+            case "$minor" in '' | *[!0-9]*) minor="0" ;; esac
+            if [ "$minor" = "$rest" ]; then
+                patch="0"
+            else
+                patch=${rest#*.}
+                patch=${patch%%.*}
+                case "$patch" in '' | *[!0-9]*) patch="0" ;; esac
+            fi
+        fi
+        ;;
+    *)
+        printf '%s' "unknown"
+        return 1
+        ;;
+    esac
+
+    kernel_info="${kernel_name} v${major}.${minor}.${patch}"
+    BISU_KERNEL_INFO="$kernel_info"
+    printf '%s' "$kernel_info"
     return 0
 }
