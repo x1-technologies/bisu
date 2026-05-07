@@ -2,10 +2,10 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2071,SC1087,SC2159,SC2070,SC2155,SC2046,SC2206,SC2154,SC2157,SC2128,SC2120,SC2178,SC2086,SC2009,SC2015,SC2004,SC2005,SC1003,SC1091,SC2034
 # shellcheck disable=SC2207,SC2181,SC2018,SC2019,SC2059,SC2317,SC2064,SC2188,SC1090,SC2106,SC2329,SC2235,SC1091,SC2153,SC2076,SC2102,SC2324,SC2283,SC2179,SC2162
-# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250
+# shellcheck disable=SC2170,SC2219,SC2090,SC2190,SC2145,SC2294,SC2124,SC2139,SC2163,SC2043,SC2292,SC2250,SC2088
 ################################################################### BISU Importer Start ########################################################################
 ## Official Web Site: https://bisu.x1-tech.com
-## Version: v11-20260215Z2
+## Version: v11-20260507Z1
 ## Recommended BISU PATH: /usr/local/bin/bisu
 ## Set the required version of BISU
 export BISU_VERSION_REQUIREMENT=">=11.0.0"
@@ -16,21 +16,21 @@ export BISU_DL_COMMAND="curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && ch
 
 ## <user-customized-variables>
 # Set this utility's name
-export BISU_CURRENT_UTIL_NAME=""
+export BISU_CU_NAME=""
 # Set this utility's version number
-export BISU_CURRENT_UTIL_VERSION=""
+export BISU_CU_VERSION=""
 # Set this utility's last release date
-export BISU_CURRENT_UTIL_LAST_RELEASE_DATE=""
+export BISU_CU_LAST_RELEASE_DATE=""
 # Set this utility's doc URI
-export BISU_CURRENT_UTIL_INFO_URI=""
+export BISU_CU_INFO_URI=""
 # Set this utility's asc sig file URL
-export BISU_CURRENT_UTIL_ASC_FILE_URL=""
+export BISU_CU_ASC_FILE_URL=""
 # Signature verification switch
-export BISU_CURRENT_UTIL_VERIFY_SIG=${BISU_CURRENT_UTIL_VERIFY_SIG:-"false"}
+export BISU_CU_VERIFY_SIG=${BISU_CU_VERIFY_SIG:-"false"}
 # GPG Signature algorithm set
-export BISU_CURRENT_UTIL_GPG_SIG_ALGO="sha256"
+export BISU_CU_GPG_SIG_ALGO="sha256"
 # Installation target dir
-export BISU_CURRENT_UTIL_TARGET_DIR=""
+export BISU_CU_TARGET_DIR=""
 # Atomic mutex lock switch for single-threaded utilities
 export BISU_USE_AML_LOCK="false"
 # Style code injection function
@@ -40,23 +40,23 @@ export BISU_DEBUG_MODE="false"
 ## </user-customized-variables>
 
 ## <required-external-commands>
-export BISU_CURRENT_UTIL_REQUIRED_COMMANDS=()
+export BISU_CU_REQUIRED_COMMANDS=()
 ## </required-external-commands>
 
 ## <actions-read-only>
-export BISU_CURRENT_UTIL_ACTIONS_RO=()
+export BISU_CU_ACTIONS_RO=()
 ## </actions-read-only>
 
 ## <auto-run-commands>
-export BISU_CURRENT_UTIL_AUTORUN_COMMANDS=()
+export BISU_CU_AUTORUN_COMMANDS=()
 ## </auto-run-commands>
 
 ## <required-scripts>
-export BISU_CURRENT_UTIL_REQUIRED_SCRIPTS=()
+export BISU_CU_REQUIRED_SCRIPTS=()
 ## </required-scripts>
 
 ## <exit-with-commands>
-export BISU_CURRENT_UTIL_EXIT_WITH_COMMANDS=()
+export BISU_CU_EXIT_WITH_COMMANDS=()
 ## </exit-with-commands>
 
 ## Import BISU file
