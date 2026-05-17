@@ -9,10 +9,10 @@
 ## Have a fresh installation of BISU by copying and pasting the command below
 ## curl -sL https://g.x1-tech.com/bisu-file -o ./bisu && chmod +x ./bisu && sudo ./bisu -f install
 # Define BISU VERSION
-readonly BISU_VERSION="11.0.5000"
+readonly BISU_VERSION="11.0.6000"
 export BISU_VERSION
 # Set BISU's last release date
-readonly BISU_LAST_RELEASE_DATE="2026-05-06Z"
+readonly BISU_LAST_RELEASE_DATE="2026-05-17Z"
 export BISU_LAST_RELEASE_DATE
 # Minimal Bash Version
 readonly BISU_MINIMAL_BASH_VERSION="5.0.0"
@@ -26,7 +26,7 @@ export BISU_DEFAULT_TITLE="-bash"
 export BISU_LINE_BREAK_LENGTH=240
 # Required external commands list
 export BISU_REQUIRED_EXTERNAL_COMMANDS=(
-    'awk' 'sed' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'date' 'whoami' 'hostname' 'gpg'
+    'awk' 'sed' 'grep' 'head' 'cut' 'tr' 'od' 'xxd' 'bc' 'uuidgen' 'md5sum' 'tee' 'sort' 'uniq' 'date'
 )
 # Read-only actions avoiding AML lock
 export BISU_ACTIONS_RO=(
@@ -245,14 +245,14 @@ Bisu::trim() {
     local -A trim_map=()
     local ch chkey
     while IFS= read -r -n1 ch; do
-        [[ -z "$ch" ]] && continue
+        [ -z "$ch" ] && continue
         chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
         trim_map["$chkey"]=1
     done <<<"$chars"
 
     # Left Bisu::trim
     if ((endpoints == 1 || endpoints == 3)); then
-        while [[ -n "$str" ]]; do
+        while [ -n "$str" ]; do
             ch="${str:0:1}"
             chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
             [[ ${trim_map[$chkey]+_} ]] || break
@@ -262,7 +262,7 @@ Bisu::trim() {
 
     # Right Bisu::trim
     if ((endpoints == 2 || endpoints == 3)); then
-        while [[ -n "$str" ]]; do
+        while [ -n "$str" ]; do
             ch="${str: -1}"
             chkey=$([[ "$ci" -eq 1 ]] && echo "${ch,,}" || echo "$ch")
             [[ ${trim_map[$chkey]+_} ]] || break
@@ -328,7 +328,7 @@ Bisu::time_sec() {
     local ts sec
 
     # Prefer Bash 5+ built-ins for performance and zero external calls
-    if [[ -n $EPOCHSECONDS ]]; then
+    if [ -n $EPOCHSECONDS ]; then
         printf '%d\n' "$EPOCHSECONDS"
         return 0
     fi
@@ -350,7 +350,7 @@ Bisu::time_ms() {
     local ts sec ns ms
 
     # Prefer Bash 5+ built-ins for best performance and zero external calls.
-    if [[ -n $EPOCHSECONDS ]]; then
+    if [ -n $EPOCHSECONDS ]; then
         sec=$EPOCHSECONDS
         # Extract fractional nanoseconds padded to 9 digits, else zero
         if [[ -n $EPOCHREALTIME && $EPOCHREALTIME =~ ^[0-9]+\.(.*)$ ]]; then
@@ -392,7 +392,7 @@ Bisu::time_ns() {
     local ts sec ns
 
     # Use Bash 5+ built-ins if available (preferred, no external call)
-    if [[ -n $EPOCHSECONDS ]]; then
+    if [ -n $EPOCHSECONDS ]; then
         sec=$EPOCHSECONDS
         # Use nanoseconds if fractional part exists, else zero-pad
         if [[ -n $EPOCHREALTIME && $EPOCHREALTIME =~ ^[0-9]+\.(.*)$ ]]; then
@@ -475,7 +475,7 @@ Bisu::output() {
             local injected
             injected="$(Bisu::safe_callfunc "$BISU_STYLE_CODE_INJECTION_FUNC" $(printf '%s ' "$@"))"
             injected="$(Bisu::trim "$injected")"
-            if [[ -n "$injected" ]]; then
+            if [ -n "$injected" ]; then
                 # Put injected into an array of one element, then merge into style_codes via assumed helper
                 injected=("$injected")
                 Bisu::assoc_array_merge "style_codes" "injected" "style_codes"
@@ -538,12 +538,12 @@ Bisu::output() {
                     bg) found_bg="$n" ;;
                     esac
                 done
-                [[ -n "$found_fx" ]] && outer_prefix+="${style_codes[$found_fx]}"
-                [[ -n "$found_fg" ]] && outer_prefix+="${style_codes[$found_fg]}"
-                [[ -n "$found_bg" ]] && outer_prefix+="${style_codes[$found_bg]}"
+                [ -n "$found_fx" ] && outer_prefix+="${style_codes[$found_fx]}"
+                [ -n "$found_fg" ] && outer_prefix+="${style_codes[$found_fg]}"
+                [ -n "$found_bg" ] && outer_prefix+="${style_codes[$found_bg]}"
             }
-            if [[ -n "$seg" ]]; then
-                if [[ -n "$outer_prefix" ]]; then
+            if [ -n "$seg" ]; then
+                if [ -n "$outer_prefix" ]; then
                     result+="${outer_prefix}${seg}${style_codes[reset]}"
                 else
                     result+="$seg"
@@ -554,7 +554,7 @@ Bisu::output() {
             # Normalize tag whitespace
             local raw_tag="${tag_content#"${tag_content%%[![:space:]]*}"}"
             raw_tag="${raw_tag%"${raw_tag##*[![:space:]]}"}"
-            if [[ -z "$raw_tag" ]]; then
+            if [ -z "$raw_tag" ]; then
                 # empty tag like "<   >", treat literally
                 seg+="$full_tag"
                 continue
@@ -608,9 +608,9 @@ Bisu::output() {
                                 bg) found_bg="$n" ;;
                                 esac
                             done
-                            [[ -n "$found_fx" ]] && outer_after+="${style_codes[$found_fx]}"
-                            [[ -n "$found_fg" ]] && outer_after+="${style_codes[$found_fg]}"
-                            [[ -n "$found_bg" ]] && outer_after+="${style_codes[$found_bg]}"
+                            [ -n "$found_fx" ] && outer_after+="${style_codes[$found_fx]}"
+                            [ -n "$found_fg" ] && outer_after+="${style_codes[$found_fg]}"
+                            [ -n "$found_bg" ] && outer_after+="${style_codes[$found_bg]}"
                         }
                         result+="${style_codes[$name]}${inner}${style_codes[reset]}${outer_after}"
                     else
@@ -664,12 +664,12 @@ Bisu::output() {
                 bg) found_bg="$n" ;;
                 esac
             done
-            [[ -n "$found_fx" ]] && outer_prefix+="${style_codes[$found_fx]}"
-            [[ -n "$found_fg" ]] && outer_prefix+="${style_codes[$found_fg]}"
-            [[ -n "$found_bg" ]] && outer_prefix+="${style_codes[$found_bg]}"
+            [ -n "$found_fx" ] && outer_prefix+="${style_codes[$found_fx]}"
+            [ -n "$found_fg" ] && outer_prefix+="${style_codes[$found_fg]}"
+            [ -n "$found_bg" ] && outer_prefix+="${style_codes[$found_bg]}"
         }
-        if [[ -n "$seg" ]]; then
-            if [[ -n "$outer_prefix" ]]; then
+        if [ -n "$seg" ]; then
+            if [ -n "$outer_prefix" ]; then
                 result+="${outer_prefix}${seg}${style_codes[reset]}"
             else
                 result+="$seg"
@@ -690,11 +690,11 @@ Bisu::output() {
 
     # Execute with folding and logging. Keep behavior: when log_only, suppress stdout.
     if [[ "$log_only" == "true" ]]; then
-        eval "$command" |
+        eval "$command" 2>/dev/null |
             { fold -s -w "${BISU_LINE_BREAK_LENGTH:-160}" 2>/dev/null; } |
             tee -a -- "$(Bisu::current_log_file)" &>/dev/null || return 1
     else
-        eval "$command" |
+        eval "$command" 2>/dev/null |
             { fold -s -w "${BISU_LINE_BREAK_LENGTH:-160}" 2>/dev/null; } |
             tee -a -- "$(Bisu::current_log_file)" || return 1
     fi
@@ -703,7 +703,7 @@ Bisu::output() {
 }
 
 # Function to check if a command is existent
-Bisu::cmd_exists() {
+Bisu::command_exists() {
     local command=$(Bisu::trim "${1:-}")
     local strict_mode=$(Bisu::trim "${2:-false}")
     Bisu::in_array "$strict_mode" "true" "false" || strict_mode="false"
@@ -720,7 +720,7 @@ Bisu::cmd_exists() {
 }
 
 # Function to check if commands are existent
-Bisu::cmd_exists_async() {
+Bisu::command_exists_async() {
     declare -A results # Associative array to store exit statuses keyed by command
     local cmds=("$@") pids=() pid i
 
@@ -735,7 +735,7 @@ Bisu::cmd_exists_async() {
             local c
             c=$(Bisu::trim "${cmds[i]}")
             # Validate trimmed command and check existence
-            Bisu::cmd_exists "$c" &
+            Bisu::command_exists "$c" &
             pid=$!
             pids[i]=$pid
         done
@@ -770,10 +770,10 @@ Bisu::is_func() {
 }
 
 # Function to check if the command is executable
-Bisu::cmd_executable() {
+Bisu::command_executable() {
     local command=$(Bisu::trim "$1")
     [ -n "$command" ] || return 1
-    if ! Bisu::is_func "$command" && ! Bisu::cmd_exists "$command"; then
+    if ! Bisu::is_func "$command" && ! Bisu::command_exists "$command"; then
         return 1
     fi
 
@@ -1073,17 +1073,26 @@ Bisu::log_msg() {
     local msg="$1"
     local log_only=$(Bisu::trim "$2")
     Bisu::in_array "${log_only}" "true" "false" || log_only="false"
-    local use_newline=$(Bisu::trim "$3")
-    Bisu::in_array "${use_newline}" "true" "false" || use_newline="true"
-    # Read from stdin if no arguments
-    if [[ $# -eq 0 ]]; then
-        while read -r line; do
-            Bisu::output "$(date +'%Y-%m-%d %H:%M:%S') - $line" "$use_newline" "$log_only"
-        done
-    else
-        Bisu::output "$(date +'%Y-%m-%d %H:%M:%S') - $msg" "$use_newline" "$log_only"
-    fi
-    return 0
+    local display_time=$(Bisu::trim "$3")
+    Bisu::in_array "${display_time}" "true" "false" || display_time="true"
+    [[ "$display_time" == "true" ]] && msg="$(date +'%Y-%m-%d %H:%M:%S') - $msg"
+    Bisu::output "$msg" "true" "$log_only"
+}
+
+# Method: Bisu::log_pipe
+Bisu::log_pipe() {
+    local log_only=$(Bisu::trim "$1")
+    Bisu::in_array "${log_only}" "true" "false" || log_only="false"
+    local display_time=$(Bisu::trim "$2")
+    Bisu::in_array "${display_time}" "true" "false" || display_time="true"
+    #local msg=$(cat)
+    #msg="$(date +'%Y-%m-%d %H:%M:%S') - $msg"
+    # tee -a -- "$(Bisu::current_log_file)"
+    #Bisu::output "$msg" "true" "$log_only"
+    while read -r msg; do
+        [[ "$display_time" == "true" ]] && msg="$(date +'%Y-%m-%d %H:%M:%S') - $msg"
+        Bisu::output "$msg" "true" "$log_only"
+    done
 }
 
 # Emoji verification
@@ -1091,7 +1100,7 @@ Bisu::is_emoji() {
     local char=$(Bisu::trim "$1")
 
     # Empty or multi-char string is not emoji
-    [[ -z "$char" ]] && return 1
+    [ -z "$char" ] && return 1
 
     # Single-char emojis (general ranges)
     case "$char" in
@@ -1165,7 +1174,7 @@ Bisu::error_exit() {
                 fi
             done
 
-            [[ -z "$current_file_path" ]] && current_file_path="$parent_file" && current_lineno="$parent_lineno"
+            [ -z "$current_file_path" ] && current_file_path="$parent_file" && current_lineno="$parent_lineno"
 
             # For parent file
             local parent_line_text
@@ -1381,7 +1390,7 @@ Bisu::string_join() {
     raw2_trim="$(Bisu::trim "$2")" # trimmed version used only to detect receiver var name
 
     # Determine whether raw2_trim is a valid receiver var name.
-    if [[ -n "$raw2_trim" ]] && Bisu::is_valid_var_name "$raw2_trim"; then
+    if [ -n "$raw2_trim" ] && Bisu::is_valid_var_name "$raw2_trim"; then
         # Preferred mode: $2 (trimmed) is receiver var name
         receiver="$raw2_trim"
         sep="${3-}" # use raw $3 as separator (do NOT trim)
@@ -1400,7 +1409,7 @@ Bisu::string_join() {
     declare -n arr_ref="$src_name" 2>/dev/null
     Bisu::array_is_available "$src_name" || {
         # If receiver specified, set it to empty (robust assignment), then fail
-        if [[ -n "$receiver" ]]; then
+        if [ -n "$receiver" ]; then
             if declare -n out_ref="$receiver" 2>/dev/null; then
                 out_ref=""
             else
@@ -1424,7 +1433,7 @@ Bisu::string_join() {
         END { if (NR == 0) print ""; else print out }' 2>/dev/null)" || {
             # On awk failure, set joined to empty and fail
             joined=""
-            if [[ -n "$receiver" ]]; then
+            if [ -n "$receiver" ]; then
                 if declare -n out_ref="$receiver" 2>/dev/null; then
                     out_ref="$joined"
                 else
@@ -1450,7 +1459,7 @@ Bisu::string_join() {
     fi
 
     # Materialize result: if receiver provided, assign to it.
-    if [[ -n "$receiver" ]]; then
+    if [ -n "$receiver" ]; then
         if declare -n out_ref="$receiver" 2>/dev/null; then
             out_ref="$joined"
         else
@@ -1546,7 +1555,7 @@ Bisu::md5_sign() {
 # Method: Bisu::sha1_sign
 # Description: Compute SHA1 hash of a string, robust and consistent with Bisu::sha1_sign
 Bisu::sha1_sign() {
-    Bisu::cmd_exists "sha1sum" "true"
+    Bisu::command_exists "sha1sum" "true"
     printf '%s' "$(Bisu::trim "$1")" | sha1sum 2>/dev/null | awk '{print $1}' || {
         printf ''
         return 1
@@ -1557,7 +1566,7 @@ Bisu::sha1_sign() {
 # Method: Bisu::sha224_sign
 # Description: Compute SHA224 hash of a string, robust and consistent with Bisu::sha224_sign
 Bisu::sha224_sign() {
-    Bisu::cmd_exists "sha224sum" "true"
+    Bisu::command_exists "sha224sum" "true"
     printf '%s' "$(Bisu::trim "$1")" | sha224sum 2>/dev/null | awk '{print $1}' || {
         printf ''
         return 1
@@ -1568,7 +1577,7 @@ Bisu::sha224_sign() {
 # Method: Bisu::sha256_sign
 # Description: Compute SHA256 hash of a string, robust and consistent with Bisu::sha256_sign
 Bisu::sha256_sign() {
-    Bisu::cmd_exists "sha256sum" "true"
+    Bisu::command_exists "sha256sum" "true"
     printf '%s' "$(Bisu::trim "$1")" | sha256sum 2>/dev/null | awk '{print $1}' || {
         printf ''
         return 1
@@ -1579,7 +1588,7 @@ Bisu::sha256_sign() {
 # Method: Bisu::sha384_sign
 # Description: Compute SHA384 hash of a string, robust and consistent with Bisu::sha384_sign
 Bisu::sha384_sign() {
-    Bisu::cmd_exists "sha384sum" "true"
+    Bisu::command_exists "sha384sum" "true"
     printf '%s' "$(Bisu::trim "$1")" | sha384sum 2>/dev/null | awk '{print $1}' || {
         printf ''
         return 1
@@ -1590,7 +1599,7 @@ Bisu::sha384_sign() {
 # Method: Bisu::sha512_sign
 # Description: Compute SHA512 hash of a string, robust and consistent with Bisu::sha512_sign
 Bisu::sha512_sign() {
-    Bisu::cmd_exists "sha512sum" "true"
+    Bisu::command_exists "sha512sum" "true"
     printf '%s' "$(Bisu::trim "$1")" | sha512sum 2>/dev/null | awk '{print $1}' || {
         printf ''
         return 1
@@ -1616,7 +1625,7 @@ Bisu::md5_file() {
 # Method: Bisu::sha1_file
 # Description: Generate SHA-1 hash for a file
 Bisu::sha1_file() {
-    Bisu::cmd_exists "sha1sum" "true"
+    Bisu::command_exists "sha1sum" "true"
     local file
     file=$(Bisu::trim "$1")
     Bisu::is_file "$file" && [ -r "$file" ] || {
@@ -1633,7 +1642,7 @@ Bisu::sha1_file() {
 # Method: Bisu::sha224_file
 # Description: Generate SHA-224 hash for a file
 Bisu::sha224_file() {
-    Bisu::cmd_exists "sha224sum" "true"
+    Bisu::command_exists "sha224sum" "true"
     local file
     file=$(Bisu::trim "$1")
     Bisu::is_file "$file" && [ -r "$file" ] || {
@@ -1650,7 +1659,7 @@ Bisu::sha224_file() {
 # Method: Bisu::sha256_file
 # Description: Generate SHA-256 hash for a file
 Bisu::sha256_file() {
-    Bisu::cmd_exists "sha256sum" "true"
+    Bisu::command_exists "sha256sum" "true"
     local file
     file=$(Bisu::trim "$1")
     Bisu::is_file "$file" && [ -r "$file" ] || {
@@ -1667,7 +1676,7 @@ Bisu::sha256_file() {
 # Method: Bisu::sha384_file
 # Description: Generate SHA-384 hash for a file
 Bisu::sha384_file() {
-    Bisu::cmd_exists "sha384sum" "true"
+    Bisu::command_exists "sha384sum" "true"
     local file
     file=$(Bisu::trim "$1")
     Bisu::is_file "$file" && [ -r "$file" ] || {
@@ -1684,7 +1693,7 @@ Bisu::sha384_file() {
 # Method: Bisu::sha512_file
 # Description: Generate SHA-512 hash for a file
 Bisu::sha512_file() {
-    Bisu::cmd_exists "sha512sum" "true"
+    Bisu::command_exists "sha512sum" "true"
     local file
     file=$(Bisu::trim "$1")
     Bisu::is_file "$file" && [ -r "$file" ] || {
@@ -2123,24 +2132,23 @@ Bisu::exec_command() {
     Bisu::string_to_array "$phrase" "phrase"
     Bisu::array_shift "phrase" "cmd"
     local args=$(Bisu::trim "$(printf '%s ' "${phrase[@]}")")
-    phrase="$(printf '%s ' "${cmd} ${args}")"
-    Bisu::cmd_executable "$cmd" || return 1
+    phrase="$(printf '%s\n' "${cmd} ${args}")"
+    Bisu::command_executable "$cmd" || return 1
     local run_in_bg=$(Bisu::trim "$2")
     Bisu::in_array "${run_in_bg}" "true" "false" || run_in_bg="false"
-    local log_file=$(Bisu::current_log_file)
     local display_errors=$(Bisu::trim "$3")
     Bisu::in_array "${display_errors}" "true" "false" || display_errors="false"
 
     Bisu::log_msg "🕒 Command executing: $phrase" "true"
     if [[ "$run_in_bg" == "false" ]]; then
         if [[ "$display_errors" == "true" ]] || Bisu::debug_mode_on; then
-            eval "$(printf '%s' "$phrase")" 2>/dev/null || {
-                eval "$(printf '%s' "$phrase")" 2>&1 | Bisu::log_msg
+            eval "$(printf '%s\n' "$phrase")" 2>/dev/null || {
+                eval "$(printf '%s\n' "$phrase")" | Bisu::log_pipe
                 Bisu::error_log "Last execution failure was from: $phrase"
                 return 1
             }
         else
-            eval "$(printf '%s' "$phrase")" 2>/dev/null || {
+            eval "$(printf '%s\n' "$phrase")" 2>/dev/null || {
                 Bisu::error_log "Last execution failure was from: $phrase"
                 return 1
             }
@@ -2153,6 +2161,38 @@ Bisu::exec_command() {
     fi
 
     Bisu::log_msg "✅ Command execution done: $phrase" "true"
+    return 0
+}
+
+# To save input to the specified path from param1 or the pipe
+Bisu::save_content_as() {
+    (($# >= 1)) || return 1
+    local content="$1"
+    local target_path=$(Bisu::trim "$2")
+    local parent_dir
+    if [ -n "$target_path" ]; then
+        target_path=$(Bisu::normalize_path "$target_path")
+        parent_dir=$(Bisu::get_parent_dir "$target_path")
+        Bisu::is_top_dir "$parent_dir" "false" && ! Bisu::is_dir "$parent_dir" && {
+            printf ''
+            Bisu::error_log "save_content_as: can not save to non-existing top dir"
+            return 1
+        }
+    else
+        target_path="$(Bisu::tmpdir)/bisu/$(Bisu::uuidv4)"
+        parent_dir="$(Bisu::tmpdir)/bisu"
+    fi
+    # Atomic write with minimal overhead
+    if ! {
+        printf '%s' "$content" &&
+            [ -n "$content" ] || printf '' # Handle empty content
+    } >|"$target_path" 2>/dev/null; then
+        Bisu::mkdir_p "$parent_dir" || {
+            printf ''
+            return 1
+        }
+    fi
+    printf '%s' "$target_path"
     return 0
 }
 
@@ -2541,7 +2581,7 @@ Bisu::add_env_path() {
 Bisu::is_numeric() {
     local raw s imag
     raw=$(Bisu::trim "$1")
-    [[ -n $raw ]] || return 1
+    [ -n $raw ] || return 1
 
     # strip trailing imaginary 'i'
     if [[ ${raw: -1} == i ]]; then
@@ -2556,7 +2596,7 @@ Bisu::is_numeric() {
     if [[ ${s:0:1} == '+' || ${s:0:1} == '-' ]]; then
         s=${s:1}
     fi
-    [[ -n $s ]] || return 1
+    [ -n $s ] || return 1
 
     # digit-group patterns (underscores allowed only between digits)
     local DEC='[0-9]+(_[0-9]+)*'
@@ -2636,7 +2676,7 @@ Bisu::is_nega_numeric() {
 Bisu::abs() {
     local num
     num=$(Bisu::trim "$1")
-    [[ -n $num ]] || {
+    [ -n $num ] || {
         printf ''
         return 1
     }
@@ -2741,7 +2781,7 @@ Bisu::ceil() {
     Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
 
     input=$(Bisu::trim "$1")
-    [[ -n $input ]] || {
+    [ -n $input ] || {
         printf ''
         return 1
     }
@@ -2760,7 +2800,7 @@ Bisu::ceil() {
         sign=${s:0:1}
         s=${s:1}
     fi
-    [[ -n $s ]] || {
+    [ -n $s ] || {
         printf ''
         return 1
     }
@@ -2774,7 +2814,7 @@ Bisu::ceil() {
             if (v > 0) { printf "%d", int(v) + 1; exit 0 }
             printf "%d", int(v); exit 0
         }' 2>/dev/null)
-        [[ -n $result ]] && {
+        [ -n $result ] && {
             printf '%s' "$result"
             return 0
         }
@@ -2788,8 +2828,8 @@ Bisu::ceil() {
     if [[ $abs_nounders == *.* ]]; then
         intpart=${abs_nounders%%.*}
         frac=${abs_nounders#*.}
-        [[ -z $intpart ]] && intpart=0
-        [[ -z $frac ]] && frac=""
+        [ -z $intpart ] && intpart=0
+        [ -z $frac ] && frac=""
 
         # exact integer (fraction empty or all zeros)
         if [[ -z $frac || $frac =~ ^0+$ ]]; then
@@ -2845,7 +2885,7 @@ Bisu::floor() {
     Bisu::in_array "$big_spec" "true" "false" || big_spec="false"
 
     input=$(Bisu::trim "$1")
-    [[ -n $input ]] || {
+    [ -n $input ] || {
         printf ''
         return 1
     }
@@ -2870,7 +2910,7 @@ Bisu::floor() {
         sign=${s:0:1}
         s=${s:1}
     fi
-    [[ -n $s ]] || {
+    [ -n $s ] || {
         printf ''
         return 1
     }
@@ -2884,7 +2924,7 @@ Bisu::floor() {
             if (v >= 0) { printf "%d", int(v); exit 0 }      # positive non-integer -> trunc toward 0 is floor
             printf "%d", int(v) - 1; exit 0                  # negative non-integer -> floor is int(v)-1
         }' 2>/dev/null)
-        [[ -n $result ]] && {
+        [ -n $result ] && {
             printf '%s' "$result"
             return 0
         }
@@ -2898,8 +2938,8 @@ Bisu::floor() {
     if [[ $abs_nounders == *.* ]]; then
         intpart=${abs_nounders%%.*}
         frac=${abs_nounders#*.}
-        [[ -z $intpart ]] && intpart=0
-        [[ -z $frac ]] && frac=""
+        [ -z $intpart ] && intpart=0
+        [ -z $frac ] && frac=""
 
         # exact integer (fraction empty or all zeros)
         if [[ -z $frac || $frac =~ ^0+$ ]]; then
@@ -2960,7 +3000,6 @@ Bisu::is_dir() {
 Bisu::is_empty_dir() {
     local dirpath=$(Bisu::trim "$1")
     Bisu::is_dir "$dirpath" || return 1
-
     # Use find and awk with while IFS to check if directory is empty
     if ! find "$dirpath" -mindepth 1 -print | while IFS= read -r; do
         return 1
@@ -2973,34 +3012,34 @@ Bisu::is_empty_dir() {
 Bisu::is_sub_dir_of() {
     local sub_folder=$(Bisu::trim "$1")
     local parent_folder=$(Bisu::trim "$2")
-
-    sub_folder=$(Bisu::normalize_path "$sub_folder" "true")
-    parent_folder=$(Bisu::normalize_path "$parent_folder" "true")
-
     # Ensure both parent and sub folder are valid directories
     if [ -z "$sub_folder" ] || [ -z "$parent_folder" ]; then
         return 1
     fi
-
     # Check if the sub_folder starts with the parent_folder path
     if [[ "$sub_folder" != "$parent_folder"* ]]; then
         return 1
     fi
-
     return 0
 }
 
-# Function to check if a folder is a top-level folder
+# Method: Bisu::get_parent_dir
+# param1: dirpath
+# param2: preserve_relative_path=false
+# param3: check_existence=false
+# Description: According to its naming
+Bisu::get_parent_dir() {
+    printf '%s' "${1%/*}"
+}
+
+# Method: Bisu::is_top_dir
+# Description: According to its naming
 Bisu::is_top_dir() {
-    local dirpath=$(Bisu::trim "$1")
-    Bisu::is_dir "$dirpath" || return 1
-
-    dirpath=$(Bisu::normalize_path "$dirpath" "true")
-    [ -n "$dirpath" ] || return 1
-
-    local parent_dir=$(dirname "$dirpath")
-    [[ "$parent_dir" != "/" ]] || return 1
-
+    local dirpath=$(Bisu::get_parent_dir "$1")
+    local check_existence=$(Bisu::trim "$2")
+    Bisu::in_array "$check_existence" "true" "false" || check_existence="true"
+    [[ "$dirpath" == "/" ]] || return 1
+    [[ "$check_existence" == "true" ]] && Bisu::is_dir "$dirpath" || return 1
     return 0
 }
 
@@ -3015,7 +3054,8 @@ Bisu::path_exists() {
 # Method: Bisu::file_exists
 # Description: Alias of Bisu::path_exists
 Bisu::file_exists() {
-    Bisu::path_exists
+    Bisu::path_exists || return 1
+    return 0
 }
 
 # Method: Bisu::hard_links_count
@@ -3026,7 +3066,7 @@ Bisu::hard_links_count() {
         printf '0'
         return 1
     }
-    Bisu::cmd_exists "stat" || Bisu::error_exit "Met unsupported system when stating hard links"
+    Bisu::command_exists "stat" || Bisu::error_exit "Met unsupported system when stating hard links"
     local link_count
     local kernel_name=$(Bisu::get_kernel_name)
     if [[ "$kernel_name" == "linux" ]]; then
@@ -3210,8 +3250,8 @@ Bisu::extract_file_info() {
 # files count
 Bisu::files_count() {
     local file_dir=$(Bisu::trim "$1")
-    local pattern=$(Bisu::trim "$2")
-    local files_count=$(find "$file_dir" -type p -name "*" 2>/dev/null | wc -l)
+    local pattern=$(Bisu::trim "${2:-*}")
+    local files_count=$(find "$file_dir" -type p -name "$pattern" 2>/dev/null | wc -l)
     files_count=$(Bisu::trim "$files_count")
     Bisu::is_nn_int "$files_count" || files_count=0
     printf '%s' "$files_count"
@@ -3277,7 +3317,8 @@ Bisu::mkdir() {
 
 # Bisu::mkdir_p
 Bisu::mkdir_p() {
-    Bisu::mkdir "$1" "$2" "true"
+    Bisu::mkdir "$1" "$2" "true" || return 1
+    return 0
 }
 
 # Bisu::cp v1
@@ -3313,11 +3354,11 @@ Bisu::cp() {
     keep_origin=$(Bisu::trim "${4:-true}")
     is_recursive=$(Bisu::trim "${5:-false}")
 
-    [[ -n "$source_path" ]] || {
+    [ -n "$source_path" ] || {
         Bisu::error_log "cp: source path is empty."
         return 1
     }
-    [[ -n "$target_path" ]] || {
+    [ -n "$target_path" ] || {
         Bisu::error_log "cp: target path is empty."
         return 1
     }
@@ -3344,14 +3385,14 @@ Bisu::cp() {
         source_name=${source_name%/}
     done
     source_name=${source_name##*/}
-    [[ -n "$source_name" ]] || source_name="/"
+    [ -n "$source_name" ] || source_name="/"
 
-    if [[ -d "$target_path" ]]; then
+    if [ -d "$target_path" ]; then
         target_dir="$target_path"
         dest_path="${target_path}/${source_name}"
     elif [[ "$target_path" == */ ]]; then
         target_dir=${target_path%/}
-        [[ -n "$target_dir" ]] || target_dir="/"
+        [ -n "$target_dir" ] || target_dir="/"
         dest_path="${target_path}/${source_name}"
     else
         dest_path="$target_path"
@@ -3390,7 +3431,8 @@ Bisu::cp() {
 
 # Bisu::cp_p
 Bisu::cp_p() {
-    Bisu::cp "$1" "$2" "$3" "$4" "true"
+    Bisu::cp "$1" "$2" "$3" "$4" "true" || return 1
+    return 0
 }
 
 # Method: Bisu::move_file
@@ -3403,7 +3445,8 @@ Bisu::cp_p() {
 Bisu::move_file() {
     local force_override=$(Bisu::trim "$3")
     Bisu::in_array "${force_override}" "true" "false" || force_override="true"
-    Bisu::cp_p "$1" "$2" "$force_override" "false"
+    Bisu::cp_p "$1" "$2" "$force_override" "false" || return 1
+    return 0
 }
 
 # function to remove a target safely
@@ -3527,7 +3570,7 @@ Bisu::sign_array() {
     array_md5=$(printf '%s\n' "${trimmed_contents[@]}" 2>/dev/null | md5sum 2>/dev/null | awk '{print $1}' 2>/dev/null)
 
     # If MD5 computation failed, return empty
-    [[ -z "$array_md5" ]] && {
+    [ -z "$array_md5" ] && {
         printf ''
         return 1
     }
@@ -3835,7 +3878,7 @@ Bisu::array_set() {
         shift 2
 
         # Skip empty keys
-        [[ -z "$key" ]] && continue
+        [ -z "$key" ] && continue
 
         # Associative array fast path
         if ((is_assoc)); then
@@ -3932,7 +3975,7 @@ Bisu::array_get() {
 
     # Iterate keys and return the first non-empty value
     for key in "$@"; do
-        [[ -z "$key" ]] && continue
+        [ -z "$key" ] && continue
         val=""
 
         if ((is_assoc)); then
@@ -3948,7 +3991,7 @@ Bisu::array_get() {
             val="${ref[$idx]}"
         fi
 
-        [[ -n "$val" ]] && {
+        [ -n "$val" ] && {
             printf '%s' "$val"
             return 0
         }
@@ -4329,7 +4372,7 @@ Bisu::array_unshift() {
         min_key=
         for element in "${!tmp_ref[@]}"; do
             if [[ "$element" =~ ^-?[0-9]+$ ]]; then
-                if [[ -z "$min_key" ]]; then
+                if [ -z "$min_key" ]; then
                     min_key="$element"
                 else
                     # numeric compare
@@ -4339,7 +4382,7 @@ Bisu::array_unshift() {
                 fi
             fi
         done
-        if [[ -z "$min_key" ]]; then
+        if [ -z "$min_key" ]; then
             min_key=0
         fi
         candidate=$((min_key - 1))
@@ -4432,7 +4475,7 @@ Bisu::indexed_array_merge() {
     seen=()
     for item in "${srcA[@]}" "${srcB[@]}"; do
         # use existence test that handles empty-string elements correctly
-        if [[ -z ${seen[$item]+x} ]]; then
+        if [ -z ${seen[$item]+x} ]; then
             merged+=("$item")
             seen["$item"]=1
         fi
@@ -4577,7 +4620,7 @@ Bisu::array_unique() {
     local v
 
     # Validate input / existence
-    if [[ -z "$arr_name" ]]; then
+    if [ -z "$arr_name" ]; then
         return 1
     fi
     Bisu::is_array "$arr_name" || return 1
@@ -4595,7 +4638,7 @@ Bisu::array_unique() {
     unique_vals=()
     seen=()
     for v in "${src_ref[@]}"; do
-        if [[ -z ${seen[$v]+x} ]]; then
+        if [ -z ${seen[$v]+x} ]; then
             unique_vals+=("$v")
             seen["$v"]=1
         fi
@@ -5058,7 +5101,7 @@ Bisu::end() {
     done
 
     # if still empty -> invalid/failure
-    [[ -z "$last_key" ]] && {
+    [ -z "$last_key" ] && {
         printf ''
         return 1
     }
@@ -5108,7 +5151,7 @@ Bisu::reset() {
     done
 
     # no key -> fail
-    [[ -z "$first_key" ]] && {
+    [ -z "$first_key" ] && {
         printf ''
         return 1
     }
@@ -5850,7 +5893,7 @@ Bisu::gdate() {
     fi
 
     # strip timezone suffix from timepart (Z or +hh[:mm] or -hh[:mm])
-    if [[ -z "$timepart" ]]; then
+    if [ -z "$timepart" ]; then
         timecore=''
     else
         # find position of 'Z' or '+' or '-' in timepart (if any)
@@ -5886,7 +5929,7 @@ Bisu::gdate() {
     }
 
     # parse timecore into hh:mm:ss (may be empty)
-    if [[ -z "$timecore" ]]; then
+    if [ -z "$timecore" ]; then
         h=0
         m=0
         s=0
@@ -6455,7 +6498,7 @@ Bisu::is_valid_url() {
     url="${url%"${url##*[![:space:]]}"}"
 
     # Empty string -> invalid
-    [[ -z "$url" ]] && return 1
+    [ -z "$url" ] && return 1
 
     # 1) Scheme (e.g. http, https, ftp) - must be present and followed by "://"
     if [[ "$url" =~ ^([A-Za-z][A-Za-z0-9+.-]*):// ]]; then
@@ -6490,7 +6533,7 @@ Bisu::is_valid_url() {
         if [[ "$hostport" =~ ^(\[[0-9A-Fa-f:.%]+\])([^[:space:]]*)$ ]]; then
             host="${BASH_REMATCH[1]}" # includes brackets
             local rest_after="${BASH_REMATCH[2]}"
-            if [[ -z "$rest_after" ]]; then
+            if [ -z "$rest_after" ]; then
                 port=""
             elif [[ "$rest_after" =~ ^:([0-9]{1,5})$ ]]; then
                 port="${BASH_REMATCH[1]}"
@@ -6518,7 +6561,7 @@ Bisu::is_valid_url() {
     fi
 
     # Host must be non-empty
-    [[ -z "$host" ]] && return 1
+    [ -z "$host" ] && return 1
 
     # 5) Host validation
     if ((is_ipv6)); then
@@ -6546,7 +6589,7 @@ Bisu::is_valid_url() {
     fi
 
     # 6) Port validation (if present): numeric and within 0-65535
-    if [[ -n "$port" ]]; then
+    if [ -n "$port" ]; then
         if ! [[ "$port" =~ ^[0-9]{1,5}$ ]]; then
             return 1
         fi
@@ -6574,7 +6617,7 @@ Bisu::is_valid_uri() {
     uri="${uri#"${uri%%[![:space:]]*}"}"
     uri="${uri%"${uri##*[![:space:]]}"}"
 
-    [[ -z "$uri" ]] && return 1
+    [ -z "$uri" ] && return 1
 
     local scheme authority path_and_more hostport host port is_ipv6=0
 
@@ -6597,7 +6640,7 @@ Bisu::is_valid_uri() {
     path_and_more="$uri"
 
     # 4) Parse authority into host and port (ignore userinfo by dropping up to last '@')
-    if [[ -n "$authority" ]]; then
+    if [ -n "$authority" ]; then
         if [[ "$authority" == *@* ]]; then
             hostport="${authority##*@}"
         else
@@ -6630,8 +6673,8 @@ Bisu::is_valid_uri() {
     fi
 
     # 5) Validate host (if authority present)
-    if [[ -n "$authority" ]]; then
-        [[ -z "$host" ]] && return 1
+    if [ -n "$authority" ]; then
+        [ -z "$host" ] && return 1
 
         if ((is_ipv6)); then
             # Already roughly validated; deeper RFC check omitted for simplicity
@@ -6653,7 +6696,7 @@ Bisu::is_valid_uri() {
     fi
 
     # 6) Validate port
-    if [[ -n "$port" ]]; then
+    if [ -n "$port" ]; then
         if ! [[ "$port" =~ ^[0-9]{1,5}$ ]] || ((port < 0 || port > 65535)); then
             return 1
         fi
@@ -6749,7 +6792,7 @@ Bisu::gen_sig_file() {
 
     # Ensure key exists before signing
     if ! (
-        gpg --list-secret-keys --with-colons | grep -q '^sec:' ||
+        gpg --list-secret-keys --with-colons 2>/dev/null | grep -q '^sec:' ||
             gpg --batch --generate-key <(
                 cat <<EOF
         %no-protection
@@ -7405,7 +7448,7 @@ Bisu::reliable_curl() {
     # ------------------------------
     # Dependency check
     # ------------------------------
-    if ! Bisu::cmd_exists "curl"; then
+    if ! Bisu::command_exists "curl"; then
         printf "5001\n"
         return 1
     fi
@@ -7437,7 +7480,7 @@ Bisu::reliable_curl() {
     esac
 
     # Validate data file presence/readability for body-bearing methods
-    if [[ -n "$data_file" ]]; then
+    if [ -n "$data_file" ]; then
         if [[ ! -f "$data_file" || ! -r "$data_file" ]]; then
             printf "5002\n"
             return 1
@@ -7458,7 +7501,7 @@ Bisu::reliable_curl() {
     fi
 
     local expected_sig_string=""
-    if Bisu::is_file "$output_file" && [[ -n "$CURL_FILE_HASH" ]]; then
+    if Bisu::is_file "$output_file" && [ -n "$CURL_FILE_HASH" ]; then
         if [[ "$CURL_FILE_HASH_ALGO" == "md5" ]]; then
             expected_sig_string=$(Bisu::md5_file "$output_file")
         elif [[ "$CURL_FILE_HASH_ALGO" == "sha1" ]]; then
@@ -7526,7 +7569,7 @@ Bisu::reliable_curl() {
 
     case "$method" in
     POST | PUT | PATCH | DELETE)
-        if [[ -n "$data_file" ]]; then
+        if [ -n "$data_file" ]; then
             curl_kv[data_flag]="--data-binary"
             curl_kv[data_value]="@$data_file"
         fi
@@ -7540,31 +7583,31 @@ Bisu::reliable_curl() {
         if [[ -n "$CURL_USER" && -n "$CURL_PASSWORD" ]]; then
             curl_kv[auth_flag]="-u"
             curl_kv[auth_value]="${CURL_USER}:${CURL_PASSWORD}"
-        elif [[ -n "$CURL_USER" ]]; then
+        elif [ -n "$CURL_USER" ]; then
             curl_kv[auth_flag]="-u"
             curl_kv[auth_value]="${CURL_USER}"
         fi
     fi
 
-    if [[ -n "$CURL_CERT" ]]; then
+    if [ -n "$CURL_CERT" ]; then
         curl_kv[cert_flag]="--cert"
         curl_kv[cert_value]="${CURL_CERT}"
-        if [[ -n "$CURL_KEY_PASSPHRASE" ]]; then
+        if [ -n "$CURL_KEY_PASSPHRASE" ]; then
             curl_kv[cert_pass_flag]="--pass"
             curl_kv[cert_pass_value]="${CURL_KEY_PASSPHRASE}"
         fi
     fi
-    if [[ -n "$CURL_KEY" ]]; then
+    if [ -n "$CURL_KEY" ]; then
         curl_kv[key_flag]="--key"
         curl_kv[key_value]="${CURL_KEY}"
-        if [[ -n "$CURL_KEY_PASSPHRASE" ]]; then
+        if [ -n "$CURL_KEY_PASSPHRASE" ]; then
             curl_kv[key_pass_flag]="--pass"
             curl_kv[key_pass_value]="${CURL_KEY_PASSPHRASE}"
         fi
     fi
 
     # Extra user-provided options (split on whitespace safely)
-    if [[ -n "$CURL_EXTRA_OPTS" ]]; then
+    if [ -n "$CURL_EXTRA_OPTS" ]; then
         read -r -a _extra_opts <<<"$CURL_EXTRA_OPTS" 2>/dev/null
         curl_opts+=("${_extra_opts[@]}")
         unset "_extra_opts"
@@ -7581,7 +7624,7 @@ Bisu::reliable_curl() {
             IFS='-' read -ra parts <<<"$header_name"
             joined=""
             for p in "${parts[@]}"; do
-                if [[ -n "$p" ]]; then
+                if [ -n "$p" ]; then
                     first="${p:0:1}"
                     rest="${p:1}"
                     joined+="${first^^}${rest,,}-"
@@ -7596,41 +7639,41 @@ Bisu::reliable_curl() {
     # ----------------------------------------------------------------
     # Flatten curl_kv to curl_opts in original, deterministic order
     # ----------------------------------------------------------------
-    [[ -n "${curl_kv[silence_flag]}" ]] && curl_opts+=("${curl_kv[silence_flag]}")
-    [[ -n "${curl_kv[location_flag]}" ]] && curl_opts+=("${curl_kv[location_flag]}")
-    if [[ -n "${curl_kv[connect_timeout_flag]}" ]]; then
+    [ -n "${curl_kv[silence_flag]}" ] && curl_opts+=("${curl_kv[silence_flag]}")
+    [ -n "${curl_kv[location_flag]}" ] && curl_opts+=("${curl_kv[location_flag]}")
+    if [ -n "${curl_kv[connect_timeout_flag]}" ]; then
         curl_opts+=("${curl_kv[connect_timeout_flag]}" "${curl_kv[connect_timeout_value]}")
     fi
-    if [[ -n "${curl_kv[retry_flag]}" ]]; then
+    if [ -n "${curl_kv[retry_flag]}" ]; then
         curl_opts+=("${curl_kv[retry_flag]}" "${curl_kv[retry_value]}" "${curl_kv[retry_delay_flag]}" "${curl_kv[retry_delay_value]}"
             "${curl_kv[retry_connrefused_flag]}" "${curl_kv[retry_max_time_flag]}" "${curl_kv[retry_max_time_value]}")
     fi
-    if [[ -n "${curl_kv[write_out_flag]}" ]]; then
+    if [ -n "${curl_kv[write_out_flag]}" ]; then
         curl_opts+=("${curl_kv[write_out_flag]}" "${curl_kv[write_out_value]}")
     fi
-    [[ -n "${curl_kv[head_flag]}" ]] && curl_opts+=("${curl_kv[head_flag]}")
-    if [[ -n "${curl_kv[output_flag]}" ]]; then
+    [ -n "${curl_kv[head_flag]}" ] && curl_opts+=("${curl_kv[head_flag]}")
+    if [ -n "${curl_kv[output_flag]}" ]; then
         curl_opts+=("${curl_kv[output_flag]}" "${curl_kv[output_value]}")
     fi
-    if [[ -n "${curl_kv[resume_flag]}" ]]; then
+    if [ -n "${curl_kv[resume_flag]}" ]; then
         curl_opts+=("${curl_kv[resume_flag]}" "${curl_kv[resume_value]}")
     fi
-    if [[ -n "${curl_kv[method_flag]}" ]]; then
+    if [ -n "${curl_kv[method_flag]}" ]; then
         curl_opts+=("${curl_kv[method_flag]}" "${curl_kv[method_value]}")
     fi
-    if [[ -n "${curl_kv[data_flag]}" ]]; then
+    if [ -n "${curl_kv[data_flag]}" ]; then
         curl_opts+=("${curl_kv[data_flag]}" "${curl_kv[data_value]}")
     fi
-    if [[ -n "${curl_kv[auth_flag]}" ]]; then
+    if [ -n "${curl_kv[auth_flag]}" ]; then
         curl_opts+=("${curl_kv[auth_flag]}" "${curl_kv[auth_value]}")
     fi
-    if [[ -n "${curl_kv[cert_flag]}" ]]; then
+    if [ -n "${curl_kv[cert_flag]}" ]; then
         curl_opts+=("${curl_kv[cert_flag]}" "${curl_kv[cert_value]}")
-        [[ -n "${curl_kv[cert_pass_flag]}" ]] && curl_opts+=("${curl_kv[cert_pass_flag]}" "${curl_kv[cert_pass_value]}")
+        [ -n "${curl_kv[cert_pass_flag]}" ] && curl_opts+=("${curl_kv[cert_pass_flag]}" "${curl_kv[cert_pass_value]}")
     fi
-    if [[ -n "${curl_kv[key_flag]}" ]]; then
+    if [ -n "${curl_kv[key_flag]}" ]; then
         curl_opts+=("${curl_kv[key_flag]}" "${curl_kv[key_value]}")
-        [[ -n "${curl_kv[key_pass_flag]}" ]] && curl_opts+=("${curl_kv[key_pass_flag]}" "${curl_kv[key_pass_value]}")
+        [ -n "${curl_kv[key_pass_flag]}" ] && curl_opts+=("${curl_kv[key_pass_flag]}" "${curl_kv[key_pass_value]}")
     fi
 
     # -------------------------------------
@@ -8363,7 +8406,7 @@ Bisu::check_commands_list() {
 
     Bisu::is_array "BISU_REQUIRED_EXTERNAL_COMMANDS" || Bisu::error_exit "Invalid array of BISU_REQUIRED_EXTERNAL_COMMANDS."
 
-    invalid_commands=($(Bisu::cmd_exists_async "${BISU_REQUIRED_EXTERNAL_COMMANDS[@]}"))
+    invalid_commands=($(Bisu::command_exists_async "${BISU_REQUIRED_EXTERNAL_COMMANDS[@]}"))
     invalid_commands_count=$(Bisu::array_count "invalid_commands")
     invalid_commands=$(printf '%s, ' "${invalid_commands[@]}")
     # Report the invalid commandString if any
@@ -8571,8 +8614,8 @@ Bisu::verify_sig() {
 # Register the current command
 Bisu::register_current_command() {
     local current_args=$(Bisu::current_args)
-    BISU_UNIX_USERNAME=$(whoami)
-    BISU_UNIX_HOSTNAME=$(hostname)
+    BISU_UNIX_USERNAME=$(id -un 2>/dev/null || echo "unknown")
+    BISU_UNIX_HOSTNAME=$(hostname 2>/dev/null || echo "unknown")
     BISU_CU_COMMAND="$BISU_CU_FILE_PATH $current_args"
     [ -n "$BISU_CU_FILE_NAME" ] && {
         BISU_USER_CONF_DIR="${HOME}/.local/config/${BISU_CU_FILE_NAME}"
@@ -8873,9 +8916,9 @@ Bisu::safe_fork() {
     Bisu::string_to_array "$phrase" "phrase"
     Bisu::array_shift "phrase" "cmd"
     local args=$(Bisu::trim "$(printf '%s ' "${phrase[@]}")")
-    phrase="$(printf '%s ' "${cmd} ${args}")"
+    phrase="$(printf '%s\n' "${cmd} ${args}")"
 
-    Bisu::cmd_executable "$cmd" || return 1
+    Bisu::command_executable "$cmd" || return 1
 
     local async=$(Bisu::trim "$2")
     Bisu::in_array "$async" "true" "false" || async="true"
@@ -8901,18 +8944,18 @@ Bisu::safe_fork() {
             fi
 
             if [[ "$logging" == "true" ]]; then
-                eval "$(printf '%s' "$phrase")" | tee -a -- "$(Bisu::current_log_file)" || {
+                eval "$(printf '%s\n' "$phrase")" | tee -a -- "$(Bisu::current_log_file)" || {
                     printf ''
                     return 1
                 }
             else
-                eval "$(printf '%s' "$phrase")" || {
+                eval "$(printf '%s\n' "$phrase")" || {
                     printf ''
                     return 1
                 }
             fi
         } &
-    elif Bisu::cmd_exists "$cmd"; then
+    elif Bisu::command_exists "$cmd"; then
         {
             if Bisu::debug_mode_on; then
                 exec 0</dev/tty 1>/dev/tty 2>/dev/tty
@@ -8921,12 +8964,12 @@ Bisu::safe_fork() {
             fi
 
             if [[ "$logging" == "true" ]]; then
-                bash -c "$(printf '%s' "$phrase")" | tee -a -- "$(Bisu::current_log_file)" || {
+                bash -c "$(printf '%s\n' "$phrase")" | tee -a -- "$(Bisu::current_log_file)" || {
                     printf ''
                     return 1
                 }
             else
-                bash -c "$(printf '%s' "$phrase")" || {
+                bash -c "$(printf '%s\n' "$phrase")" || {
                     printf ''
                     return 1
                 }
@@ -9059,7 +9102,7 @@ Bisu::set_source_guard() {
         abs_target=$(readlink -f "$target" 2>/dev/null) || abs_target="$target"
 
         # Skip if already loaded
-        if [[ -n "${__loaded_scripts[$abs_target]}" ]]; then
+        if [ -n "${__loaded_scripts[$abs_target]}" ]; then
             return 0
         fi
 
@@ -9376,7 +9419,7 @@ Bisu::integrate_ops() {
         Bisu::install_script
         ;;
     "view-log")
-        Bisu::cmd_exists "vi" || Bisu::error_exit "Please install vi first."
+        Bisu::command_exists "vi" || Bisu::error_exit "Please install vi first."
         vi "$(Bisu::current_log_file)" 2>/dev/null
         ;;
     "callfunc")
